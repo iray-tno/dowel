@@ -5,8 +5,8 @@
 //! callers decide what to do with an unmapped utility (Phase 0: drop it).
 
 use dowel_ir::{
-    Align, Color, Dimension, FlexDirection, FlexShorthand, FontWeight, Justify, Length,
-    StyleProperty, TextAlign,
+    Align, Breakpoint, Color, Condition, Dimension, FlexDirection, FlexShorthand, FontWeight,
+    Justify, Length, StyleProperty, TextAlign,
 };
 
 /// Tailwind's default spacing scale: `spacing(n) = n * 0.25rem`, and the
@@ -130,12 +130,56 @@ fn parse_spacing_utility(token: &str) -> Option<StyleProperty> {
     }
 }
 
+/// Strips a single recognized `variant:` prefix (e.g. `hover:bg-blue-500`
+/// -> `(Condition::Hover, "bg-blue-500")`). Only one level -- stacked
+/// variants (`dark:hover:...`) aren't in the Condition model at all yet, so
+/// there's nothing to strip them into.
+///
+/// `pressed:` is deliberately not handled: unlike hover/focus/disabled/
+/// responsive, it has no CSS pseudo-class or source expression to key off
+/// -- lowering it needs `@dowel/runtime` to synthesize touch-tracked state,
+/// which doesn't exist yet (see the `Condition::Expr` doc comment in
+/// dowel_ir). Falls through as unrecognized like any other unmapped token.
+pub fn parse_variant_prefix(token: &str) -> (Condition, &str) {
+    if let Some(rest) = token.strip_prefix("hover:") {
+        return (Condition::Hover, rest);
+    }
+    if let Some(rest) = token.strip_prefix("focus:") {
+        return (Condition::Focus, rest);
+    }
+    if let Some(rest) = token.strip_prefix("disabled:") {
+        return (Condition::Disabled, rest);
+    }
+    if let Some(rest) = token.strip_prefix("sm:") {
+        return (Condition::Responsive(Breakpoint::Sm), rest);
+    }
+    if let Some(rest) = token.strip_prefix("md:") {
+        return (Condition::Responsive(Breakpoint::Md), rest);
+    }
+    if let Some(rest) = token.strip_prefix("lg:") {
+        return (Condition::Responsive(Breakpoint::Lg), rest);
+    }
+    if let Some(rest) = token.strip_prefix("xl:") {
+        return (Condition::Responsive(Breakpoint::Xl), rest);
+    }
+    if let Some(rest) = token.strip_prefix("2xl:") {
+        return (Condition::Responsive(Breakpoint::Xl2), rest);
+    }
+    (Condition::Always, token)
+}
+
+/// The real entry point used by the JSX walker: strips a variant prefix
+/// (if any) and expands the remaining base utility, returning the
+/// condition that prefix implies alongside the properties it maps to.
+pub fn expand_utility(token: &str) -> (Condition, Vec<StyleProperty>) {
+    let (condition, base) = parse_variant_prefix(token);
+    (condition, expand_base_utility(base))
+}
+
 /// Multi-side utilities (`p-6`, `px-4`, `py-2`, `m-6`, `mx-4`, `my-2`,
 /// `gap-x-2`, `gap-y-2`) expand to more than one longhand property, so they
 /// can't fit through `parse_utility`'s one-token-to-one-property shape.
-/// Called first by `expand_utility` (the real entry point used by the JSX
-/// walker); falls through to `parse_utility` for everything else.
-pub fn expand_utility(token: &str) -> Vec<StyleProperty> {
+fn expand_base_utility(token: &str) -> Vec<StyleProperty> {
     if let Some(rest) = token.strip_prefix("px-") {
         if let Some(v) = parse_spacing_suffix(rest) {
             return vec![StyleProperty::PaddingLeft(v), StyleProperty::PaddingRight(v)];
@@ -198,27 +242,70 @@ mod tests {
     fn expands_login_example_utilities() {
         assert_eq!(
             expand_utility("flex-1"),
-            vec![StyleProperty::Flex(FlexShorthand::Grow(1.0))]
+            (Condition::Always, vec![StyleProperty::Flex(FlexShorthand::Grow(1.0))])
         );
         assert_eq!(
             expand_utility("p-6"),
-            vec![
-                StyleProperty::PaddingTop(Length::Px(24.0)),
-                StyleProperty::PaddingRight(Length::Px(24.0)),
-                StyleProperty::PaddingBottom(Length::Px(24.0)),
-                StyleProperty::PaddingLeft(Length::Px(24.0)),
-            ]
+            (
+                Condition::Always,
+                vec![
+                    StyleProperty::PaddingTop(Length::Px(24.0)),
+                    StyleProperty::PaddingRight(Length::Px(24.0)),
+                    StyleProperty::PaddingBottom(Length::Px(24.0)),
+                    StyleProperty::PaddingLeft(Length::Px(24.0)),
+                ]
+            )
         );
         assert_eq!(
             expand_utility("px-4"),
-            vec![StyleProperty::PaddingLeft(Length::Px(16.0)), StyleProperty::PaddingRight(Length::Px(16.0))]
+            (
+                Condition::Always,
+                vec![StyleProperty::PaddingLeft(Length::Px(16.0)), StyleProperty::PaddingRight(Length::Px(16.0))]
+            )
         );
-        assert_eq!(expand_utility("text-xl"), vec![StyleProperty::FontSize(Length::Px(20.0))]);
-        assert_eq!(expand_utility("font-bold"), vec![StyleProperty::FontWeight(FontWeight(700))]);
+        assert_eq!(
+            expand_utility("text-xl"),
+            (Condition::Always, vec![StyleProperty::FontSize(Length::Px(20.0))])
+        );
+        assert_eq!(
+            expand_utility("font-bold"),
+            (Condition::Always, vec![StyleProperty::FontWeight(FontWeight(700))])
+        );
         assert_eq!(
             expand_utility("bg-blue-500"),
-            vec![StyleProperty::BackgroundColor(Color::Token("blue-500".to_string()))]
+            (Condition::Always, vec![StyleProperty::BackgroundColor(Color::Token("blue-500".to_string()))])
         );
-        assert_eq!(expand_utility("unknown-utility"), Vec::<StyleProperty>::new());
+        assert_eq!(expand_utility("unknown-utility"), (Condition::Always, Vec::<StyleProperty>::new()));
+    }
+
+    #[test]
+    fn recognizes_variant_prefixes() {
+        assert_eq!(
+            expand_utility("hover:bg-blue-500"),
+            (Condition::Hover, vec![StyleProperty::BackgroundColor(Color::Token("blue-500".to_string()))])
+        );
+        assert_eq!(
+            expand_utility("focus:font-bold"),
+            (Condition::Focus, vec![StyleProperty::FontWeight(FontWeight(700))])
+        );
+        assert_eq!(
+            expand_utility("disabled:text-xl"),
+            (Condition::Disabled, vec![StyleProperty::FontSize(Length::Px(20.0))])
+        );
+        assert_eq!(
+            expand_utility("md:flex-row"),
+            (
+                Condition::Responsive(Breakpoint::Md),
+                vec![StyleProperty::FlexDirection(FlexDirection::Row)]
+            )
+        );
+    }
+
+    #[test]
+    fn pressed_variant_is_not_recognized_yet() {
+        // No @dowel/runtime touch-state synthesis yet -- see
+        // `parse_variant_prefix`'s doc comment. Falls through as an
+        // ordinary unrecognized token, not misparsed as something else.
+        assert_eq!(expand_utility("pressed:font-bold"), (Condition::Always, Vec::<StyleProperty>::new()));
     }
 }

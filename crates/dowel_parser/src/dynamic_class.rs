@@ -143,9 +143,29 @@ fn decompose(
     match target {
         Target::StringLiteral(lit) => {
             for token in lit.value.split_whitespace() {
-                for property in tailwind::expand_utility(token) {
-                    out.declarations
-                        .push(StyleDeclaration { property, condition: to_condition(condition.clone()) });
+                let (token_condition, properties) = tailwind::expand_utility(token);
+                if properties.is_empty() {
+                    continue;
+                }
+                if token_condition == Condition::Always {
+                    let final_condition = to_condition(condition.clone());
+                    for property in properties {
+                        out.declarations.push(StyleDeclaration { property, condition: final_condition.clone() });
+                    }
+                } else if condition.is_none() {
+                    // No surrounding dynamic guard, so the token's own
+                    // variant-derived condition (hover:/md:/etc.) applies
+                    // directly -- e.g. `cn('hover:bg-blue-500')`.
+                    for property in properties {
+                        out.declarations.push(StyleDeclaration { property, condition: token_condition.clone() });
+                    }
+                } else {
+                    // A variant-prefixed literal nested inside a dynamic
+                    // guard (`active && 'hover:bg-blue-500'`) would need to
+                    // combine a CSS-native condition with a JS-tracked one
+                    // -- Condition doesn't support that composition yet.
+                    // Falls back rather than silently dropping either half.
+                    out.fallback.push(to_expr_ref(lit.span));
                 }
             }
         }
@@ -248,6 +268,23 @@ mod tests {
             .iter()
             .any(|d| matches!(&d.condition, Condition::Expr(ConditionExpr::Not(_))));
         assert!(has_not, "the false branch should carry a Not(..) condition");
+    }
+
+    #[test]
+    fn variant_prefixed_literal_under_a_dynamic_guard_falls_back() {
+        let out = decompose_source(
+            r#"
+            import { View } from '@dowel/core'
+            import { cn } from 'clsx'
+            const el = <View className={cn('p-4', active && 'hover:bg-blue-500')} />
+            "#,
+        );
+        // 'p-4' still compiles normally (4 padding longhands, Always).
+        assert_eq!(out.declarations.len(), 4);
+        // The `hover:` literal can't combine with the `active &&` guard yet
+        // (Condition doesn't compose a CSS pseudo-class with a JS-tracked
+        // one), so it falls back rather than silently dropping either half.
+        assert_eq!(out.fallback.len(), 1);
     }
 
     #[test]

@@ -6,7 +6,7 @@
 //! -- unmapped attributes are silently dropped for now rather than routed
 //! to `PropSet::passthrough`.
 
-use dowel_ir::{Condition, Node, Primitive, PropSet, SourceSpan, StyleDeclaration, TextContent};
+use dowel_ir::{Node, Primitive, PropSet, SourceSpan, StyleDeclaration, TextContent};
 use oxc_ast::ast::{
     JSXAttributeItem, JSXAttributeName, JSXAttributeValue, JSXChild, JSXElement, JSXElementName,
 };
@@ -55,8 +55,9 @@ fn build_node(el: &JSXElement, module_record: &ModuleRecord) -> Option<Node> {
         match &attr.value {
             Some(JSXAttributeValue::StringLiteral(literal)) => {
                 for token in literal.value.split_whitespace() {
-                    for property in tailwind::expand_utility(token) {
-                        style.push(StyleDeclaration { property, condition: Condition::Always });
+                    let (condition, properties) = tailwind::expand_utility(token);
+                    for property in properties {
+                        style.push(StyleDeclaration { property, condition: condition.clone() });
                     }
                 }
             }

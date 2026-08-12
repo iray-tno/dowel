@@ -7,3 +7,8 @@ description = "TSX analysis and Style IR construction."
 
 [dependencies]
 dowel_ir = { path = "../dowel_ir" }
+oxc_allocator = "0.144.0"
+oxc_ast = "0.144.0"
+oxc_ast_visit = "0.144.0"
+oxc_parser = "0.144.0"
+oxc_span = "0.144.0"

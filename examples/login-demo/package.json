@@ -1,0 +1,21 @@
+{
+  "name": "login-demo",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Phase 0 benchmark app -- exercises @dowel/core through @dowel/vite-plugin end to end.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@dowel/core": "workspace:*",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@dowel/vite-plugin": "workspace:*",
+    "@vitejs/plugin-react": "^6.0.5",
+    "vite": "^8.2.1"
+  }
+}

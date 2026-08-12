@@ -10,6 +10,6 @@
     "@dowel/compiler": "workspace:*"
   },
   "peerDependencies": {
-    "vite": "^5.0.0"
+    "vite": ">=5"
   }
 }

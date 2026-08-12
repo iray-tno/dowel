@@ -6,6 +6,10 @@ dist/
 .turbo/
 *.log
 
+# Dowel build artifacts
+*.dowel.css
+*.node
+
 # Rust
 target/
 

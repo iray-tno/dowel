@@ -25,8 +25,12 @@ export function Login() {
 fn main() {
     let parsed = dowel_parser::parse_tsx(LOGIN_EXAMPLE);
     let output = dowel_web::lower(&parsed.roots[0]);
+    // dowel_web emits `className` (its real consumer is JSX/React); this
+    // demo renders a plain standalone HTML page instead, so swap it back
+    // to the attribute a browser actually matches CSS selectors against.
+    let html = output.jsx.replace("className=", "class=");
     println!(
         "<!doctype html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n<title>Dowel: Login example</title>\n<style>\n{}\n</style>\n</head>\n<body>\n{}\n</body>\n</html>",
-        output.css, output.html
+        output.css, html
     );
 }

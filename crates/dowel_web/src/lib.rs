@@ -12,7 +12,7 @@ mod markup;
 use dowel_ir::{Diagnostic, Node, Primitive};
 
 pub struct LowerOutput {
-    pub html: String,
+    pub jsx: String,
     pub css: String,
     pub diagnostics: Vec<Diagnostic>,
 }
@@ -46,7 +46,7 @@ pub fn lower(root: &Node) -> LowerOutput {
     let mut diagnostics = Vec::new();
     let mut uses_view_base = false;
 
-    let html = render_node(root, &mut allocator, &mut rules, &mut diagnostics, &mut uses_view_base);
+    let jsx = render_node(root, &mut allocator, &mut rules, &mut diagnostics, &mut uses_view_base);
 
     let mut css = String::new();
     if uses_view_base {
@@ -54,7 +54,7 @@ pub fn lower(root: &Node) -> LowerOutput {
     }
     css.push_str(&rules);
 
-    LowerOutput { html, css, diagnostics }
+    LowerOutput { jsx, css, diagnostics }
 }
 
 fn render_node(
@@ -83,7 +83,9 @@ fn render_node(
         classes = format!("dowel-view {classes}");
     }
 
-    let mut attrs = format!(r#" class="{classes}""#);
+    // `className`, not `class` -- Dowel's Web output is consumed as JSX
+    // (the Vite plugin splices it back into React source), not raw HTML.
+    let mut attrs = format!(r#" className="{classes}""#);
     for (key, value) in &extra_attrs {
         attrs.push_str(&format!(r#" {key}="{value}""#));
     }
@@ -160,9 +162,9 @@ export function Login() {
         let root = &parsed.roots[0];
         let output = lower(root);
 
-        assert!(output.html.starts_with(r#"<div class="dowel-view dowel-0">"#));
-        assert!(output.html.contains("<span class=\"dowel-1\">Welcome</span>"));
-        assert!(output.html.contains("<button class=\"dowel-2\">Continue</button>"));
+        assert!(output.jsx.starts_with(r#"<div className="dowel-view dowel-0">"#));
+        assert!(output.jsx.contains("<span className=\"dowel-1\">Welcome</span>"));
+        assert!(output.jsx.contains("<button className=\"dowel-2\">Continue</button>"));
 
         assert!(output.css.contains(".dowel-view {"));
         assert!(output.css.contains(".dowel-0 {"));

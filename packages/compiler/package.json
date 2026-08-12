@@ -5,5 +5,8 @@
   "description": "JS-facing entry point for the Dowel Rust compiler (TSX analysis, Dowel IR, Web/Native lowering, diagnostics).",
   "license": "MIT",
   "type": "module",
-  "main": "./src/index.ts"
+  "main": "./src/index.ts",
+  "scripts": {
+    "build:native": "node scripts/build-native.mjs"
+  }
 }

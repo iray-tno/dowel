@@ -43,14 +43,19 @@ fn to_js_diagnostic(diagnostic: Diagnostic) -> CompileDiagnostic {
 
 #[napi(object)]
 pub struct CompiledComponent {
-    pub html: String,
+    /// Compiled JSX to splice into the original source in place of the
+    /// text at `[span_start, span_end)` -- callers (the Vite plugin) own
+    /// the actual splicing, since this binding doesn't touch source text.
+    pub jsx: String,
     pub css: String,
     pub diagnostics: Vec<CompileDiagnostic>,
+    pub span_start: u32,
+    pub span_end: u32,
 }
 
 /// Parses `source` as TSX and lowers every top-level JSX element found (one
 /// per component's returned JSX, see `dowel_parser::parse_tsx`) to Web
-/// output. Returns one `CompiledComponent` per root found.
+/// output. Returns one `CompiledComponent` per root found, in source order.
 #[napi]
 pub fn compile(source: String) -> Vec<CompiledComponent> {
     let parsed = dowel_parser::parse_tsx(&source);
@@ -60,9 +65,11 @@ pub fn compile(source: String) -> Vec<CompiledComponent> {
         .map(|root| {
             let output = dowel_web::lower(root);
             CompiledComponent {
-                html: output.html,
+                jsx: output.jsx,
                 css: output.css,
                 diagnostics: output.diagnostics.into_iter().map(to_js_diagnostic).collect(),
+                span_start: root.span.start,
+                span_end: root.span.end,
             }
         })
         .collect()

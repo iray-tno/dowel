@@ -5,5 +5,8 @@
   "description": "Canonical primitives and semantic components for new Dowel projects.",
   "license": "MIT",
   "type": "module",
-  "main": "./src/index.ts"
+  "main": "./src/index.tsx",
+  "peerDependencies": {
+    "react": "^19.0.0"
+  }
 }

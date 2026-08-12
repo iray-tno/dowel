@@ -67,6 +67,12 @@ pub struct Node {
     pub children: Vec<Node>,
     /// Present only on `Text` nodes.
     pub text: Option<TextContent>,
+    /// Parts of a `className` expression that couldn't be statically
+    /// decomposed into `style` (proposal §7's "truly dynamic" tier) --
+    /// threaded through to `@dowel/runtime`'s `cx()` at render time.
+    /// Populated per-leaf, not per-node: a `cn(...)` call can contribute
+    /// some declarations to `style` and some entries here in the same call.
+    pub class_name_fallback: Vec<ExprRef>,
     pub span: SourceSpan,
 }
 

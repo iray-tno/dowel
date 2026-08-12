@@ -1,5 +1,6 @@
 //! TSX analysis and Style IR construction.
 
+mod dynamic_class;
 mod jsx;
 mod tailwind;
 
@@ -21,7 +22,7 @@ pub fn parse_tsx(source_text: &str) -> ParseOutput {
     let source_type = SourceType::from_extension("tsx").expect("\"tsx\" is a known extension");
     let ret = Parser::new(&allocator, source_text, source_type).parse();
 
-    let mut collector = JsxCollector::default();
+    let mut collector = JsxCollector::new(&ret.module_record);
     collector.visit_program(&ret.program);
 
     ParseOutput { roots: collector.roots }

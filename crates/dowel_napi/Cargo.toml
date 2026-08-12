@@ -12,3 +12,8 @@ crate-type = ["cdylib"]
 dowel_ir = { path = "../dowel_ir" }
 dowel_parser = { path = "../dowel_parser" }
 dowel_web = { path = "../dowel_web" }
+napi = "3.12.1"
+napi-derive = "3.6.3"
+
+[build-dependencies]
+napi-build = "2.4.1"

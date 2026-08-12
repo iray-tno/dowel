@@ -1,0 +1,15 @@
+{
+  "name": "@dowel/vite-plugin",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Vite integration for the Dowel compiler (Web lowering backend).",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "dependencies": {
+    "@dowel/compiler": "workspace:*"
+  },
+  "peerDependencies": {
+    "vite": "^5.0.0"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "@dowel/core",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Canonical primitives and semantic components for new Dowel projects.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts"
+}

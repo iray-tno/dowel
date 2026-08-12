@@ -1,0 +1,9 @@
+{
+  "name": "@dowel/tailwind",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Tailwind integration for Dowel's Style IR.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts"
+}

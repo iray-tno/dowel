@@ -1,0 +1,15 @@
+temp/
+
+# JS / pnpm
+node_modules/
+dist/
+.turbo/
+*.log
+
+# Rust
+target/
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/

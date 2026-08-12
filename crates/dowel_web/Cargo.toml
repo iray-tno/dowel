@@ -1,0 +1,9 @@
+[package]
+name = "dowel_web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Dowel IR to DOM/CSS/ARIA lowering (Web backend)."
+
+[dependencies]
+dowel_ir = { path = "../dowel_ir" }

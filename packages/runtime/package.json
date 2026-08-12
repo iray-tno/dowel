@@ -1,0 +1,9 @@
+{
+  "name": "@dowel/runtime",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Runtime fallback for genuinely dynamic styles, interactive behavior, and accessibility behavior.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts"
+}

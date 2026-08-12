@@ -1,0 +1,14 @@
+[package]
+name = "dowel_napi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Node native binding exposing the Dowel compiler to JS build tooling."
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+dowel_ir = { path = "../dowel_ir" }
+dowel_parser = { path = "../dowel_parser" }
+dowel_web = { path = "../dowel_web" }

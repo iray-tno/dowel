@@ -1,0 +1,9 @@
+[package]
+name = "dowel_parser"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "TSX analysis and Style IR construction."
+
+[dependencies]
+dowel_ir = { path = "../dowel_ir" }

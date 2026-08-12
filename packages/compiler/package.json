@@ -1,0 +1,9 @@
+{
+  "name": "@dowel/compiler",
+  "version": "0.0.0",
+  "private": true,
+  "description": "JS-facing entry point for the Dowel Rust compiler (TSX analysis, Dowel IR, Web/Native lowering, diagnostics).",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts"
+}

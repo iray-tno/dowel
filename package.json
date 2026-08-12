@@ -1,0 +1,17 @@
+{
+  "name": "dowel",
+  "private": true,
+  "version": "0.0.0",
+  "description": "A Rust-powered universal UI compiler and accessibility-first layer for React Native.",
+  "license": "MIT",
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "test": "turbo run test"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.0"
+  }
+}

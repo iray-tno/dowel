@@ -66,8 +66,8 @@ fn render_node(
 ) -> String {
     let class_name = allocator.alloc();
 
-    for (condition, props) in css::group_by_condition(&node.style) {
-        let props = css::dedupe_last_wins(props);
+    for (condition, props) in dowel_ir::group_by_condition(&node.style) {
+        let props = dowel_ir::dedupe_last_wins(props);
         if props.is_empty() {
             continue;
         }

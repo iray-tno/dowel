@@ -74,3 +74,39 @@ pub fn compile(source: String) -> Vec<CompiledComponent> {
         })
         .collect()
 }
+
+#[napi(object)]
+pub struct CompiledNativeComponent {
+    /// Compiled JSX to splice into the original source, same convention as
+    /// `CompiledComponent.jsx`.
+    pub jsx: String,
+    /// `StyleSheet.create({ ... })`-ready object literal text (without the
+    /// wrapper -- see `dowel_native::LowerOutput`).
+    pub styles: String,
+    pub diagnostics: Vec<CompileDiagnostic>,
+    pub span_start: u32,
+    pub span_end: u32,
+}
+
+/// Same shape as `compile`, but lowers to React Native (Pressable/View/Text
+/// + a StyleSheet object) instead of DOM/CSS. See `dowel_native`'s module
+/// docs for the current Phase 0 scope/limitations (non-Always conditions
+/// aren't wired into the rendered `style` prop yet).
+#[napi]
+pub fn compile_native(source: String) -> Vec<CompiledNativeComponent> {
+    let parsed = dowel_parser::parse_tsx(&source);
+    parsed
+        .roots
+        .iter()
+        .map(|root| {
+            let output = dowel_native::lower(root);
+            CompiledNativeComponent {
+                jsx: output.jsx,
+                styles: output.styles,
+                diagnostics: output.diagnostics.into_iter().map(to_js_diagnostic).collect(),
+                span_start: root.span.start,
+                span_end: root.span.end,
+            }
+        })
+        .collect()
+}

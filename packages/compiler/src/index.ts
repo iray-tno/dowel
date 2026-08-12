@@ -24,8 +24,17 @@ export interface CompiledComponent {
   spanEnd: number
 }
 
+export interface CompiledNativeComponent {
+  jsx: string
+  styles: string
+  diagnostics: CompileDiagnostic[]
+  spanStart: number
+  spanEnd: number
+}
+
 interface NativeBinding {
   compile(source: string): CompiledComponent[]
+  compileNative(source: string): CompiledNativeComponent[]
 }
 
 let native: NativeBinding | undefined
@@ -46,4 +55,12 @@ function loadNative(): NativeBinding {
 
 export function compile(source: string): CompiledComponent[] {
   return loadNative().compile(source)
+}
+
+// Not yet wired into a Metro transformer (@dowel/vite-plugin's Metro
+// counterpart doesn't exist yet -- Native was deliberately validated after
+// Web, per the A-phase decision). Exposed now so the binding layer mirrors
+// both backends; the transformer-side integration is separate future work.
+export function compileNative(source: string): CompiledNativeComponent[] {
+  return loadNative().compileNative(source)
 }

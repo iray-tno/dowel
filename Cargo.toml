@@ -4,6 +4,7 @@ members = [
   "crates/dowel_ir",
   "crates/dowel_parser",
   "crates/dowel_web",
+  "crates/dowel_native",
   "crates/dowel_napi",
 ]
 

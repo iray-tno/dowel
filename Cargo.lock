@@ -84,11 +84,20 @@ name = "dowel_napi"
 version = "0.0.0"
 dependencies = [
  "dowel_ir",
+ "dowel_native",
  "dowel_parser",
  "dowel_web",
  "napi",
  "napi-build",
  "napi-derive",
+]
+
+[[package]]
+name = "dowel_native"
+version = "0.0.0"
+dependencies = [
+ "dowel_ir",
+ "dowel_parser",
 ]
 
 [[package]]

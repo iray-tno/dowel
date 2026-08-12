@@ -1,0 +1,12 @@
+[package]
+name = "dowel_native"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Dowel IR to React Native primitive/StyleSheet lowering (Native backend)."
+
+[dependencies]
+dowel_ir = { path = "../dowel_ir" }
+
+[dev-dependencies]
+dowel_parser = { path = "../dowel_parser" }

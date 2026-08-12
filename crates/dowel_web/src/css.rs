@@ -1,51 +1,19 @@
 //! `StyleProperty`/`Condition` -> CSS text.
 //!
-//! Two design points carried over from the earlier design discussion:
-//! - Flattening ("last declaration wins") only applies *within* a group of
-//!   declarations sharing the identical `Condition` -- declarations under
-//!   different conditions are separate CSS rules, not competing values.
-//! - `Color` stays a Tailwind token through the whole pipeline (proposal
-//!   §16 defers resolution to a later pass), so it's emitted here as a CSS
-//!   custom property reference (`var(--dowel-color-blue-500)`) rather than
-//!   a resolved hex value -- correct-but-unresolved, not silently wrong.
-
-use std::collections::HashSet;
-use std::mem::discriminant;
+//! Grouping/flattening declarations by `Condition` lives in `dowel_ir`
+//! (shared with `dowel_native`, which needs the identical rule -- "last
+//! wins" only within one condition group). This module is just the
+//! Web-specific value/selector formatting on top of that.
+//!
+//! `Color` stays a Tailwind token through the whole pipeline (proposal §16
+//! defers resolution to a later pass), so it's emitted here as a CSS custom
+//! property reference (`var(--dowel-color-blue-500)`) rather than a
+//! resolved hex value -- correct-but-unresolved, not silently wrong.
 
 use dowel_ir::{
     Align, Breakpoint, Color, Condition, ConditionExpr, Dimension, FlexDirection, FlexShorthand,
-    Justify, Length, Position, StyleDeclaration, StyleProperty, TextAlign,
+    Justify, Length, Position, StyleProperty, TextAlign,
 };
-
-/// Groups declarations by `Condition`, preserving first-occurrence order
-/// (deterministic output, not hashmap-random) -- a linear scan is fine at
-/// the sizes a single node's style list reaches in practice.
-pub fn group_by_condition(declarations: &[StyleDeclaration]) -> Vec<(Condition, Vec<StyleProperty>)> {
-    let mut groups: Vec<(Condition, Vec<StyleProperty>)> = Vec::new();
-    for decl in declarations {
-        match groups.iter_mut().find(|(condition, _)| *condition == decl.condition) {
-            Some((_, props)) => props.push(decl.property.clone()),
-            None => groups.push((decl.condition.clone(), vec![decl.property.clone()])),
-        }
-    }
-    groups
-}
-
-/// Within one condition group, the last declaration for a given property
-/// wins -- resolved by discriminant (the property's *kind*, ignoring its
-/// value), keeping only the last occurrence of each while preserving
-/// overall relative order.
-pub fn dedupe_last_wins(props: Vec<StyleProperty>) -> Vec<StyleProperty> {
-    let mut seen = HashSet::new();
-    let mut kept: Vec<StyleProperty> = Vec::new();
-    for prop in props.into_iter().rev() {
-        if seen.insert(discriminant(&prop)) {
-            kept.push(prop);
-        }
-    }
-    kept.reverse();
-    kept
-}
 
 fn length_px(length: Length) -> String {
     let Length::Px(value) = length;
@@ -232,36 +200,6 @@ pub fn render_rule(class_name: &str, condition: &Condition, props: &[StyleProper
 mod tests {
     use super::*;
     use dowel_ir::{ExprRef, SourceSpan};
-
-    #[test]
-    fn dedupe_keeps_last_value_per_property_kind() {
-        let props = vec![
-            StyleProperty::PaddingLeft(Length::Px(4.0)),
-            StyleProperty::PaddingTop(Length::Px(4.0)),
-            StyleProperty::PaddingLeft(Length::Px(16.0)),
-        ];
-        let deduped = dedupe_last_wins(props);
-        assert_eq!(
-            deduped,
-            vec![StyleProperty::PaddingTop(Length::Px(4.0)), StyleProperty::PaddingLeft(Length::Px(16.0))]
-        );
-    }
-
-    #[test]
-    fn condition_groups_stay_separate() {
-        let decls = vec![
-            StyleDeclaration {
-                property: StyleProperty::BackgroundColor(Color::Token("red-500".to_string())),
-                condition: Condition::Always,
-            },
-            StyleDeclaration {
-                property: StyleProperty::BackgroundColor(Color::Token("blue-500".to_string())),
-                condition: Condition::Hover,
-            },
-        ];
-        let groups = group_by_condition(&decls);
-        assert_eq!(groups.len(), 2);
-    }
 
     #[test]
     fn not_and_compose_into_a_selector() {

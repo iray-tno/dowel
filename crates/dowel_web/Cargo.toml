@@ -7,3 +7,6 @@ description = "Dowel IR to DOM/CSS/ARIA lowering (Web backend)."
 
 [dependencies]
 dowel_ir = { path = "../dowel_ir" }
+
+[dev-dependencies]
+dowel_parser = { path = "../dowel_parser" }

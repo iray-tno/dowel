@@ -91,6 +91,7 @@ name = "dowel_web"
 version = "0.0.0"
 dependencies = [
  "dowel_ir",
+ "dowel_parser",
 ]
 
 [[package]]

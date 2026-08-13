@@ -18,6 +18,16 @@ import { compile } from '@dowel/compiler'
 
 const DOWEL_CORE_IMPORT_RE = /import\s*\{[^}]*\}\s*from\s*['"]@dowel\/core['"]\s*\n?/
 
+/// Renames this component's `dowel-N` class names to be unique across every
+/// component in the file -- `compile()` starts counting from `dowel-0`
+/// independently per root, so two components in the same source file would
+/// otherwise collide once their CSS is merged into one companion file.
+/// `dowel-view` (no digits) is the intentionally-shared base class and
+/// must NOT be touched by this.
+function namespaceDowelClasses(text: string, rootIndex: number): string {
+  return text.replace(/\bdowel-(\d+)\b/g, `dowel-r${rootIndex}-$1`)
+}
+
 export function dowel(): Plugin {
   return {
     name: 'dowel',
@@ -38,10 +48,14 @@ export function dowel(): Plugin {
       // Splice from the last span to the first so earlier offsets stay
       // valid as later (in the string, not necessarily in array order)
       // edits are applied.
-      const bySpanDescending = [...components].sort((a, b) => b.spanStart - a.spanStart)
-      for (const component of bySpanDescending) {
-        next = next.slice(0, component.spanStart) + component.jsx + next.slice(component.spanEnd)
-        css = component.css + css
+      const bySpanDescending = components
+        .map((component, index) => ({ component, index }))
+        .sort((a, b) => b.component.spanStart - a.component.spanStart)
+      for (const { component, index } of bySpanDescending) {
+        const jsx = namespaceDowelClasses(component.jsx, index)
+        const componentCss = namespaceDowelClasses(component.css, index)
+        next = next.slice(0, component.spanStart) + jsx + next.slice(component.spanEnd)
+        css = componentCss + css
       }
 
       for (const component of components) {

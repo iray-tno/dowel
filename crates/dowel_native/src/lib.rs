@@ -230,4 +230,32 @@ export function Login() {
         // rendered style prop yet.
         assert!(!output.jsx.contains("dowel0_disabled"));
     }
+
+    #[test]
+    fn interactive_pressable_without_role_is_diagnosed_from_real_source() {
+        // As with dowel_web: previously only reachable by hand-constructing
+        // a `Node` -- the parser didn't populate on_press/accessibility_role
+        // at all until dowel_parser::jsx gained that attribute parsing.
+        let parsed = dowel_parser::parse_tsx(
+            r#"
+            import { Pressable } from '@dowel/core'
+            const el = <Pressable onPress={handleTap}>Tap</Pressable>
+            "#,
+        );
+        let output = lower(&parsed.roots[0]);
+        assert_eq!(output.diagnostics.len(), 1);
+        assert_eq!(output.diagnostics[0].code, dowel_ir::DiagnosticCode::A11yInteractiveWithoutRole);
+
+        let parsed_with_role = dowel_parser::parse_tsx(
+            r#"
+            import { Pressable } from '@dowel/core'
+            const el = (
+              <Pressable onPress={handleTap} accessibilityRole="button">Tap</Pressable>
+            )
+            "#,
+        );
+        let output_with_role = lower(&parsed_with_role.roots[0]);
+        assert!(output_with_role.diagnostics.is_empty());
+        assert!(output_with_role.jsx.contains(r#"accessibilityRole="button""#));
+    }
 }

@@ -181,23 +181,47 @@ export function Login() {
 
     #[test]
     fn hover_condition_compiles_to_a_real_pseudo_class() {
-        // `hover:` isn't parsed from Tailwind source yet (dowel_parser's
-        // table doesn't recognize variant prefixes), so this is exercised
-        // directly at the IR level rather than through `parse_tsx`.
-        let node = dowel_ir::Node {
-            primitive: dowel_ir::Primitive::View,
-            style: vec![dowel_ir::StyleDeclaration {
-                property: dowel_ir::StyleProperty::Opacity(0.5),
-                condition: dowel_ir::Condition::Hover,
-            }],
-            props: dowel_ir::PropSet::default(),
-            children: Vec::new(),
-            text: None,
-            class_name_fallback: Vec::new(),
-            span: dowel_ir::SourceSpan { start: 0, end: 0 },
-        };
-        let output = lower(&node);
+        let parsed = dowel_parser::parse_tsx(
+            r#"
+            import { View } from '@dowel/core'
+            const el = <View className="hover:text-xl" />
+            "#,
+        );
+        let output = lower(&parsed.roots[0]);
         assert!(output.css.contains(".dowel-0:hover {"));
-        assert!(output.css.contains("opacity: 0.5;"));
+        assert!(output.css.contains("font-size: 20px;"));
+    }
+
+    #[test]
+    fn interactive_pressable_without_role_is_diagnosed_from_real_source() {
+        // Previously only reachable by hand-constructing a `Node` directly
+        // -- `PropSet.on_press`/`accessibility_role` weren't populated by
+        // the parser at all until dowel_parser::jsx gained onPress/
+        // accessibilityRole attribute parsing.
+        let parsed = dowel_parser::parse_tsx(
+            r#"
+            import { Pressable } from '@dowel/core'
+            const el = <Pressable onPress={handleTap}>Tap</Pressable>
+            "#,
+        );
+        let output = lower(&parsed.roots[0]);
+        assert_eq!(output.diagnostics.len(), 1);
+        assert_eq!(output.diagnostics[0].code, dowel_ir::DiagnosticCode::A11yInteractiveWithoutRole);
+        assert!(!output.jsx.contains("role="));
+    }
+
+    #[test]
+    fn accessibility_role_suppresses_the_diagnostic_and_sets_role() {
+        let parsed = dowel_parser::parse_tsx(
+            r#"
+            import { Pressable } from '@dowel/core'
+            const el = (
+              <Pressable onPress={handleTap} accessibilityRole="button">Tap</Pressable>
+            )
+            "#,
+        );
+        let output = lower(&parsed.roots[0]);
+        assert!(output.diagnostics.is_empty());
+        assert!(output.jsx.contains(r#"role="button""#));
     }
 }

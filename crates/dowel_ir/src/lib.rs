@@ -6,6 +6,9 @@
 //! shape, not its parsing shape -- `dowel_parser` builds this from
 //! TSX/Tailwind source.
 
+mod colors;
+pub use colors::{resolve_color_token, ResolvedColor};
+
 // ---------------------------------------------------------------------------
 // Source spans / diagnostics
 // ---------------------------------------------------------------------------

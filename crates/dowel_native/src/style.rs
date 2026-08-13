@@ -9,10 +9,14 @@
 //!   `Initial`/`None` have no single-number equivalent, so they expand to
 //!   `flexGrow`/`flexShrink` pairs instead.
 //! - RN's `fontWeight` is a *string* (`'700'`), not a number, unlike CSS.
-//! - `Color` stays an unresolved Tailwind token here too (proposal §16),
-//!   but RN has nothing like a CSS custom property to defer resolution to
-//!   -- the placeholder is a plainly-not-a-real-color marker string instead
-//!   of syntax that looks valid but silently does nothing.
+//! - `Color` resolves against the default Tailwind palette via
+//!   `dowel_ir::resolve_color_token` (hex, since RN's style system doesn't
+//!   understand `oklch()`). A token outside the default palette (custom
+//!   theme colors, arbitrary values -- still proposal §16/Phase 4 territory)
+//!   falls back to a placeholder marker string, deliberately not
+//!   real-color-shaped so a missed resolution fails loudly instead of
+//!   rendering a plausible-but-wrong color. RN has nothing like a CSS custom
+//!   property to defer to the way Web's `var(--dowel-color-x)` does.
 
 use dowel_ir::{
     Align, Color, Dimension, FlexDirection, FlexShorthand, Justify, Length, Position,
@@ -32,13 +36,16 @@ fn dimension_value(dim: Dimension) -> String {
     }
 }
 
-/// Not a real color -- an unresolved Tailwind token marker (see module
-/// docs). Deliberately doesn't look like it could be a valid RN color
-/// value, so a missed resolution pass fails loudly instead of rendering
-/// with a plausible-but-wrong color.
-fn color_placeholder(color: &Color) -> String {
+/// Resolves against the default Tailwind palette where possible (see module
+/// docs); otherwise falls back to a marker string deliberately not
+/// real-color-shaped, so a missed resolution fails loudly instead of
+/// rendering a plausible-but-wrong color.
+fn resolve_color(color: &Color) -> String {
     let Color::Token(token) = color;
-    format!("'dowel-unresolved:{token}'")
+    match dowel_ir::resolve_color_token(token) {
+        Some(resolved) => format!("'{}'", resolved.hex),
+        None => format!("'dowel-unresolved:{token}'"),
+    }
 }
 
 /// Maps one `StyleProperty` to one or more `(rn-style-key, value)` pairs
@@ -110,9 +117,9 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
         StyleProperty::InsetRight(l) => vec![("right", number(*l))],
         StyleProperty::InsetBottom(l) => vec![("bottom", number(*l))],
         StyleProperty::InsetLeft(l) => vec![("left", number(*l))],
-        StyleProperty::BackgroundColor(c) => vec![("backgroundColor", color_placeholder(c))],
+        StyleProperty::BackgroundColor(c) => vec![("backgroundColor", resolve_color(c))],
         StyleProperty::Opacity(o) => vec![("opacity", format!("{o}"))],
-        StyleProperty::BorderColor(c) => vec![("borderColor", color_placeholder(c))],
+        StyleProperty::BorderColor(c) => vec![("borderColor", resolve_color(c))],
         // Unlike Web, RN shows a (black, by default) border once
         // `borderWidth` is set even without an explicit `borderColor` --
         // the opposite gotcha from CSS's "invisible without borderStyle."
@@ -132,7 +139,7 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
             }
             .to_string(),
         )],
-        StyleProperty::TextColor(c) => vec![("color", color_placeholder(c))],
+        StyleProperty::TextColor(c) => vec![("color", resolve_color(c))],
     }
 }
 
@@ -166,6 +173,22 @@ mod tests {
         assert_eq!(
             property_and_value(&StyleProperty::FontWeight(dowel_ir::FontWeight(700))),
             vec![("fontWeight", "'700'".to_string())]
+        );
+    }
+
+    #[test]
+    fn known_color_token_resolves_to_real_hex() {
+        assert_eq!(
+            property_and_value(&StyleProperty::BackgroundColor(Color::Token("blue-500".to_string()))),
+            vec![("backgroundColor", "'#2b7fff'".to_string())]
+        );
+    }
+
+    #[test]
+    fn unknown_color_token_falls_back_to_a_marker_string() {
+        assert_eq!(
+            property_and_value(&StyleProperty::TextColor(Color::Token("brand-primary".to_string()))),
+            vec![("color", "'dowel-unresolved:brand-primary'".to_string())]
         );
     }
 }

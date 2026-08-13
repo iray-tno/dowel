@@ -5,10 +5,14 @@
 //! wins" only within one condition group). This module is just the
 //! Web-specific value/selector formatting on top of that.
 //!
-//! `Color` stays a Tailwind token through the whole pipeline (proposal §16
-//! defers resolution to a later pass), so it's emitted here as a CSS custom
-//! property reference (`var(--dowel-color-blue-500)`) rather than a
-//! resolved hex value -- correct-but-unresolved, not silently wrong.
+//! `Color` stays a Tailwind token through the whole IR (proposal §16 still
+//! defers *theme-aware* resolution to a later pass -- custom colors,
+//! arbitrary values), but the default Tailwind palette is resolved here via
+//! `dowel_ir::resolve_color_token`, emitted as the exact `oklch(...)`
+//! string Tailwind's own CSS would produce. A token outside the default
+//! palette still falls back to a CSS custom property reference
+//! (`var(--dowel-color-x)`, never actually defined anywhere) --
+//! correct-but-unresolved, not silently wrong.
 
 use dowel_ir::{
     Align, Breakpoint, Color, Condition, ConditionExpr, Dimension, FlexDirection, FlexShorthand,
@@ -30,7 +34,10 @@ fn dimension_value(dim: Dimension) -> String {
 
 fn color_var(color: &Color) -> String {
     let Color::Token(token) = color;
-    format!("var(--dowel-color-{token})")
+    match dowel_ir::resolve_color_token(token) {
+        Some(resolved) => resolved.oklch.to_string(),
+        None => format!("var(--dowel-color-{token})"),
+    }
 }
 
 /// Maps one `StyleProperty` to a `(css-property-name, value)` pair. Values
@@ -215,5 +222,19 @@ mod tests {
         let (media, suffix) = condition_shape(&Condition::Expr(expr));
         assert!(media.is_none());
         assert_eq!(suffix, "[data-dowel-cond-0-1]:not([data-dowel-cond-2-3])");
+    }
+
+    #[test]
+    fn known_color_token_resolves_to_real_oklch() {
+        let (name, value) = property_and_value(&StyleProperty::BackgroundColor(Color::Token("blue-500".to_string())));
+        assert_eq!(name, "background-color");
+        assert_eq!(value, "oklch(62.3% 0.214 259.815)");
+    }
+
+    #[test]
+    fn unknown_color_token_falls_back_to_a_css_custom_property() {
+        let (_, value) =
+            property_and_value(&StyleProperty::TextColor(Color::Token("brand-primary".to_string())));
+        assert_eq!(value, "var(--dowel-color-brand-primary)");
     }
 }

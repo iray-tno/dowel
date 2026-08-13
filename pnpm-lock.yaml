@@ -57,6 +57,15 @@ importers:
 
   packages/tailwind: {}
 
+  packages/tailwind-conformance:
+    dependencies:
+      '@dowel/compiler':
+        specifier: workspace:*
+        version: link:../compiler
+      tailwindcss:
+        specifier: ^4.3.3
+        version: 4.3.3
+
   packages/vite-plugin:
     dependencies:
       '@dowel/compiler':
@@ -919,6 +928,9 @@ packages:
   supports-preserve-symlinks-flag@1.0.0:
     resolution: {integrity: sha512-ot0WnXS9fgdkgIcePe6RHNk1WA8+muPa6cSjeR3V8K27q9BB1rTE3R1p7Hv0z1ZyAc8s6Vvv8DIyWf681MAt0w==}
     engines: {node: '>= 0.4'}
+
+  tailwindcss@4.3.3:
+    resolution: {integrity: sha512-gOhV3P7ufE62QDGg1zVaTgCR+EtPv92k2nIhVcVKcLmxT1sUBsQGhnZj175j+MqRt4zLF7ic+sCYjfhxMxj7YQ==}
 
   tinyglobby@0.2.17:
     resolution: {integrity: sha512-wXR/dYpcqKmfWpEdZjiKJOwCNFndD0DMnrW/cYjVGttEkBfVgcLFHoNrlj47mjOVic9yyNu65alsgF4NQyTa2g==}
@@ -1902,6 +1914,8 @@ snapshots:
   source-map-js@1.2.1: {}
 
   supports-preserve-symlinks-flag@1.0.0: {}
+
+  tailwindcss@4.3.3: {}
 
   tinyglobby@0.2.17:
     dependencies:

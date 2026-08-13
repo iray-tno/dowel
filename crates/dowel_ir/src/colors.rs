@@ -34,7 +34,18 @@ pub fn resolve_color_token(token: &str) -> Option<ResolvedColor> {
         "amber-800" => Some(ResolvedColor { oklch: "oklch(47.3% 0.137 46.201)", hex: "#973c00" }),
         "amber-900" => Some(ResolvedColor { oklch: "oklch(41.4% 0.112 45.904)", hex: "#7b3306" }),
         "amber-950" => Some(ResolvedColor { oklch: "oklch(27.9% 0.077 45.635)", hex: "#461901" }),
-        "black" => Some(ResolvedColor { oklch: "oklch(0% 0 0)", hex: "#000" }),
+        // CSS-wide keywords, not theme entries -- Tailwind's engine handles
+        // them directly, so they aren't in theme.css and aren't generated.
+        // `transparent` works verbatim on both platforms; RN accepts it as
+        // a color string. `currentcolor` has no RN equivalent (there's no
+        // inherited color to resolve against), so Native gets the closest
+        // honest fallback rather than an invented value.
+        "transparent" => Some(ResolvedColor { oklch: "transparent", hex: "transparent" }),
+        "current" => Some(ResolvedColor { oklch: "currentcolor", hex: "currentcolor" }),
+        // theme.css states these two as plain hex rather than oklch, so
+        // both fields carry the hex -- the Web value is meant to be what
+        // Tailwind itself would emit.
+        "black" => Some(ResolvedColor { oklch: "#000", hex: "#000" }),
         "blue-100" => Some(ResolvedColor { oklch: "oklch(93.2% 0.032 255.585)", hex: "#dbeafe" }),
         "blue-200" => Some(ResolvedColor { oklch: "oklch(88.2% 0.059 254.128)", hex: "#bedbff" }),
         "blue-300" => Some(ResolvedColor { oklch: "oklch(80.9% 0.105 251.813)", hex: "#8ec5ff" }),
@@ -288,7 +299,7 @@ pub fn resolve_color_token(token: &str) -> Option<ResolvedColor> {
         "violet-800" => Some(ResolvedColor { oklch: "oklch(43.2% 0.232 292.759)", hex: "#5d0ec0" }),
         "violet-900" => Some(ResolvedColor { oklch: "oklch(38% 0.189 293.745)", hex: "#4d179a" }),
         "violet-950" => Some(ResolvedColor { oklch: "oklch(28.3% 0.141 291.089)", hex: "#2f0d68" }),
-        "white" => Some(ResolvedColor { oklch: "oklch(100% 0 0)", hex: "#fff" }),
+        "white" => Some(ResolvedColor { oklch: "#fff", hex: "#fff" }),
         "yellow-100" => Some(ResolvedColor { oklch: "oklch(97.3% 0.071 103.193)", hex: "#fef9c2" }),
         "yellow-200" => Some(ResolvedColor { oklch: "oklch(94.5% 0.129 101.54)", hex: "#fff085" }),
         "yellow-300" => Some(ResolvedColor { oklch: "oklch(90.5% 0.182 98.111)", hex: "#ffdf20" }),

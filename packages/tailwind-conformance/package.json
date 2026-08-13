@@ -1,0 +1,16 @@
+{
+  "name": "@dowel/tailwind-conformance",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Differential test: compares Dowel's compiled CSS against the real Tailwind engine's output, per utility.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "test": "node --test src/*.test.ts",
+    "report": "node src/run.ts"
+  },
+  "dependencies": {
+    "@dowel/compiler": "workspace:*",
+    "tailwindcss": "^4.3.3"
+  }
+}

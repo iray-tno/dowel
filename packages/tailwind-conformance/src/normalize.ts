@@ -1,0 +1,260 @@
+// Normalizes a CSS declaration block into a canonical longhand map, so
+// Tailwind's output and Dowel's can be compared by meaning rather than by
+// spelling. The two differ constantly without disagreeing:
+//
+//   flex: 1                        vs  flex: 1 1 0%
+//   padding: calc(var(--spacing)*4) vs  padding-top: 16px; ...(4 longhands)
+//   background-color: var(--color-blue-500) vs background-color: oklch(...)
+//   line-height: calc(1.75 / 1.25)  vs  line-height: 28px
+//
+// Anything this can't confidently resolve is reported as unresolvable
+// rather than guessed at -- a normalizer that quietly mis-resolves would
+// produce false matches and false diffs, which is worse than a smaller
+// comparable set.
+
+const ROOT_FONT_SIZE_PX = 16
+
+export interface Normalized {
+  declarations: Map<string, string>
+  /// Raw text of anything the normalizer declined to interpret. Non-empty
+  /// means the comparison for this rule is not trustworthy.
+  unresolved: string[]
+}
+
+/** Splits `a: b; c: d;` into pairs, ignoring empties. */
+function splitDeclarations(block: string): Array<[string, string]> {
+  const out: Array<[string, string]> = []
+  let depth = 0
+  let current = ''
+  for (const ch of block) {
+    if (ch === '(') depth++
+    if (ch === ')') depth--
+    if (ch === ';' && depth === 0) {
+      if (current.trim()) out.push(splitOne(current))
+      current = ''
+      continue
+    }
+    current += ch
+  }
+  if (current.trim()) out.push(splitOne(current))
+  return out.filter((pair): pair is [string, string] => pair !== null && pair[0] !== '')
+}
+
+function splitOne(decl: string): [string, string] {
+  const idx = decl.indexOf(':')
+  if (idx === -1) return ['', '']
+  return [decl.slice(0, idx).trim().toLowerCase(), decl.slice(idx + 1).trim()]
+}
+
+/**
+ * Substitutes `var(--x)` / `var(--x, fallback)` using `vars`.
+ * `--tw-*` properties are Tailwind's own runtime registers, declared via
+ * `@property` with initial values; the two that matter for the utilities
+ * Dowel supports are resolved here explicitly, and anything else `--tw-*`
+ * is left in place so the caller marks the rule unresolved.
+ */
+function resolveVars(value: string, vars: Map<string, string>, depth = 0): string {
+  if (depth > 8) return value
+  const re = /var\(\s*(--[a-z0-9-]+)\s*(?:,\s*([^]*?)\s*)?\)/i
+  const match = re.exec(value)
+  if (!match) return value
+
+  const [full, name, fallback] = match
+  let replacement: string | undefined
+  if (name === '--tw-border-style') {
+    // Registered by Tailwind with `initial-value: solid`.
+    replacement = 'solid'
+  } else if (name === '--tw-leading' && fallback !== undefined) {
+    // Set only by an explicit `leading-*`; absent here, so the fallback
+    // (the text-size's own line-height) applies.
+    replacement = fallback
+  } else if (vars.has(name)) {
+    replacement = vars.get(name)
+  } else if (fallback !== undefined) {
+    replacement = fallback
+  }
+  if (replacement === undefined) return value
+  return resolveVars(value.replace(full, replacement), vars, depth + 1)
+}
+
+/** Evaluates `calc(...)` for the +,-,*,/ arithmetic Tailwind actually emits. */
+function evaluateCalc(value: string): string {
+  let out = value
+  for (let i = 0; i < 8; i++) {
+    const match = /calc\(([^()]*)\)/.exec(out)
+    if (!match) break
+    const evaluated = evaluateArithmetic(match[1])
+    if (evaluated === null) return out
+    out = out.replace(match[0], evaluated)
+  }
+  return out
+}
+
+function evaluateArithmetic(expr: string): string | null {
+  if (/infinity/i.test(expr)) return 'infinity'
+  // Every term must be a bare number or a px/rem length for this to be
+  // safe to fold; a mix of units (or an unknown one) bails out.
+  const units = new Set((expr.match(/[\d.]+(px|rem|%|em)/g) ?? []).map((t) => /[a-z%]+$/.exec(t)![0]))
+  if (units.size > 1) return null
+  const unit = [...units][0] ?? ''
+  // `em` depends on inherited font size, so it can't be folded here.
+  // A lone `%` can: `calc(1 / 2 * 100%)` is just 50%.
+  if (unit === 'em') return null
+
+  const bare = expr.replace(/(px|rem|%)/g, '')
+  if (!/^[\d\s.+\-*/()]+$/.test(bare)) return null
+  let result: number
+  try {
+    // Arithmetic-only after the guard above.
+    result = Function(`"use strict"; return (${bare})`)() as number
+  } catch {
+    return null
+  }
+  if (!Number.isFinite(result)) return null
+  return unit ? `${result}${unit}` : `${result}`
+}
+
+function remToPx(value: string): string {
+  return value.replace(/(-?[\d.]+)rem/g, (_, n: string) => `${parseFloat(n) * ROOT_FONT_SIZE_PX}px`)
+}
+
+/** Canonicalizes an already-resolved value's spelling. */
+function canonicalizeValue(value: string): string {
+  let out = value.trim().toLowerCase().replace(/\s+/g, ' ')
+  out = remToPx(out)
+  // 0 is 0 regardless of unit.
+  out = out.replace(/(^|\s)(-?0)(px|rem|%)(\s|$)/g, '$1$2$4')
+  // Trim pointless decimals: 16.0px -> 16px
+  out = out.replace(/(-?\d+)\.0+(?=px|%|\s|$)/g, '$1')
+  return out.trim()
+}
+
+/**
+ * Per-property canonicalization for values that are equivalent in CSS but
+ * spelled differently. `opacity: 50%` and `opacity: 0.5` are the same
+ * declaration; Tailwind writes the former, Dowel the latter.
+ */
+function canonicalizeProperty(prop: string, value: string): string {
+  if (prop === 'opacity') {
+    const pct = /^(-?[\d.]+)%$/.exec(value)
+    if (pct) return canonicalizeValue(`${parseFloat(pct[1]) / 100}`)
+  }
+  return value
+}
+
+const FOUR_SIDES = ['top', 'right', 'bottom', 'left'] as const
+
+/** Expands the shorthands that appear in either side's output. */
+function expandShorthand(prop: string, value: string): Array<[string, string]> {
+  const sides = (prefix: string, suffix = '') => {
+    const parts = value.split(/\s+/)
+    // CSS 1/2/3/4-value box syntax.
+    const [t, r, b, l] =
+      parts.length === 1
+        ? [parts[0], parts[0], parts[0], parts[0]]
+        : parts.length === 2
+          ? [parts[0], parts[1], parts[0], parts[1]]
+          : parts.length === 3
+            ? [parts[0], parts[1], parts[2], parts[1]]
+            : [parts[0], parts[1], parts[2], parts[3]]
+    return [
+      [`${prefix}-top${suffix}`, t],
+      [`${prefix}-right${suffix}`, r],
+      [`${prefix}-bottom${suffix}`, b],
+      [`${prefix}-left${suffix}`, l],
+    ] as Array<[string, string]>
+  }
+
+  switch (prop) {
+    case 'padding':
+      return sides('padding')
+    case 'margin':
+      return sides('margin')
+    case 'border-width':
+      return sides('border', '-width')
+    case 'inset':
+      return FOUR_SIDES.map((side, i) => {
+        const parts = value.split(/\s+/)
+        const v = parts.length === 1 ? parts[0] : parts[i] ?? parts[0]
+        return [side, v] as [string, string]
+      })
+    case 'gap':
+      return [
+        ['row-gap', value],
+        ['column-gap', value],
+      ]
+    case 'flex':
+      return expandFlex(value)
+    default:
+      return [[prop, value]]
+  }
+}
+
+/** CSS `flex` shorthand -> the three longhands, per the spec's defaults. */
+function expandFlex(value: string): Array<[string, string]> {
+  const v = value.trim()
+  const keyword: Record<string, [string, string, string]> = {
+    auto: ['1', '1', 'auto'],
+    initial: ['0', '1', 'auto'],
+    none: ['0', '0', 'auto'],
+  }
+  if (keyword[v]) {
+    const [g, s, b] = keyword[v]
+    return [
+      ['flex-grow', g],
+      ['flex-shrink', s],
+      ['flex-basis', b],
+    ]
+  }
+  const parts = v.split(/\s+/)
+  // A single number means `<n> 1 0%`.
+  const [grow, shrink, basis] =
+    parts.length === 1 ? [parts[0], '1', '0%'] : parts.length === 2 ? [parts[0], parts[1], '0%'] : parts
+  return [
+    ['flex-grow', grow],
+    ['flex-shrink', shrink],
+    ['flex-basis', basis],
+  ]
+}
+
+export function normalize(block: string, vars: Map<string, string>): Normalized {
+  const declarations = new Map<string, string>()
+  const unresolved: string[] = []
+
+  for (const [prop, rawValue] of splitDeclarations(block)) {
+    // Tailwind's own runtime registers aren't real output; they only feed
+    // the declarations that follow, which are compared on their own.
+    if (prop.startsWith('--')) continue
+
+    let value = resolveVars(rawValue, vars)
+    value = evaluateCalc(value)
+    value = canonicalizeValue(value)
+
+    if (value.includes('var(') || value.includes('calc(')) {
+      unresolved.push(`${prop}: ${rawValue}`)
+      continue
+    }
+    for (const [expandedProp, expandedValue] of expandShorthand(prop, value)) {
+      declarations.set(expandedProp, canonicalizeProperty(expandedProp, canonicalizeValue(expandedValue)))
+    }
+  }
+
+  applyLineHeightRatio(declarations)
+  return { declarations, unresolved }
+}
+
+/**
+ * Tailwind states a text size's line-height as a unitless ratio of its own
+ * font size; Dowel resolves it to px. With the font size present in the
+ * same rule the two are directly comparable, so fold the ratio here.
+ */
+function applyLineHeightRatio(declarations: Map<string, string>): void {
+  const lineHeight = declarations.get('line-height')
+  const fontSize = declarations.get('font-size')
+  if (!lineHeight || !fontSize) return
+  if (/px|%|em/.test(lineHeight)) return
+  const ratio = parseFloat(lineHeight)
+  const size = parseFloat(fontSize)
+  if (!Number.isFinite(ratio) || !Number.isFinite(size)) return
+  declarations.set('line-height', canonicalizeValue(`${ratio * size}px`))
+}

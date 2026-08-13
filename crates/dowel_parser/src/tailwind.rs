@@ -110,8 +110,13 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
     if let Some(weight) = parse_font_weight(token) {
         return Some(StyleProperty::FontWeight(weight));
     }
-    if let Some(size) = parse_font_size(token) {
-        return Some(StyleProperty::FontSize(size));
+    // `text-<size>` sets font-size *and* line-height, so it can't fit this
+    // one-property shape -- `expand_base_utility` handles it before ever
+    // reaching here. It still has to be excluded explicitly, though,
+    // because the `text-<color>` fallthrough below would otherwise swallow
+    // `text-xl` as the color token "xl".
+    if parse_font_size(token).is_some() {
+        return None;
     }
     if let Some(prop) = parse_spacing_utility(token) {
         return Some(prop);
@@ -194,19 +199,35 @@ fn parse_font_weight(token: &str) -> Option<FontWeight> {
     Some(FontWeight(value))
 }
 
-fn parse_font_size(token: &str) -> Option<Length> {
-    let px = match token {
-        "text-xs" => 12.0,
-        "text-sm" => 14.0,
-        "text-base" => 16.0,
-        "text-lg" => 18.0,
-        "text-xl" => 20.0,
-        "text-2xl" => 24.0,
-        "text-3xl" => 30.0,
-        "text-4xl" => 36.0,
+/// `(font-size, line-height)` in px. Tailwind's `text-*` utilities set
+/// **both** -- its theme pairs each size with a `--text-*--line-height`,
+/// and the generated CSS emits a `line-height` declaration alongside the
+/// `font-size` one. Emitting only the font-size (as this did originally)
+/// silently drops half of what the utility means.
+///
+/// Unlike the standalone named `leading-*` scale (a bare ratio against an
+/// unknown font size, so unresolvable -- see `parse_utility`), these
+/// resolve fine: the ratio's font size is the one this very utility sets,
+/// so e.g. `text-xl` is 1.25rem x calc(1.75/1.25) = 1.75rem = 28px.
+fn parse_font_size(token: &str) -> Option<(Length, Length)> {
+    let (size, line_height) = match token {
+        "text-xs" => (12.0, 16.0),
+        "text-sm" => (14.0, 20.0),
+        "text-base" => (16.0, 24.0),
+        "text-lg" => (18.0, 28.0),
+        "text-xl" => (20.0, 28.0),
+        "text-2xl" => (24.0, 32.0),
+        "text-3xl" => (30.0, 36.0),
+        "text-4xl" => (36.0, 40.0),
+        // From `text-5xl` up Tailwind's line-height ratio is a flat 1.
+        "text-5xl" => (48.0, 48.0),
+        "text-6xl" => (60.0, 60.0),
+        "text-7xl" => (72.0, 72.0),
+        "text-8xl" => (96.0, 96.0),
+        "text-9xl" => (128.0, 128.0),
         _ => return None,
     };
-    Some(Length::Px(px))
+    Some((Length::Px(size), Length::Px(line_height)))
 }
 
 /// Handles `{p,px,py,pt,pr,pb,pl,m,mx,my,mt,mr,mb,ml,gap,gap-x,gap-y}-{n}`.
@@ -347,6 +368,16 @@ fn expand_base_utility(token: &str) -> Vec<StyleProperty> {
     if let Some(props) = expand_border_width(token) {
         return props;
     }
+    if let Some((size, line_height)) = parse_font_size(token) {
+        // Order matters: the line-height goes second so that an explicit
+        // `leading-*` written *after* this class overrides it under
+        // last-wins flattening. Note this is order-sensitive where real
+        // Tailwind isn't -- Tailwind routes `leading-*` through a
+        // `--tw-leading` custom property that wins regardless of class
+        // order. Writing `leading-6 text-xl` therefore differs: Tailwind
+        // keeps leading-6, Dowel takes text-xl's 28px.
+        return vec![StyleProperty::FontSize(size), StyleProperty::LineHeight(line_height)];
+    }
 
     parse_utility(token).into_iter().collect()
 }
@@ -451,7 +482,10 @@ mod tests {
         );
         assert_eq!(
             expand_utility("text-xl"),
-            (Condition::Always, vec![StyleProperty::FontSize(Length::Px(20.0))])
+            (
+                Condition::Always,
+                vec![StyleProperty::FontSize(Length::Px(20.0)), StyleProperty::LineHeight(Length::Px(28.0))]
+            )
         );
         assert_eq!(
             expand_utility("font-bold"),
@@ -476,7 +510,10 @@ mod tests {
         );
         assert_eq!(
             expand_utility("disabled:text-xl"),
-            (Condition::Disabled, vec![StyleProperty::FontSize(Length::Px(20.0))])
+            (
+                Condition::Disabled,
+                vec![StyleProperty::FontSize(Length::Px(20.0)), StyleProperty::LineHeight(Length::Px(28.0))]
+            )
         );
         assert_eq!(
             expand_utility("md:flex-row"),
@@ -580,6 +617,63 @@ mod tests {
                 ]
             )
         );
+    }
+
+    #[test]
+    fn text_size_sets_line_height_too() {
+        // Regression: this used to emit font-size only, silently dropping
+        // the line-height half of what Tailwind's text-* utilities mean.
+        for (token, size, line_height) in
+            [("text-xs", 12.0, 16.0), ("text-base", 16.0, 24.0), ("text-4xl", 36.0, 40.0)]
+        {
+            assert_eq!(
+                expand_utility(token),
+                (
+                    Condition::Always,
+                    vec![
+                        StyleProperty::FontSize(Length::Px(size)),
+                        StyleProperty::LineHeight(Length::Px(line_height)),
+                    ]
+                ),
+                "{token}"
+            );
+        }
+        // From text-5xl up the ratio is a flat 1, so the two match.
+        assert_eq!(
+            expand_utility("text-5xl").1,
+            vec![
+                StyleProperty::FontSize(Length::Px(48.0)),
+                StyleProperty::LineHeight(Length::Px(48.0))
+            ]
+        );
+    }
+
+    #[test]
+    fn text_size_still_does_not_swallow_color_tokens() {
+        // `text-<size>` is handled before the `text-<color>` fallthrough;
+        // this guards the boundary between them in both directions.
+        assert_eq!(
+            expand_utility("text-red-500"),
+            (Condition::Always, vec![StyleProperty::TextColor(Color::Token("red-500".to_string()))])
+        );
+        assert_eq!(
+            expand_utility("text-center"),
+            (Condition::Always, vec![StyleProperty::TextAlign(TextAlign::Center)])
+        );
+    }
+
+    #[test]
+    fn explicit_leading_after_a_text_size_wins() {
+        // Dowel resolves this by source order (last wins), so `leading-*`
+        // must be written after `text-*` to take effect. Real Tailwind is
+        // order-independent here (it routes leading through a --tw-leading
+        // custom property) -- a known, documented divergence.
+        let (_, text_props) = expand_utility("text-xl");
+        let (_, leading_props) = expand_utility("leading-6");
+        let combined: Vec<_> = text_props.into_iter().chain(leading_props).collect();
+        let deduped = dowel_ir::dedupe_last_wins(combined);
+        assert!(deduped.contains(&StyleProperty::LineHeight(Length::Px(24.0))));
+        assert!(!deduped.contains(&StyleProperty::LineHeight(Length::Px(28.0))));
     }
 
     #[test]

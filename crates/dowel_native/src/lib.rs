@@ -10,6 +10,15 @@
 //! `render_condition_expr`) exactly like `dowel_web` does for its
 //! attribute-toggle wiring -- same "never evaluate, only re-emit" rule.
 //!
+//! `Pressed` merges too, but differently: RN's `Pressable` already tracks
+//! press state natively via a `style={({ pressed }) => [...]}` render-prop
+//! form (no synthesized state needed, unlike what an earlier pass of this
+//! design assumed) -- so a node with a `Pressed` condition gets its whole
+//! `style` prop wrapped in that function instead of being a plain array.
+//! Only applies when `component == "Pressable"` (Button maps to it too);
+//! a function isn't a valid `style` value on View/Text, so `Pressed` stays
+//! unmerged there, same treatment as Hover/Focus/Responsive below.
+//!
 //! `Hover`/`Focus`/`Responsive` still don't merge into anything: no native
 //! mobile-touch hover, and RN focus/window-dimension tracking are real but
 //! separate mechanisms this pass doesn't build. Their style objects are
@@ -103,6 +112,11 @@ fn render_node(
 ) -> String {
     let base_name = allocator.alloc();
     let mut style_array_parts: Vec<String> = Vec::new();
+    // Held separately from `style_array_parts` because they can only be
+    // merged once `component` is known (below) -- RN's pressed-render-prop
+    // form of `style` only exists on Pressable; on View/Text a function
+    // isn't a valid style value at all, so it must not be used there.
+    let mut pressed_parts: Vec<String> = Vec::new();
 
     for (condition, props) in dowel_ir::group_by_condition(&node.style) {
         let props = dowel_ir::dedupe_last_wins(props);
@@ -123,6 +137,7 @@ fn render_node(
                 // No `disabled` prop on this node -- nothing drives this
                 // condition, so it's computed but left unmerged.
             }
+            Condition::Pressed => pressed_parts.push(format!("pressed && styles.{name}")),
             Condition::Expr(expr) => {
                 let guard = render_condition_expr(source, expr);
                 style_array_parts.push(format!("({guard}) && styles.{name}"));
@@ -136,8 +151,15 @@ fn render_node(
 
     let (component, extra_props) = markup::native_component(node, diagnostics);
 
+    let needs_pressed_fn = component == "Pressable" && !pressed_parts.is_empty();
+    if needs_pressed_fn {
+        style_array_parts.extend(pressed_parts);
+    }
+
     let mut props_text = String::new();
-    if style_array_parts.len() == 1 && !style_array_parts[0].contains("&&") {
+    if needs_pressed_fn {
+        props_text.push_str(&format!(" style={{({{ pressed }}) => [{}]}}", style_array_parts.join(", ")));
+    } else if style_array_parts.len() == 1 && !style_array_parts[0].contains("&&") {
         props_text.push_str(&format!(" style={{{}}}", style_array_parts[0]));
     } else if !style_array_parts.is_empty() {
         props_text.push_str(&format!(" style={{[{}]}}", style_array_parts.join(", ")));
@@ -176,6 +198,7 @@ fn condition_suffix(condition: &Condition) -> Option<String> {
         Condition::Hover => Some("hover".to_string()),
         Condition::Focus => Some("focus".to_string()),
         Condition::Disabled => Some("disabled".to_string()),
+        Condition::Pressed => Some("pressed".to_string()),
         Condition::Responsive(bp) => Some(
             match bp {
                 Breakpoint::Sm => "sm",
@@ -267,6 +290,34 @@ export function Login() {
         assert!(output.styles.contains("opacity: 0.5,"));
         assert!(output.jsx.contains("style={[styles.dowel0, (isLoading) && styles.dowel0_disabled]}"));
         assert!(output.jsx.contains("disabled={isLoading}"));
+    }
+
+    #[test]
+    fn pressed_condition_wraps_style_in_rn_pressable_render_prop() {
+        let source = r#"
+            import { Button } from '@dowel/core'
+            const el = <Button className="p-2 pressed:opacity-50">Save</Button>
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0], source);
+
+        assert!(output.styles.contains("dowel0_pressed: {"));
+        assert!(output.styles.contains("opacity: 0.5,"));
+        assert!(output.jsx.contains("style={({ pressed }) => [styles.dowel0, pressed && styles.dowel0_pressed]}"));
+    }
+
+    #[test]
+    fn pressed_condition_stays_unmerged_on_view_since_style_cannot_be_a_function_there() {
+        let source = r#"
+            import { View } from '@dowel/core'
+            const el = <View className="p-2 pressed:opacity-50" />
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0], source);
+
+        assert!(output.styles.contains("dowel0_pressed: {"));
+        assert!(output.jsx.contains("style={styles.dowel0}"));
+        assert!(!output.jsx.contains("pressed"));
     }
 
     #[test]

@@ -239,6 +239,18 @@ export function Login() {
     }
 
     #[test]
+    fn pressed_condition_compiles_to_a_real_active_pseudo_class() {
+        let source = r#"
+            import { Button } from '@dowel/core'
+            const el = <Button className="pressed:opacity-50">Save</Button>
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0], source);
+        assert!(output.css.contains(".dowel-0:active {"));
+        assert!(output.css.contains("opacity: 0.5;"));
+    }
+
+    #[test]
     fn interactive_pressable_without_role_is_diagnosed_from_real_source() {
         // Previously only reachable by hand-constructing a `Node` directly
         // -- `PropSet.on_press`/`accessibility_role` weren't populated by

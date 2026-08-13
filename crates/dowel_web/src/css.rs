@@ -173,6 +173,12 @@ pub fn condition_shape(condition: &Condition) -> (Option<String>, String) {
         // Only meaningful on elements that can actually be disabled (e.g.
         // <button>) -- CSS itself won't apply `:disabled` to a plain <div>.
         Condition::Disabled => (None, ":disabled".to_string()),
+        // Known gotcha, not fixed here: iOS Safari doesn't reliably fire
+        // `:active` from a tap unless the element has some touch-event
+        // listener attached (a long-documented WebKit quirk). Dowel's
+        // compiled onClick doesn't count. Fine for the common desktop/
+        // Android case; tracked as a real gap, not silently "handled."
+        Condition::Pressed => (None, ":active".to_string()),
         Condition::Responsive(bp) => {
             (Some(format!("(min-width: {}px)", breakpoint_min_width_px(*bp))), String::new())
         }

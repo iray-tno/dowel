@@ -140,12 +140,6 @@ fn parse_spacing_utility(token: &str) -> Option<StyleProperty> {
 /// -> `(Condition::Hover, "bg-blue-500")`). Only one level -- stacked
 /// variants (`dark:hover:...`) aren't in the Condition model at all yet, so
 /// there's nothing to strip them into.
-///
-/// `pressed:` is deliberately not handled: unlike hover/focus/disabled/
-/// responsive, it has no CSS pseudo-class or source expression to key off
-/// -- lowering it needs `@dowel/runtime` to synthesize touch-tracked state,
-/// which doesn't exist yet (see the `Condition::Expr` doc comment in
-/// dowel_ir). Falls through as unrecognized like any other unmapped token.
 pub fn parse_variant_prefix(token: &str) -> (Condition, &str) {
     if let Some(rest) = token.strip_prefix("hover:") {
         return (Condition::Hover, rest);
@@ -155,6 +149,9 @@ pub fn parse_variant_prefix(token: &str) -> (Condition, &str) {
     }
     if let Some(rest) = token.strip_prefix("disabled:") {
         return (Condition::Disabled, rest);
+    }
+    if let Some(rest) = token.strip_prefix("pressed:") {
+        return (Condition::Pressed, rest);
     }
     if let Some(rest) = token.strip_prefix("sm:") {
         return (Condition::Responsive(Breakpoint::Sm), rest);
@@ -317,10 +314,10 @@ mod tests {
     }
 
     #[test]
-    fn pressed_variant_is_not_recognized_yet() {
-        // No @dowel/runtime touch-state synthesis yet -- see
-        // `parse_variant_prefix`'s doc comment. Falls through as an
-        // ordinary unrecognized token, not misparsed as something else.
-        assert_eq!(expand_utility("pressed:font-bold"), (Condition::Always, Vec::<StyleProperty>::new()));
+    fn pressed_variant_is_recognized() {
+        assert_eq!(
+            expand_utility("pressed:opacity-50"),
+            (Condition::Pressed, vec![StyleProperty::Opacity(0.5)])
+        );
     }
 }

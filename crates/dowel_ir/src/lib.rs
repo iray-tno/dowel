@@ -243,12 +243,18 @@ pub enum Condition {
     Hover,
     Focus,
     Disabled,
-    /// Arbitrary structurally-dynamic condition (proposal §7): a prop, local
-    /// variable, or `useState` value used as a guard. Also the desugar
-    /// target for Tailwind's `pressed:` variant, which has no CSS `:active`
-    /// equivalent matching RN's touch semantics and so always needs
-    /// JS-tracked state -- no reason to give it a separate variant when it
-    /// lowers through the exact same path as any other `Expr`.
+    /// Tailwind's `pressed:` variant. Originally assumed this needed
+    /// synthesized JS-tracked state (no CSS `:active` equivalent matches
+    /// RN's touch semantics) and so should desugar into `Expr` -- wrong on
+    /// both counts: Web has a perfectly good `:active` pseudo-class for
+    /// this (same free-CSS treatment as Hover/Focus/Disabled), and RN's
+    /// `Pressable` already tracks pressed state natively via its
+    /// `style={({pressed}) => ...}` render-prop form. Neither platform
+    /// needs anything synthesized; each just needs a different, still
+    /// zero-extra-runtime, lowering.
+    Pressed,
+    /// Arbitrary structurally-dynamic condition (proposal §7): a prop,
+    /// local variable, or `useState` value used as a guard.
     Expr(ConditionExpr),
 }
 

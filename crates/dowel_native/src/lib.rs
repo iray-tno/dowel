@@ -1,26 +1,27 @@
 //! Dowel IR to React Native primitive/StyleSheet lowering (Native backend).
 //!
-//! Phase 0 scope, matching the same bar `dowel_web` was held to before its
-//! own napi/Vite wiring: prove the *structural* mapping (primitive ->
-//! RN component, StyleProperty -> RN style key/value, Condition -> a named
-//! style entry) is correct. Only `Condition::Always` gets wired into the
-//! rendered `style={...}` prop -- non-Always conditions (Hover/Focus/
-//! Disabled/Responsive/Expr) still get a correctly computed style object,
-//! but merging it into a live `style={[base, cond && variant]}` array needs
-//! `PropSet.disabled`/`on_press` to actually be populated from JSX (they
-//! aren't yet -- dowel_parser doesn't parse those attributes) and, for
-//! Expr, the same "re-emit the guard verbatim" runtime wiring `dowel_web`
-//! also still owes. Tracked as a known gap, not silently skipped.
+//! `Condition::Always` merges directly into the rendered `style` prop.
+//! Other conditions merge too, each keyed to whatever real value drives
+//! them -- `Disabled` uses `PropSet.disabled`'s guard (the *style*
+//! condition itself carries no expression; the actual boolean comes from
+//! the separate `disabled={...}` prop), `Expr` carries its own guard
+//! directly. Both get spliced into a conditional `style={[base, guard &&
+//! variant]}` array, re-emitting the guard verbatim from `source` (see
+//! `render_condition_expr`) exactly like `dowel_web` does for its
+//! attribute-toggle wiring -- same "never evaluate, only re-emit" rule.
 //!
-//! `Hover`/`Focus` compile fine structurally here too, even though neither
-//! has a native mobile-touch equivalent (no hover on touch; RN focus is a
-//! real but separate mechanism via onFocus/onBlur) -- Phase 0 doesn't
-//! block on deciding what to do with them, it just doesn't lose the data.
+//! `Hover`/`Focus`/`Responsive` still don't merge into anything: no native
+//! mobile-touch hover, and RN focus/window-dimension tracking are real but
+//! separate mechanisms this pass doesn't build. Their style objects are
+//! still computed (nothing is lost), just unused in the render -- the one
+//! remaining honest gap, not a silent one.
 
 mod markup;
 mod style;
 
-use dowel_ir::{Breakpoint, Condition, ConditionExpr, Diagnostic, ExprRef, Node, StyleProperty, TextContent};
+use dowel_ir::{
+    Breakpoint, Condition, ConditionExpr, Diagnostic, ExprRef, Node, StyleProperty, TextContent,
+};
 
 pub struct LowerOutput {
     pub jsx: String,
@@ -43,12 +44,15 @@ impl NameAllocator {
     }
 }
 
-pub fn lower(root: &Node) -> LowerOutput {
+/// `source` is the original TSX text `root` was parsed from -- needed to
+/// re-emit `ExprRef`/`ConditionExpr` guards verbatim (they're spans into
+/// it, never evaluated by the compiler; see `dowel_ir`'s doc comments).
+pub fn lower(root: &Node, source: &str) -> LowerOutput {
     let mut allocator = NameAllocator { next: 0 };
     let mut style_entries: Vec<(String, Vec<StyleProperty>)> = Vec::new();
     let mut diagnostics = Vec::new();
 
-    let jsx = render_node(root, &mut allocator, &mut style_entries, &mut diagnostics);
+    let jsx = render_node(root, source, &mut allocator, &mut style_entries, &mut diagnostics);
 
     let mut styles = String::from("{\n");
     for (name, props) in &style_entries {
@@ -65,14 +69,40 @@ pub fn lower(root: &Node) -> LowerOutput {
     LowerOutput { jsx, styles, diagnostics }
 }
 
+/// Byte-slices `source` at an `ExprRef`'s span. Spans come from oxc's own
+/// tokenizer over this same `source`, so they're always on UTF-8 character
+/// boundaries -- not re-validated here.
+fn source_text(source: &str, expr_ref: ExprRef) -> &str {
+    &source[expr_ref.0.start as usize..expr_ref.0.end as usize]
+}
+
+/// Re-emits a `ConditionExpr` as a JS boolean expression by splicing the
+/// original source at each leaf `Ref`'s span, reconstructed with real
+/// `&&`/`||`/`!` matching the combinator structure the compiler built
+/// (see dowel_parser's `dynamic_class` module) -- never anything parsed
+/// out of the leaves themselves.
+fn render_condition_expr(source: &str, expr: &ConditionExpr) -> String {
+    match expr {
+        ConditionExpr::Ref(r) => source_text(source, *r).to_string(),
+        ConditionExpr::Not(inner) => format!("!({})", render_condition_expr(source, inner)),
+        ConditionExpr::And(a, b) => {
+            format!("({}) && ({})", render_condition_expr(source, a), render_condition_expr(source, b))
+        }
+        ConditionExpr::Or(a, b) => {
+            format!("({}) || ({})", render_condition_expr(source, a), render_condition_expr(source, b))
+        }
+    }
+}
+
 fn render_node(
     node: &Node,
+    source: &str,
     allocator: &mut NameAllocator,
     style_entries: &mut Vec<(String, Vec<StyleProperty>)>,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> String {
     let base_name = allocator.alloc();
-    let mut base_style_ref = None;
+    let mut style_array_parts: Vec<String> = Vec::new();
 
     for (condition, props) in dowel_ir::group_by_condition(&node.style) {
         let props = dowel_ir::dedupe_last_wins(props);
@@ -83,8 +113,23 @@ fn render_node(
             None => base_name.clone(),
             Some(suffix) => format!("{base_name}_{suffix}"),
         };
-        if condition == Condition::Always {
-            base_style_ref = Some(name.clone());
+        match &condition {
+            Condition::Always => style_array_parts.push(format!("styles.{name}")),
+            Condition::Disabled => {
+                if let Some(disabled) = &node.props.disabled {
+                    let guard = render_condition_expr(source, disabled);
+                    style_array_parts.push(format!("({guard}) && styles.{name}"));
+                }
+                // No `disabled` prop on this node -- nothing drives this
+                // condition, so it's computed but left unmerged.
+            }
+            Condition::Expr(expr) => {
+                let guard = render_condition_expr(source, expr);
+                style_array_parts.push(format!("({guard}) && styles.{name}"));
+            }
+            Condition::Hover | Condition::Focus | Condition::Responsive(_) => {
+                // No RN mechanism yet (see module docs) -- computed, not merged.
+            }
         }
         style_entries.push((name, props));
     }
@@ -92,11 +137,19 @@ fn render_node(
     let (component, extra_props) = markup::native_component(node, diagnostics);
 
     let mut props_text = String::new();
-    if let Some(style_name) = &base_style_ref {
-        props_text.push_str(&format!(" style={{styles.{style_name}}}"));
+    if style_array_parts.len() == 1 && !style_array_parts[0].contains("&&") {
+        props_text.push_str(&format!(" style={{{}}}", style_array_parts[0]));
+    } else if !style_array_parts.is_empty() {
+        props_text.push_str(&format!(" style={{[{}]}}", style_array_parts.join(", ")));
     }
     for (key, value) in &extra_props {
         props_text.push_str(&format!(r#" {key}="{value}""#));
+    }
+    if let Some(on_press) = node.props.on_press {
+        props_text.push_str(&format!(" onPress={{{}}}", source_text(source, on_press)));
+    }
+    if let Some(disabled) = &node.props.disabled {
+        props_text.push_str(&format!(" disabled={{{}}}", render_condition_expr(source, disabled)));
     }
 
     let inner = match &node.text {
@@ -104,7 +157,7 @@ fn render_node(
         Some(TextContent::Dynamic(_)) | None => node
             .children
             .iter()
-            .map(|child| render_node(child, allocator, style_entries, diagnostics))
+            .map(|child| render_node(child, source, allocator, style_entries, diagnostics))
             .collect(),
     };
 
@@ -181,7 +234,7 @@ export function Login() {
     fn lowers_the_login_example_to_rn_jsx_and_styles() {
         let parsed = dowel_parser::parse_tsx(LOGIN_EXAMPLE);
         let root = &parsed.roots[0];
-        let output = lower(root);
+        let output = lower(root, LOGIN_EXAMPLE);
 
         assert!(output.jsx.starts_with("<View style={styles.dowel0}>"));
         assert!(output.jsx.contains("<Text style={styles.dowel1}>Welcome</Text>"));
@@ -202,7 +255,52 @@ export function Login() {
     }
 
     #[test]
-    fn non_always_conditions_get_their_own_named_style_without_being_wired_into_style_prop() {
+    fn disabled_condition_merges_into_a_conditional_style_array_when_a_disabled_prop_exists() {
+        let source = r#"
+            import { Button } from '@dowel/core'
+            const el = <Button disabled={isLoading} className="p-2 disabled:opacity-50">Save</Button>
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0], source);
+
+        assert!(output.styles.contains("dowel0_disabled: {"));
+        assert!(output.styles.contains("opacity: 0.5,"));
+        assert!(output.jsx.contains("style={[styles.dowel0, (isLoading) && styles.dowel0_disabled]}"));
+        assert!(output.jsx.contains("disabled={isLoading}"));
+    }
+
+    #[test]
+    fn disabled_condition_stays_unmerged_without_a_disabled_prop() {
+        // Nothing drives "disabled-ness" here -- the className has a
+        // disabled: variant but the component never actually received a
+        // `disabled` prop, so there's no guard to merge with. Computed,
+        // not silently dropped, but also not merged into anything.
+        let source = r#"
+            import { View } from '@dowel/core'
+            const el = <View className="disabled:opacity-50" />
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0], source);
+        assert!(output.styles.contains("dowel0_disabled: {"));
+        assert!(!output.jsx.contains("dowel0_disabled"));
+    }
+
+    #[test]
+    fn dynamic_class_name_guard_merges_into_the_style_array() {
+        let source = r#"
+            import { View } from '@dowel/core'
+            import { cn } from 'clsx'
+            const el = <View className={cn('p-4', active && 'text-xl')} />
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0], source);
+        assert!(output.jsx.contains("style={[styles.dowel0, (active) && styles.dowel0_cond_"));
+    }
+
+    #[test]
+    fn hover_and_focus_still_do_not_merge_into_anything() {
+        // No RN mechanism for either (see module docs) -- still computed,
+        // still not merged, unlike Disabled/Expr which now are.
         let node = dowel_ir::Node {
             primitive: dowel_ir::Primitive::View,
             style: vec![
@@ -212,7 +310,7 @@ export function Login() {
                 },
                 dowel_ir::StyleDeclaration {
                     property: dowel_ir::StyleProperty::Opacity(0.5),
-                    condition: dowel_ir::Condition::Disabled,
+                    condition: dowel_ir::Condition::Hover,
                 },
             ],
             props: dowel_ir::PropSet::default(),
@@ -221,14 +319,10 @@ export function Login() {
             class_name_fallback: Vec::new(),
             span: dowel_ir::SourceSpan { start: 0, end: 0 },
         };
-        let output = lower(&node);
+        let output = lower(&node, "");
         assert!(output.jsx.contains("style={styles.dowel0}"));
-        assert!(output.styles.contains("dowel0_disabled: {"));
-        assert!(output.styles.contains("opacity: 0.5,"));
-        // Known Phase 0 gap, asserted explicitly rather than left implicit:
-        // the disabled-variant style exists but isn't merged into the
-        // rendered style prop yet.
-        assert!(!output.jsx.contains("dowel0_disabled"));
+        assert!(output.styles.contains("dowel0_hover: {"));
+        assert!(!output.jsx.contains("dowel0_hover"));
     }
 
     #[test]
@@ -236,25 +330,24 @@ export function Login() {
         // As with dowel_web: previously only reachable by hand-constructing
         // a `Node` -- the parser didn't populate on_press/accessibility_role
         // at all until dowel_parser::jsx gained that attribute parsing.
-        let parsed = dowel_parser::parse_tsx(
-            r#"
+        let source = r#"
             import { Pressable } from '@dowel/core'
             const el = <Pressable onPress={handleTap}>Tap</Pressable>
-            "#,
-        );
-        let output = lower(&parsed.roots[0]);
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0], source);
         assert_eq!(output.diagnostics.len(), 1);
         assert_eq!(output.diagnostics[0].code, dowel_ir::DiagnosticCode::A11yInteractiveWithoutRole);
+        assert!(output.jsx.contains("onPress={handleTap}"));
 
-        let parsed_with_role = dowel_parser::parse_tsx(
-            r#"
+        let source_with_role = r#"
             import { Pressable } from '@dowel/core'
             const el = (
               <Pressable onPress={handleTap} accessibilityRole="button">Tap</Pressable>
             )
-            "#,
-        );
-        let output_with_role = lower(&parsed_with_role.roots[0]);
+            "#;
+        let parsed_with_role = dowel_parser::parse_tsx(source_with_role);
+        let output_with_role = lower(&parsed_with_role.roots[0], source_with_role);
         assert!(output_with_role.diagnostics.is_empty());
         assert!(output_with_role.jsx.contains(r#"accessibilityRole="button""#));
     }

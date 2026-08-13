@@ -40,13 +40,16 @@ impl ClassAllocator {
     }
 }
 
-pub fn lower(root: &Node) -> LowerOutput {
+/// `source` is the original TSX text `root` was parsed from -- needed to
+/// re-emit `ExprRef`/`ConditionExpr` guards verbatim (they're spans into
+/// it, not evaluated by the compiler; see `dowel_ir`'s doc comments).
+pub fn lower(root: &Node, source: &str) -> LowerOutput {
     let mut allocator = ClassAllocator { next: 0 };
     let mut rules = String::new();
     let mut diagnostics = Vec::new();
     let mut uses_view_base = false;
 
-    let jsx = render_node(root, &mut allocator, &mut rules, &mut diagnostics, &mut uses_view_base);
+    let jsx = render_node(root, source, &mut allocator, &mut rules, &mut diagnostics, &mut uses_view_base);
 
     let mut css = String::new();
     if uses_view_base {
@@ -57,8 +60,36 @@ pub fn lower(root: &Node) -> LowerOutput {
     LowerOutput { jsx, css, diagnostics }
 }
 
+/// Byte-slices `source` at an `ExprRef`'s span. Spans come from oxc's own
+/// tokenizer over this same `source`, so they're always on UTF-8 character
+/// boundaries -- not re-validated here.
+fn source_text(source: &str, expr_ref: dowel_ir::ExprRef) -> &str {
+    &source[expr_ref.0.start as usize..expr_ref.0.end as usize]
+}
+
+/// Re-emits a `ConditionExpr` as a JS boolean expression by splicing the
+/// original source at each leaf `Ref`'s span -- the compiler never
+/// evaluates these, only reconstructs them with real `&&`/`||`/`!`
+/// wrapping the *combinator structure* it built (see dowel_parser's
+/// `dynamic_class` module), not anything it parsed out of the leaves
+/// themselves.
+fn render_condition_expr(source: &str, expr: &dowel_ir::ConditionExpr) -> String {
+    use dowel_ir::ConditionExpr;
+    match expr {
+        ConditionExpr::Ref(r) => source_text(source, *r).to_string(),
+        ConditionExpr::Not(inner) => format!("!({})", render_condition_expr(source, inner)),
+        ConditionExpr::And(a, b) => {
+            format!("({}) && ({})", render_condition_expr(source, a), render_condition_expr(source, b))
+        }
+        ConditionExpr::Or(a, b) => {
+            format!("({}) || ({})", render_condition_expr(source, a), render_condition_expr(source, b))
+        }
+    }
+}
+
 fn render_node(
     node: &Node,
+    source: &str,
     allocator: &mut ClassAllocator,
     rules: &mut String,
     diagnostics: &mut Vec<Diagnostic>,
@@ -89,13 +120,29 @@ fn render_node(
     for (key, value) in &extra_attrs {
         attrs.push_str(&format!(r#" {key}="{value}""#));
     }
-    // Structural placeholders for any Condition::Expr guards this node's
-    // own declarations depend on -- always "false" here since there's no
-    // live runtime wiring yet (that's `@dowel/runtime`'s job, later). This
-    // exists so the attribute name a CSS selector expects and the
-    // attribute a real runtime would toggle are provably the same string.
+
+    if let Some(on_press) = node.props.on_press {
+        attrs.push_str(&format!(" onClick={{{}}}", source_text(source, on_press)));
+    }
+    if let Some(disabled) = &node.props.disabled {
+        // `disabled` is a real, React-boolean-aware HTML attribute only on
+        // actual form controls (<button> here) -- react omits it entirely
+        // when the value is falsy. Everything else Dowel maps to a <div>
+        // (Pressable, View, Text), where the native attribute has no
+        // effect at all, so ARIA is the honest choice there instead.
+        let attr_name = if node.primitive == Primitive::Button { "disabled" } else { "aria-disabled" };
+        attrs.push_str(&format!(" {attr_name}={{{}}}", render_condition_expr(source, disabled)));
+    }
+
+    // CSS attribute selectors (`[data-dowel-cond-x-y]`, built in css.rs)
+    // match on an attribute's *presence*, not its string value -- so the
+    // guard must be wired as `{expr ? '' : undefined}` (React omits
+    // `undefined`-valued attributes entirely) rather than a literal
+    // "true"/"false" string, which would stay present either way and
+    // permanently match the selector.
     for expr_ref in collect_expr_refs(node) {
-        attrs.push_str(&format!(r#" {}="false""#, css::expr_ref_attribute(expr_ref)));
+        let guard = source_text(source, expr_ref);
+        attrs.push_str(&format!(" {}={{{guard} ? '' : undefined}}", css::expr_ref_attribute(expr_ref)));
     }
 
     let inner = match &node.text {
@@ -103,7 +150,7 @@ fn render_node(
         Some(dowel_ir::TextContent::Dynamic(_)) | None => node
             .children
             .iter()
-            .map(|child| render_node(child, allocator, rules, diagnostics, uses_view_base))
+            .map(|child| render_node(child, source, allocator, rules, diagnostics, uses_view_base))
             .collect(),
     };
 
@@ -160,7 +207,7 @@ export function Login() {
     fn lowers_the_login_example_to_html_and_css() {
         let parsed = dowel_parser::parse_tsx(LOGIN_EXAMPLE);
         let root = &parsed.roots[0];
-        let output = lower(root);
+        let output = lower(root, LOGIN_EXAMPLE);
 
         assert!(output.jsx.starts_with(r#"<div className="dowel-view dowel-0">"#));
         assert!(output.jsx.contains("<span className=\"dowel-1\">Welcome</span>"));
@@ -181,13 +228,12 @@ export function Login() {
 
     #[test]
     fn hover_condition_compiles_to_a_real_pseudo_class() {
-        let parsed = dowel_parser::parse_tsx(
-            r#"
+        let source = r#"
             import { View } from '@dowel/core'
             const el = <View className="hover:text-xl" />
-            "#,
-        );
-        let output = lower(&parsed.roots[0]);
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0], source);
         assert!(output.css.contains(".dowel-0:hover {"));
         assert!(output.css.contains("font-size: 20px;"));
     }
@@ -198,30 +244,76 @@ export function Login() {
         // -- `PropSet.on_press`/`accessibility_role` weren't populated by
         // the parser at all until dowel_parser::jsx gained onPress/
         // accessibilityRole attribute parsing.
-        let parsed = dowel_parser::parse_tsx(
-            r#"
+        let source = r#"
             import { Pressable } from '@dowel/core'
             const el = <Pressable onPress={handleTap}>Tap</Pressable>
-            "#,
-        );
-        let output = lower(&parsed.roots[0]);
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0], source);
         assert_eq!(output.diagnostics.len(), 1);
         assert_eq!(output.diagnostics[0].code, dowel_ir::DiagnosticCode::A11yInteractiveWithoutRole);
         assert!(!output.jsx.contains("role="));
+        // onPress -> onClick is wired regardless of the diagnostic.
+        assert!(output.jsx.contains("onClick={handleTap}"));
     }
 
     #[test]
     fn accessibility_role_suppresses_the_diagnostic_and_sets_role() {
-        let parsed = dowel_parser::parse_tsx(
-            r#"
+        let source = r#"
             import { Pressable } from '@dowel/core'
             const el = (
               <Pressable onPress={handleTap} accessibilityRole="button">Tap</Pressable>
             )
-            "#,
-        );
-        let output = lower(&parsed.roots[0]);
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0], source);
         assert!(output.diagnostics.is_empty());
         assert!(output.jsx.contains(r#"role="button""#));
+    }
+
+    #[test]
+    fn disabled_renders_the_native_attribute_on_button() {
+        let source = r#"
+            import { Button } from '@dowel/core'
+            const el = <Button disabled={isLoading}>Save</Button>
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0], source);
+        assert!(output.jsx.contains("disabled={isLoading}"));
+        assert!(!output.jsx.contains("aria-disabled"));
+    }
+
+    #[test]
+    fn disabled_renders_aria_disabled_on_pressable() {
+        // Pressable is a <div> -- the native `disabled` attribute has no
+        // effect there, so this must be ARIA instead.
+        let source = r#"
+            import { Pressable } from '@dowel/core'
+            const el = <Pressable disabled={isLoading} accessibilityRole="button">Save</Pressable>
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0], source);
+        assert!(output.jsx.contains("aria-disabled={isLoading}"));
+    }
+
+    #[test]
+    fn dynamic_class_name_guard_is_wired_as_a_presence_toggle() {
+        let source = r#"
+            import { View } from '@dowel/core'
+            import { cn } from 'clsx'
+            const el = <View className={cn('p-4', active && 'text-xl')} />
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0], source);
+
+        // The guard is re-emitted verbatim, wired to toggle attribute
+        // *presence* (not a literal "true"/"false" string, which would
+        // permanently match the CSS attribute selector either way).
+        assert!(output.jsx.contains("={active ? '' : undefined}"));
+        assert!(!output.jsx.contains(r#"="false""#));
+        assert!(!output.jsx.contains(r#"="true""#));
+
+        // And the CSS selector that attribute name feeds is present too.
+        assert!(output.css.contains("] {"));
     }
 }

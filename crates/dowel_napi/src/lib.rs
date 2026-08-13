@@ -63,7 +63,7 @@ pub fn compile(source: String) -> Vec<CompiledComponent> {
         .roots
         .iter()
         .map(|root| {
-            let output = dowel_web::lower(root);
+            let output = dowel_web::lower(root, &source);
             CompiledComponent {
                 jsx: output.jsx,
                 css: output.css,
@@ -99,7 +99,7 @@ pub fn compile_native(source: String) -> Vec<CompiledNativeComponent> {
         .roots
         .iter()
         .map(|root| {
-            let output = dowel_native::lower(root);
+            let output = dowel_native::lower(root, &source);
             CompiledNativeComponent {
                 jsx: output.jsx,
                 styles: output.styles,

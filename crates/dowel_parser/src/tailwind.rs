@@ -64,6 +64,12 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
     if let Some(prop) = parse_spacing_utility(token) {
         return Some(prop);
     }
+    if let Some(rest) = token.strip_prefix("opacity-") {
+        // Tailwind's opacity scale is 0-100 (in practice steps of 5),
+        // meaning percent -- StyleProperty::Opacity wants the 0.0-1.0
+        // fraction CSS/RN both expect.
+        return rest.parse::<f32>().ok().map(|pct| StyleProperty::Opacity(pct / 100.0));
+    }
     if let Some(color) = token.strip_prefix("bg-") {
         return Some(StyleProperty::BackgroundColor(Color::Token(color.to_string())));
     }
@@ -237,6 +243,15 @@ fn expand_base_utility(token: &str) -> Vec<StyleProperty> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_opacity_scale() {
+        assert_eq!(expand_utility("opacity-50"), (Condition::Always, vec![StyleProperty::Opacity(0.5)]));
+        assert_eq!(
+            expand_utility("disabled:opacity-50"),
+            (Condition::Disabled, vec![StyleProperty::Opacity(0.5)])
+        );
+    }
 
     #[test]
     fn expands_login_example_utilities() {

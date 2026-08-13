@@ -86,6 +86,22 @@ pub enum TextContent {
     Dynamic(ExprRef),
 }
 
+/// A JSX attribute Dowel doesn't model, carried through to output
+/// untouched. Stored as the span of the *whole* attribute rather than a
+/// name/value pair, because that one representation covers every form
+/// uniformly -- `testID="row"`, `onLayout={fn}`, bare `autoFocus`, and
+/// `{...rest}` (which has no name at all, so a name/value pair couldn't
+/// represent it).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PassthroughProp {
+    pub span: ExprRef,
+    /// True for `{...expr}`. Tracked separately because a spread's
+    /// *position* matters: JSX resolves duplicate props last-wins, so a
+    /// spread after Dowel's compiled className can silently override it at
+    /// runtime (see `DiagnosticCode::UnsafePropSpreadAfterStyle`).
+    pub is_spread: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PropSet {
     pub on_press: Option<ExprRef>,
@@ -93,8 +109,9 @@ pub struct PropSet {
     /// Explicit override; `None` means derive the role from `Primitive`
     /// (e.g. `Button` -> `AccessibilityRole::Button`).
     pub accessibility_role: Option<AccessibilityRole>,
-    /// Props Dowel doesn't model explicitly -- re-emitted unchanged.
-    pub passthrough: Vec<(String, ExprRef)>,
+    /// Props Dowel doesn't model explicitly -- re-emitted unchanged, in
+    /// source order (which JSX's last-wins duplicate resolution depends on).
+    pub passthrough: Vec<PassthroughProp>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

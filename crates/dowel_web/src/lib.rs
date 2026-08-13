@@ -145,6 +145,17 @@ fn render_node(
         attrs.push_str(&format!(" {}={{{guard} ? '' : undefined}}", css::expr_ref_attribute(expr_ref)));
     }
 
+    // Everything Dowel doesn't model, re-emitted verbatim and last so JSX's
+    // last-wins duplicate resolution keeps matching the source's own
+    // ordering semantics. Emitted as written, including RN-specific props
+    // (`testID`) that React DOM will warn about as unknown on Web -- a
+    // visible warning beats silently dropping what the author wrote;
+    // mapping those to Web equivalents is a separate piece of work.
+    for prop in &node.props.passthrough {
+        attrs.push(' ');
+        attrs.push_str(source_text(source, prop.span));
+    }
+
     let inner = match &node.text {
         Some(dowel_ir::TextContent::Literal(text)) => markup::html_escape(text),
         Some(dowel_ir::TextContent::Dynamic(_)) | None => node
@@ -236,6 +247,19 @@ export function Login() {
         let output = lower(&parsed.roots[0], source);
         assert!(output.css.contains(".dowel-0:hover {"));
         assert!(output.css.contains("font-size: 20px;"));
+    }
+
+    #[test]
+    fn unmodeled_props_and_spreads_reach_the_output() {
+        let source = r#"
+            import { View } from '@dowel/core'
+            const el = <View className="p-4" {...rest} onLayout={onLayout} testID="row" />
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0], source);
+        assert!(output.jsx.contains("{...rest}"));
+        assert!(output.jsx.contains("onLayout={onLayout}"));
+        assert!(output.jsx.contains(r#"testID="row""#));
     }
 
     #[test]

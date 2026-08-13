@@ -4,7 +4,7 @@ mod dynamic_class;
 mod jsx;
 mod tailwind;
 
-use dowel_ir::Node;
+use dowel_ir::{Diagnostic, Node};
 use jsx::JsxCollector;
 use oxc_allocator::Allocator;
 use oxc_ast_visit::Visit;
@@ -13,6 +13,9 @@ use oxc_span::SourceType;
 
 pub struct ParseOutput {
     pub roots: Vec<Node>,
+    /// Diagnostics about the source as written, independent of target
+    /// platform -- backends raise their own separately during `lower()`.
+    pub diagnostics: Vec<Diagnostic>,
 }
 
 /// Parses TSX source into Dowel IR node trees, one per top-level JSX
@@ -25,7 +28,7 @@ pub fn parse_tsx(source_text: &str) -> ParseOutput {
     let mut collector = JsxCollector::new(&ret.module_record);
     collector.visit_program(&ret.program);
 
-    ParseOutput { roots: collector.roots }
+    ParseOutput { roots: collector.roots, diagnostics: collector.diagnostics }
 }
 
 #[cfg(test)]

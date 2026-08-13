@@ -53,6 +53,22 @@ pub struct CompiledComponent {
     pub span_end: u32,
 }
 
+/// Parser diagnostics are file-level (they're about the source as written,
+/// not about any one lowering), but this binding reports per-component --
+/// so each is attributed to whichever root's span contains it.
+fn parser_diagnostics_for(
+    parsed: &dowel_parser::ParseOutput,
+    root: &dowel_ir::Node,
+) -> Vec<CompileDiagnostic> {
+    parsed
+        .diagnostics
+        .iter()
+        .filter(|d| d.span.start >= root.span.start && d.span.end <= root.span.end)
+        .cloned()
+        .map(to_js_diagnostic)
+        .collect()
+}
+
 /// Parses `source` as TSX and lowers every top-level JSX element found (one
 /// per component's returned JSX, see `dowel_parser::parse_tsx`) to Web
 /// output. Returns one `CompiledComponent` per root found, in source order.
@@ -64,10 +80,12 @@ pub fn compile(source: String) -> Vec<CompiledComponent> {
         .iter()
         .map(|root| {
             let output = dowel_web::lower(root, &source);
+            let mut diagnostics = parser_diagnostics_for(&parsed, root);
+            diagnostics.extend(output.diagnostics.into_iter().map(to_js_diagnostic));
             CompiledComponent {
                 jsx: output.jsx,
                 css: output.css,
-                diagnostics: output.diagnostics.into_iter().map(to_js_diagnostic).collect(),
+                diagnostics,
                 span_start: root.span.start,
                 span_end: root.span.end,
             }
@@ -100,10 +118,12 @@ pub fn compile_native(source: String) -> Vec<CompiledNativeComponent> {
         .iter()
         .map(|root| {
             let output = dowel_native::lower(root, &source);
+            let mut diagnostics = parser_diagnostics_for(&parsed, root);
+            diagnostics.extend(output.diagnostics.into_iter().map(to_js_diagnostic));
             CompiledNativeComponent {
                 jsx: output.jsx,
                 styles: output.styles,
-                diagnostics: output.diagnostics.into_iter().map(to_js_diagnostic).collect(),
+                diagnostics,
                 span_start: root.span.start,
                 span_end: root.span.end,
             }

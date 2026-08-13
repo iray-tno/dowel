@@ -37,7 +37,11 @@ pub fn element_shape(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'stati
                 }
             }
             if node.props.on_press.is_some() {
-                attrs.push(("tabindex", "0".to_string()));
+                // `tabIndex`, not `tabindex` -- this output is JSX, so DOM
+                // props take React's camelCase spellings (same reason the
+                // class attribute is emitted as `className`). React warns
+                // on the all-lowercase form and drops it.
+                attrs.push(("tabIndex", "0".to_string()));
             }
             ("div", attrs)
         }
@@ -94,7 +98,7 @@ mod tests {
         let mut diagnostics = Vec::new();
         let (tag, attrs) = element_shape(&node, &mut diagnostics);
         assert_eq!(tag, "div");
-        assert!(attrs.iter().any(|(k, v)| *k == "tabindex" && v == "0"));
+        assert!(attrs.iter().any(|(k, v)| *k == "tabIndex" && v == "0"));
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].code, DiagnosticCode::A11yInteractiveWithoutRole);
     }

@@ -173,6 +173,13 @@ fn render_node(
     if let Some(disabled) = &node.props.disabled {
         props_text.push_str(&format!(" disabled={{{}}}", render_condition_expr(source, disabled)));
     }
+    // Everything Dowel doesn't model, re-emitted verbatim and last so JSX's
+    // last-wins duplicate resolution keeps matching the source's own
+    // ordering semantics.
+    for prop in &node.props.passthrough {
+        props_text.push(' ');
+        props_text.push_str(source_text(source, prop.span));
+    }
 
     let inner = match &node.text {
         Some(TextContent::Literal(text)) => escape_jsx_text(text),
@@ -290,6 +297,19 @@ export function Login() {
         assert!(output.styles.contains("opacity: 0.5,"));
         assert!(output.jsx.contains("style={[styles.dowel0, (isLoading) && styles.dowel0_disabled]}"));
         assert!(output.jsx.contains("disabled={isLoading}"));
+    }
+
+    #[test]
+    fn unmodeled_props_and_spreads_reach_the_output() {
+        let source = r#"
+            import { View } from '@dowel/core'
+            const el = <View className="p-4" {...rest} onLayout={onLayout} testID="row" />
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0], source);
+        assert!(output.jsx.contains("{...rest}"));
+        assert!(output.jsx.contains("onLayout={onLayout}"));
+        assert!(output.jsx.contains(r#"testID="row""#));
     }
 
     #[test]

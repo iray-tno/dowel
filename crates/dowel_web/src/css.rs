@@ -15,8 +15,8 @@
 //! correct-but-unresolved, not silently wrong.
 
 use dowel_ir::{
-    Align, Breakpoint, Color, Condition, ConditionExpr, Dimension, FlexDirection, FlexShorthand,
-    Justify, Length, Position, StyleProperty, TextAlign,
+    Align, BorderStyle, Breakpoint, Color, Condition, ConditionExpr, Dimension, FlexDirection,
+    FlexShorthand, Justify, Length, Position, StyleProperty, TextAlign,
 };
 
 fn length_px(length: Length) -> String {
@@ -116,13 +116,20 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
         StyleProperty::BackgroundColor(c) => ("background-color", color_var(c)),
         StyleProperty::Opacity(o) => ("opacity", format!("{o}")),
         StyleProperty::BorderColor(c) => ("border-color", color_var(c)),
-        // Note: a border only renders visibly once `border-style` is also
-        // non-`none` (CSS's own default). Tailwind gets away with setting
-        // only `border-width` because its preflight reset pre-sets
-        // `border-style: solid`. Dowel has no preflight-equivalent yet, so
-        // `BorderWidth` alone will currently produce an invisible border --
-        // tracked as a known gap, not silently "handled."
-        StyleProperty::BorderWidth(l) => ("border-width", length_px(*l)),
+        StyleProperty::BorderTopWidth(l) => ("border-top-width", length_px(*l)),
+        StyleProperty::BorderRightWidth(l) => ("border-right-width", length_px(*l)),
+        StyleProperty::BorderBottomWidth(l) => ("border-bottom-width", length_px(*l)),
+        StyleProperty::BorderLeftWidth(l) => ("border-left-width", length_px(*l)),
+        StyleProperty::BorderStyle(style) => (
+            "border-style",
+            match style {
+                BorderStyle::Solid => "solid",
+                BorderStyle::Dashed => "dashed",
+                BorderStyle::Dotted => "dotted",
+                BorderStyle::None => "none",
+            }
+            .to_string(),
+        ),
         StyleProperty::BorderRadius(l) => ("border-radius", length_px(*l)),
         StyleProperty::FontSize(l) => ("font-size", length_px(*l)),
         StyleProperty::FontWeight(w) => ("font-weight", format!("{}", w.0)),

@@ -19,7 +19,7 @@
 //!   property to defer to the way Web's `var(--dowel-color-x)` does.
 
 use dowel_ir::{
-    Align, Color, Dimension, FlexDirection, FlexShorthand, Justify, Length, Position,
+    Align, BorderStyle, Color, Dimension, FlexDirection, FlexShorthand, Justify, Length, Position,
     StyleProperty, TextAlign,
 };
 
@@ -120,10 +120,25 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
         StyleProperty::BackgroundColor(c) => vec![("backgroundColor", resolve_color(c))],
         StyleProperty::Opacity(o) => vec![("opacity", format!("{o}"))],
         StyleProperty::BorderColor(c) => vec![("borderColor", resolve_color(c))],
-        // Unlike Web, RN shows a (black, by default) border once
-        // `borderWidth` is set even without an explicit `borderColor` --
-        // the opposite gotcha from CSS's "invisible without borderStyle."
-        StyleProperty::BorderWidth(l) => vec![("borderWidth", number(*l))],
+        // Unlike Web, RN defaults borderStyle to 'solid' and borderColor to
+        // black, so a width alone already renders -- the opposite gotcha
+        // from CSS's "invisible without border-style".
+        StyleProperty::BorderTopWidth(l) => vec![("borderTopWidth", number(*l))],
+        StyleProperty::BorderRightWidth(l) => vec![("borderRightWidth", number(*l))],
+        StyleProperty::BorderBottomWidth(l) => vec![("borderBottomWidth", number(*l))],
+        StyleProperty::BorderLeftWidth(l) => vec![("borderLeftWidth", number(*l))],
+        // RN has no per-side borderStyle -- it's one property for all sides.
+        StyleProperty::BorderStyle(style) => vec![(
+            "borderStyle",
+            match style {
+                BorderStyle::Solid => "'solid'",
+                BorderStyle::Dashed => "'dashed'",
+                BorderStyle::Dotted => "'dotted'",
+                // RN has no 'none'; zero-width is how you hide a border.
+                BorderStyle::None => "'solid'",
+            }
+            .to_string(),
+        )],
         StyleProperty::BorderRadius(l) => vec![("borderRadius", number(*l))],
         StyleProperty::FontSize(l) => vec![("fontSize", number(*l))],
         // RN's `fontWeight` type is a *string* ('100'..'900'/'normal'/

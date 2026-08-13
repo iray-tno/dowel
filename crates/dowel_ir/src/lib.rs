@@ -169,7 +169,18 @@ pub enum StyleProperty {
     BackgroundColor(Color),
     Opacity(f32),
     BorderColor(Color),
-    BorderWidth(Length),
+    // Per-side, for the same reason margin/padding are (see above):
+    // `border-t-2` and `border-b-4` set disjoint sides and must compose.
+    BorderTopWidth(Length),
+    BorderRightWidth(Length),
+    BorderBottomWidth(Length),
+    BorderLeftWidth(Length),
+    /// Needed for border widths to render at all on Web: CSS defaults
+    /// `border-style` to `none`, so a width alone shows nothing. Tailwind
+    /// emits a style declaration alongside every border-width utility for
+    /// exactly this reason, and Dowel has no preflight/reset of its own to
+    /// lean on instead.
+    BorderStyle(BorderStyle),
     BorderRadius(Length),
 
     // Typography
@@ -219,6 +230,14 @@ pub enum Justify {
 pub enum Position {
     Relative,
     Absolute,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BorderStyle {
+    Solid,
+    Dashed,
+    Dotted,
+    None,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

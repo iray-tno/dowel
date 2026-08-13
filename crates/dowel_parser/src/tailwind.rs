@@ -5,8 +5,8 @@
 //! callers decide what to do with an unmapped utility (Phase 0: drop it).
 
 use dowel_ir::{
-    Align, Breakpoint, Color, Condition, Dimension, FlexDirection, FlexShorthand, FontWeight,
-    Justify, Length, StyleProperty, TextAlign,
+    Align, BorderStyle, Breakpoint, Color, Condition, Dimension, FlexDirection, FlexShorthand,
+    FontWeight, Justify, Length, Position, StyleProperty, TextAlign,
 };
 
 /// Tailwind's default spacing scale: `spacing(n) = n * 0.25rem`, and the
@@ -49,10 +49,62 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
         "justify-evenly" => return Some(StyleProperty::JustifyContent(Justify::Evenly)),
         "w-full" => return Some(StyleProperty::Width(Dimension::Percent(100.0))),
         "h-full" => return Some(StyleProperty::Height(Dimension::Percent(100.0))),
+        "w-auto" => return Some(StyleProperty::Width(Dimension::Auto)),
+        "h-auto" => return Some(StyleProperty::Height(Dimension::Auto)),
         "text-left" => return Some(StyleProperty::TextAlign(TextAlign::Left)),
         "text-center" => return Some(StyleProperty::TextAlign(TextAlign::Center)),
         "text-right" => return Some(StyleProperty::TextAlign(TextAlign::Right)),
+        "relative" => return Some(StyleProperty::Position(Position::Relative)),
+        "absolute" => return Some(StyleProperty::Position(Position::Absolute)),
+        "border-solid" => return Some(StyleProperty::BorderStyle(BorderStyle::Solid)),
+        "border-dashed" => return Some(StyleProperty::BorderStyle(BorderStyle::Dashed)),
+        "border-dotted" => return Some(StyleProperty::BorderStyle(BorderStyle::Dotted)),
+        "border-none" => return Some(StyleProperty::BorderStyle(BorderStyle::None)),
         _ => {}
+    }
+
+    if let Some(radius) = parse_border_radius(token) {
+        return Some(StyleProperty::BorderRadius(radius));
+    }
+    // `leading-<n>` only: Tailwind's *named* leading scale (`leading-tight`
+    // = 1.25 etc.) is a unitless ratio of the element's own font size,
+    // which `Length::Px` can't represent and which can't be resolved
+    // statically -- so those fall through as unrecognized rather than being
+    // converted to a wrong pixel value.
+    if let Some(rest) = token.strip_prefix("leading-") {
+        if let Some(v) = parse_spacing_suffix(rest) {
+            return Some(StyleProperty::LineHeight(v));
+        }
+    }
+    if let Some(rest) = token.strip_prefix("top-") {
+        if let Some(v) = parse_spacing_suffix(rest) {
+            return Some(StyleProperty::InsetTop(v));
+        }
+    }
+    if let Some(rest) = token.strip_prefix("right-") {
+        if let Some(v) = parse_spacing_suffix(rest) {
+            return Some(StyleProperty::InsetRight(v));
+        }
+    }
+    if let Some(rest) = token.strip_prefix("bottom-") {
+        if let Some(v) = parse_spacing_suffix(rest) {
+            return Some(StyleProperty::InsetBottom(v));
+        }
+    }
+    if let Some(rest) = token.strip_prefix("left-") {
+        if let Some(v) = parse_spacing_suffix(rest) {
+            return Some(StyleProperty::InsetLeft(v));
+        }
+    }
+    if let Some(rest) = token.strip_prefix("w-") {
+        if let Some(d) = parse_dimension_suffix(rest) {
+            return Some(StyleProperty::Width(d));
+        }
+    }
+    if let Some(rest) = token.strip_prefix("h-") {
+        if let Some(d) = parse_dimension_suffix(rest) {
+            return Some(StyleProperty::Height(d));
+        }
     }
 
     if let Some(weight) = parse_font_weight(token) {
@@ -78,8 +130,52 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
         // didn't match, so whatever remains is a color token (e.g. `blue-500`).
         return Some(StyleProperty::TextColor(Color::Token(color.to_string())));
     }
+    if let Some(color) = token.strip_prefix("border-") {
+        // Only reached once the width/style forms above have declined it,
+        // so a non-numeric, non-keyword suffix here is a color token.
+        return Some(StyleProperty::BorderColor(Color::Token(color.to_string())));
+    }
 
     None
+}
+
+/// Tailwind's `--radius-*` scale, in px (its own values are rem at the
+/// default 16px root). Bare `rounded` is 0.25rem, which is *not* the same
+/// as `rounded-sm` in v4 -- they happen to share a value here but are
+/// separate scale entries.
+fn parse_border_radius(token: &str) -> Option<Length> {
+    let px = match token {
+        "rounded" => 4.0,
+        "rounded-none" => 0.0,
+        "rounded-xs" => 2.0,
+        "rounded-sm" => 4.0,
+        "rounded-md" => 6.0,
+        "rounded-lg" => 8.0,
+        "rounded-xl" => 12.0,
+        "rounded-2xl" => 16.0,
+        "rounded-3xl" => 24.0,
+        "rounded-4xl" => 32.0,
+        // Tailwind emits `calc(infinity * 1px)`; a large finite value is
+        // the conventional equivalent and is what RN needs anyway (it has
+        // no infinity).
+        "rounded-full" => 9999.0,
+        _ => return None,
+    };
+    Some(Length::Px(px))
+}
+
+/// Width/height accept more than the spacing scale: `w-1/2` fractions and
+/// `w-full`/`w-auto` keywords (the latter handled by the exact-match table).
+fn parse_dimension_suffix(suffix: &str) -> Option<Dimension> {
+    if let Some((num, denom)) = suffix.split_once('/') {
+        let num: f32 = num.parse().ok()?;
+        let denom: f32 = denom.parse().ok()?;
+        if denom == 0.0 {
+            return None;
+        }
+        return Some(Dimension::Percent(num / denom * 100.0));
+    }
+    parse_spacing_suffix(suffix).map(Dimension::Length)
 }
 
 fn parse_font_weight(token: &str) -> Option<FontWeight> {
@@ -233,8 +329,86 @@ fn expand_base_utility(token: &str) -> Vec<StyleProperty> {
             return vec![StyleProperty::RowGap(v)];
         }
     }
+    if let Some(rest) = token.strip_prefix("inset-") {
+        if let Some(v) = parse_spacing_suffix(rest) {
+            return vec![
+                StyleProperty::InsetTop(v),
+                StyleProperty::InsetRight(v),
+                StyleProperty::InsetBottom(v),
+                StyleProperty::InsetLeft(v),
+            ];
+        }
+    }
+    if let Some(rest) = token.strip_prefix("size-") {
+        if let Some(d) = parse_dimension_suffix(rest) {
+            return vec![StyleProperty::Width(d), StyleProperty::Height(d)];
+        }
+    }
+    if let Some(props) = expand_border_width(token) {
+        return props;
+    }
 
     parse_utility(token).into_iter().collect()
+}
+
+/// `border`, `border-<n>`, `border-{t,r,b,l}`, `border-{t,r,b,l}-<n>`.
+///
+/// Every border-width utility also emits `BorderStyle::Solid`, mirroring
+/// Tailwind (which pairs each width with a style declaration) -- without
+/// it CSS's default `border-style: none` means the width renders nothing.
+///
+/// Ordered after the color check would be ambiguous (`border-2` vs
+/// `border-red-500`), so width parsing is tried first and only falls
+/// through to color when the suffix isn't numeric.
+fn expand_border_width(token: &str) -> Option<Vec<StyleProperty>> {
+    let rest = token.strip_prefix("border")?;
+    let solid = StyleProperty::BorderStyle(BorderStyle::Solid);
+
+    // Bare `border` == 1px on every side.
+    if rest.is_empty() {
+        let one = Length::Px(1.0);
+        return Some(vec![
+            StyleProperty::BorderTopWidth(one),
+            StyleProperty::BorderRightWidth(one),
+            StyleProperty::BorderBottomWidth(one),
+            StyleProperty::BorderLeftWidth(one),
+            solid,
+        ]);
+    }
+
+    let rest = rest.strip_prefix('-')?;
+    let (side, width) = match rest.split_once('-') {
+        // e.g. `border-t-2`
+        Some((side, width)) if matches!(side, "t" | "r" | "b" | "l") => {
+            (Some(side), parse_border_width_px(width)?)
+        }
+        // e.g. `border-t` -- a side with no width means 1px.
+        None if matches!(rest, "t" | "r" | "b" | "l") => (Some(rest), Length::Px(1.0)),
+        // e.g. `border-2`. Anything non-numeric here (`border-red-500`)
+        // isn't a width at all, so this bails out and lets the color path
+        // in `parse_utility` handle it.
+        _ => (None, parse_border_width_px(rest)?),
+    };
+
+    Some(match side {
+        Some("t") => vec![StyleProperty::BorderTopWidth(width), solid],
+        Some("r") => vec![StyleProperty::BorderRightWidth(width), solid],
+        Some("b") => vec![StyleProperty::BorderBottomWidth(width), solid],
+        Some("l") => vec![StyleProperty::BorderLeftWidth(width), solid],
+        _ => vec![
+            StyleProperty::BorderTopWidth(width),
+            StyleProperty::BorderRightWidth(width),
+            StyleProperty::BorderBottomWidth(width),
+            StyleProperty::BorderLeftWidth(width),
+            solid,
+        ],
+    })
+}
+
+/// Border widths are plain pixel counts, not multiples of the spacing
+/// scale -- `border-2` is 2px, not 8px.
+fn parse_border_width_px(suffix: &str) -> Option<Length> {
+    suffix.parse::<f32>().ok().map(Length::Px)
 }
 
 #[cfg(test)]
@@ -310,6 +484,114 @@ mod tests {
                 Condition::Responsive(Breakpoint::Md),
                 vec![StyleProperty::FlexDirection(FlexDirection::Row)]
             )
+        );
+    }
+
+    #[test]
+    fn parses_position_and_inset() {
+        assert_eq!(
+            expand_utility("absolute"),
+            (Condition::Always, vec![StyleProperty::Position(Position::Absolute)])
+        );
+        assert_eq!(
+            expand_utility("top-4"),
+            (Condition::Always, vec![StyleProperty::InsetTop(Length::Px(16.0))])
+        );
+        assert_eq!(
+            expand_utility("inset-0"),
+            (
+                Condition::Always,
+                vec![
+                    StyleProperty::InsetTop(Length::Px(0.0)),
+                    StyleProperty::InsetRight(Length::Px(0.0)),
+                    StyleProperty::InsetBottom(Length::Px(0.0)),
+                    StyleProperty::InsetLeft(Length::Px(0.0)),
+                ]
+            )
+        );
+    }
+
+    #[test]
+    fn border_width_always_carries_a_style_so_it_actually_renders() {
+        // CSS defaults border-style to none, so a width with no style
+        // renders nothing -- Tailwind pairs them for the same reason.
+        let (_, props) = expand_utility("border");
+        assert!(props.contains(&StyleProperty::BorderStyle(BorderStyle::Solid)));
+        assert!(props.contains(&StyleProperty::BorderTopWidth(Length::Px(1.0))));
+        assert_eq!(props.len(), 5);
+
+        let (_, props) = expand_utility("border-2");
+        assert!(props.contains(&StyleProperty::BorderLeftWidth(Length::Px(2.0))));
+
+        // Per-side, bare and with an explicit width.
+        assert_eq!(
+            expand_utility("border-t").1,
+            vec![
+                StyleProperty::BorderTopWidth(Length::Px(1.0)),
+                StyleProperty::BorderStyle(BorderStyle::Solid)
+            ]
+        );
+        assert_eq!(
+            expand_utility("border-b-4").1,
+            vec![
+                StyleProperty::BorderBottomWidth(Length::Px(4.0)),
+                StyleProperty::BorderStyle(BorderStyle::Solid)
+            ]
+        );
+    }
+
+    #[test]
+    fn border_color_is_not_mistaken_for_a_width() {
+        assert_eq!(
+            expand_utility("border-red-500"),
+            (Condition::Always, vec![StyleProperty::BorderColor(Color::Token("red-500".to_string()))])
+        );
+    }
+
+    #[test]
+    fn parses_radius_scale() {
+        assert_eq!(
+            expand_utility("rounded-lg"),
+            (Condition::Always, vec![StyleProperty::BorderRadius(Length::Px(8.0))])
+        );
+        assert_eq!(
+            expand_utility("rounded"),
+            (Condition::Always, vec![StyleProperty::BorderRadius(Length::Px(4.0))])
+        );
+    }
+
+    #[test]
+    fn parses_sizing_including_fractions_and_size_shorthand() {
+        assert_eq!(
+            expand_utility("w-4"),
+            (Condition::Always, vec![StyleProperty::Width(Dimension::Length(Length::Px(16.0)))])
+        );
+        assert_eq!(
+            expand_utility("w-1/2"),
+            (Condition::Always, vec![StyleProperty::Width(Dimension::Percent(50.0))])
+        );
+        assert_eq!(
+            expand_utility("size-4"),
+            (
+                Condition::Always,
+                vec![
+                    StyleProperty::Width(Dimension::Length(Length::Px(16.0))),
+                    StyleProperty::Height(Dimension::Length(Length::Px(16.0))),
+                ]
+            )
+        );
+    }
+
+    #[test]
+    fn named_leading_is_not_faked_as_pixels() {
+        // Tailwind's named leading scale is a unitless ratio of the
+        // element's own font size -- not statically resolvable to px, so it
+        // stays unrecognized rather than being converted to a wrong value.
+        assert_eq!(expand_utility("leading-tight"), (Condition::Always, vec![]));
+        // The numeric scale *is* spacing-based and does resolve.
+        assert_eq!(
+            expand_utility("leading-6"),
+            (Condition::Always, vec![StyleProperty::LineHeight(Length::Px(24.0))])
         );
     }
 

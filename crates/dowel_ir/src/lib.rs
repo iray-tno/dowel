@@ -397,18 +397,14 @@ impl StyleProperty {
                  size to multiply by isn't known at compile time"
                     .to_string(),
             ),
-            StyleProperty::TextOverflow(_) => Some(
-                "`text-overflow`: React Native truncates via the `numberOfLines` prop, not a style"
-                    .to_string(),
-            ),
-            // `normal` *is* RN's default (Text wraps), so that one is a
-            // genuine no-op. `nowrap` is not: suppressing wrapping there
-            // needs `numberOfLines`, a prop rather than a style.
-            StyleProperty::WhiteSpace(WhiteSpace::NoWrap) => Some(
-                "`white-space: nowrap`: React Native controls wrapping with the `numberOfLines` \
-                 prop, not a style"
-                    .to_string(),
-            ),
+            // `text-overflow` and `white-space: nowrap` are deliberately
+            // absent here even though React Native has neither as a style.
+            // Together they describe truncation, which RN expresses as
+            // `numberOfLines`/`ellipsizeMode` *props* on `Text` -- so
+            // whether they're supportable depends on the node they're on,
+            // which this function can't see. `dowel_native` decides,
+            // absorbing them into props where it can and refusing them
+            // where it can't.
             StyleProperty::TransitionProperty(_)
             | StyleProperty::TransitionDuration(_)
             | StyleProperty::TransitionTimingFunction(_) => Some(

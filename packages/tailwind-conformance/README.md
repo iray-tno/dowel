@@ -10,9 +10,11 @@ The report has two sections, measuring different things:
 
 | | meaning |
 |---|---|
-| `COVERED` | lowers to a real RN style |
+| `COVERED` | lowers to a real RN style — or prop, since RN expresses some CSS concepts that way |
 | `REFUSED` | raises a build-stopping error naming the utility — a known gap |
 | `SILENT` | compiles to nothing, and nothing says so |
+
+Each candidate is tried on both `View` and `Text` and counts as covered if either works, because whether a utility lowers can depend on the primitive: truncation becomes `numberOfLines`, which only exists on `Text`. The question being answered is "can this be used on Native at all", not "does it work on a View".
 
 That third category is the point of the split. A refusal is a supportable answer; disappearing quietly is the failure mode this project keeps trying to avoid, so the two aren't lumped together as "unsupported". A `SILENT` entry isn't automatically a bug — `whitespace-normal` is one, because RN's Text already wraps — but each one should be a decision someone made, not an oversight.
 

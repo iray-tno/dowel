@@ -29,8 +29,8 @@ mod markup;
 mod style;
 
 use dowel_ir::{
-    Breakpoint, Condition, ConditionExpr, Diagnostic, DiagnosticCode, ExprRef, Node,
-    Severity, StyleProperty, TextContent,
+    Breakpoint, Condition, ConditionExpr, Diagnostic, DiagnosticCode, ExprRef, Node, Primitive,
+    Severity, StyleProperty, TextContent, TextOverflow, WhiteSpace,
 };
 
 pub struct LowerOutput {
@@ -140,7 +140,24 @@ fn render_node(
     // isn't a valid style value at all, so it must not be used there.
     let mut pressed_parts: Vec<String> = Vec::new();
 
+    // Some CSS concepts are props on this platform rather than styles, so
+    // they're absorbed before the refusal check below -- otherwise the
+    // thing that *does* express them would be reported as impossible.
+    let truncation = truncation_props(node);
+
     for declaration in &node.style {
+        if truncation.is_some() && is_truncation_declaration(&declaration.property) {
+            continue;
+        }
+        if let Some(reason) = truncation_only_reason(&declaration.property) {
+            diagnostics.push(Diagnostic {
+                code: DiagnosticCode::WebOnlyPropertyOnNative,
+                severity: Severity::Error,
+                message: reason,
+                span: node.span,
+            });
+            continue;
+        }
         // Refused rather than dropped: silently ignoring a `block`/`grid`/
         // `h-screen` would leave a layout that looks right on Web and is
         // wrong on device with nothing pointing at the cause.
@@ -211,6 +228,15 @@ fn render_node(
     for (key, value) in &extra_props {
         props_text.push_str(&format!(r#" {key}="{value}""#));
     }
+    // Styles that RN expresses as props (see `truncation_props`).
+    // `numberOfLines` takes a number, so it's braced rather than quoted.
+    for (key, value) in truncation.into_iter().flatten() {
+        if value.parse::<u32>().is_ok() {
+            props_text.push_str(&format!(" {key}={{{value}}}"));
+        } else {
+            props_text.push_str(&format!(r#" {key}="{value}""#));
+        }
+    }
     if let Some(on_press) = node.props.on_press {
         props_text.push_str(&format!(" onPress={{{}}}", source_text(source, on_press)));
     }
@@ -235,6 +261,61 @@ fn render_node(
     };
 
     format!("<{component}{props_text}>{inner}</{component}>")
+}
+
+/// React Native expresses text truncation as props on `Text` --
+/// `numberOfLines` and `ellipsizeMode` -- where CSS uses `white-space` and
+/// `text-overflow`. The mapping is from the *combination* of declarations
+/// to one prop pair, not property-by-property, which is why it lives here
+/// rather than in `style::property_and_value`.
+///
+/// `None` means this node can't absorb them (nothing asked for truncation,
+/// or it isn't a `Text`), and the caller refuses them instead.
+fn truncation_props(node: &Node) -> Option<Vec<(&'static str, String)>> {
+    // `numberOfLines` exists on Text alone; on a View there's nothing to
+    // put it on, so truncation there really is unsupported.
+    if node.primitive != Primitive::Text {
+        return None;
+    }
+    let has = |want: &StyleProperty| node.style.iter().any(|d| d.property == *want);
+    if !has(&StyleProperty::WhiteSpace(WhiteSpace::NoWrap)) {
+        return None;
+    }
+
+    let mut props = vec![("numberOfLines", "1".to_string())];
+    if !has(&StyleProperty::TextOverflow(TextOverflow::Ellipsis)) {
+        // RN's default `ellipsizeMode` is `tail`, i.e. an ellipsis. Nothing
+        // asked for one here, so clipping is the closer match to plain
+        // `white-space: nowrap`.
+        props.push(("ellipsizeMode", "clip".to_string()));
+    }
+    Some(props)
+}
+
+fn is_truncation_declaration(property: &StyleProperty) -> bool {
+    matches!(
+        property,
+        StyleProperty::WhiteSpace(WhiteSpace::NoWrap) | StyleProperty::TextOverflow(_)
+    )
+}
+
+/// Why a truncation-related declaration can't be honoured when it wasn't
+/// absorbed into props. Kept out of `StyleProperty::unsupported_on_native`
+/// because the answer depends on the node, which that method can't see.
+fn truncation_only_reason(property: &StyleProperty) -> Option<String> {
+    match property {
+        StyleProperty::TextOverflow(_) => Some(
+            "`text-overflow`: React Native truncates via the `numberOfLines` prop on Text, which \
+             needs `white-space: nowrap` (Tailwind's `truncate`) on a Text element."
+                .to_string(),
+        ),
+        StyleProperty::WhiteSpace(WhiteSpace::NoWrap) => Some(
+            "`white-space: nowrap`: React Native suppresses wrapping with the `numberOfLines` \
+             prop, which only exists on Text."
+                .to_string(),
+        ),
+        _ => None,
+    }
 }
 
 fn escape_jsx_text(text: &str) -> String {
@@ -491,24 +572,64 @@ export function Login() {
     }
 
     #[test]
-    fn nowrap_is_refused_but_normal_is_a_genuine_no_op() {
-        // React Native's Text *wraps* by default, so `whitespace-normal`
-        // asks for what already happens and can be dropped. `nowrap` asks
-        // for the opposite, which needs the `numberOfLines` prop rather
-        // than a style -- dropping that one silently would lose it.
-        let nowrap = r#"
+    fn truncation_lowers_to_props_rather_than_styles() {
+        // RN has no white-space/text-overflow; it truncates via props.
+        // `truncate` asks for an ellipsis, which is `ellipsizeMode`'s
+        // default, so only `numberOfLines` is needed.
+        let source = r#"
+            import { Text } from '@dowel/core'
+            const el = <Text className="truncate">x</Text>
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0], source);
+        assert!(output.diagnostics.is_empty());
+        assert!(output.jsx.contains("numberOfLines={1}"));
+        assert!(!output.jsx.contains("ellipsizeMode"));
+        // The `overflow` half of `truncate` is a real RN style and still
+        // lowers as one.
+        assert!(output.styles.contains("overflow: 'hidden',"));
+    }
+
+    #[test]
+    fn nowrap_without_ellipsis_clips_instead() {
+        let source = r#"
             import { Text } from '@dowel/core'
             const el = <Text className="whitespace-nowrap">x</Text>
             "#;
-        let parsed = dowel_parser::parse_tsx(nowrap);
-        assert_eq!(lower(&parsed.roots[0], nowrap).diagnostics.len(), 1);
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0], source);
+        assert!(output.diagnostics.is_empty());
+        assert!(output.jsx.contains("numberOfLines={1}"));
+        // Nothing asked for an ellipsis, and RN's default would add one.
+        assert!(output.jsx.contains(r#"ellipsizeMode="clip""#));
+    }
 
-        let normal = r#"
+    #[test]
+    fn truncation_on_a_non_text_node_is_refused() {
+        // `numberOfLines` only exists on Text, so there's nothing to
+        // absorb it into here -- and silently dropping it would lose the
+        // author's intent.
+        let source = r#"
+            import { View } from '@dowel/core'
+            const el = <View className="truncate" />
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0], source);
+        assert!(!output.diagnostics.is_empty());
+        assert_eq!(output.diagnostics[0].severity, dowel_ir::Severity::Error);
+    }
+
+    #[test]
+    fn whitespace_normal_stays_a_genuine_no_op() {
+        // RN's Text already wraps, so this asks for what happens anyway.
+        let source = r#"
             import { Text } from '@dowel/core'
             const el = <Text className="whitespace-normal">x</Text>
             "#;
-        let parsed = dowel_parser::parse_tsx(normal);
-        assert!(lower(&parsed.roots[0], normal).diagnostics.is_empty());
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0], source);
+        assert!(output.diagnostics.is_empty());
+        assert!(!output.jsx.contains("numberOfLines"));
     }
 
     #[test]

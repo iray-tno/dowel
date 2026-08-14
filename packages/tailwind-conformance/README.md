@@ -2,9 +2,23 @@
 
 Differential test against the real Tailwind engine. For each candidate utility it compiles the class both ways — through the actual `tailwindcss` package and through Dowel — and compares the results.
 
-**Scope: the Web backend only.** Tailwind exists only as CSS, so it can only serve as ground truth for `dowel_web`. `dowel_native` has no external oracle to compare against — nothing authoritative defines what `p-4` "should" be in React Native — so it's covered by its own assertions instead. A 100% figure here says nothing about Native.
+The report has two sections, measuring different things:
 
-That distinction matters when justifying a difference: a React Native limitation is never a valid reason to accept a mismatch *here*, because Native isn't what's being measured.
+**Web** — coverage *and* fidelity, because Tailwind is the oracle.
+
+**Native** — coverage only. Tailwind exists as CSS, so it can't say what `p-4` "should" be in React Native; there's nothing to diff against. What it can measure is what Dowel does with each utility, split three ways:
+
+| | meaning |
+|---|---|
+| `COVERED` | lowers to a real RN style |
+| `REFUSED` | raises a build-stopping error naming the utility — a known gap |
+| `SILENT` | compiles to nothing, and nothing says so |
+
+That third category is the point of the split. A refusal is a supportable answer; disappearing quietly is the failure mode this project keeps trying to avoid, so the two aren't lumped together as "unsupported". A `SILENT` entry isn't automatically a bug — `whitespace-normal` is one, because RN's Text already wraps — but each one should be a decision someone made, not an oversight.
+
+A refusal outranks partial output: `truncate`'s `overflow` lowers fine while its `text-overflow` can't, and since the error stops the build, calling it "covered" would claim a build that actually fails.
+
+Because Web fidelity is measured against Tailwind alone, a React Native limitation is never a valid reason to accept a Web mismatch — Native isn't what that section measures.
 
 ```
 pnpm --filter @dowel/compiler build:native   # the report needs the native addon

@@ -401,6 +401,14 @@ impl StyleProperty {
                 "`text-overflow`: React Native truncates via the `numberOfLines` prop, not a style"
                     .to_string(),
             ),
+            // `normal` *is* RN's default (Text wraps), so that one is a
+            // genuine no-op. `nowrap` is not: suppressing wrapping there
+            // needs `numberOfLines`, a prop rather than a style.
+            StyleProperty::WhiteSpace(WhiteSpace::NoWrap) => Some(
+                "`white-space: nowrap`: React Native controls wrapping with the `numberOfLines` \
+                 prop, not a style"
+                    .to_string(),
+            ),
             StyleProperty::TransitionProperty(_)
             | StyleProperty::TransitionDuration(_)
             | StyleProperty::TransitionTimingFunction(_) => Some(

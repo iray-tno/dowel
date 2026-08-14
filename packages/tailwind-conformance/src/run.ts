@@ -3,6 +3,7 @@
 
 import { CANDIDATE_GROUPS, ALL_CANDIDATES, stripVariant } from './candidates.ts'
 import { compareCandidate, type Comparison } from './compare.ts'
+import { compareNativeCandidate, type NativeComparison, type NativeVerdict } from './native.ts'
 import { buildOracle } from './oracle.ts'
 import { loadThemeVars, tailwindVersion } from './theme.ts'
 
@@ -23,12 +24,11 @@ const all = [...results.values()].flat()
 const count = (verdict: string, list: Comparison[] = all) => list.filter((r) => r.verdict === verdict).length
 const pct = (n: number, d: number) => (d === 0 ? '--' : `${((n / d) * 100).toFixed(1)}%`)
 
-console.log(`Tailwind conformance vs tailwindcss v${tailwindVersion()}`)
-// Stated up front so the headline numbers can't be read as covering both
+console.log(`Tailwind conformance vs tailwindcss v${tailwindVersion()}\n`)
+console.log('== Web (dowel_web) ==')
+// Stated up front so the Web numbers can't be read as covering both
 // backends: Tailwind only exists as CSS, so it can only be an oracle for
-// the Web lowering. dowel_native has no external ground truth to compare
-// against and is covered by its own assertions instead.
-console.log('Scope: Web backend only (dowel_web). Native lowering is not exercised here.\n')
+// the Web lowering. The Native section below measures coverage only.
 
 const rows = [...results.entries()].map(([group, list]) => {
   const comparable = list.length - count('SKIPPED', list)
@@ -82,6 +82,59 @@ const skipped = all.filter((r) => r.verdict === 'SKIPPED')
 if (skipped.length > 0) {
   console.log(`\nSkipped (${skipped.length}) -- no claim made either way:`)
   for (const s of skipped) {
+    console.log(`  ${s.candidate}: ${s.detail}`)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Native
+// ---------------------------------------------------------------------------
+
+console.log('\n\n== Native (dowel_native) ==')
+console.log('Coverage only: Tailwind is CSS, so there is no oracle to check fidelity against.')
+console.log('REFUSED is a known gap named at build time; SILENT is one nothing reports.\n')
+
+const nativeResults = new Map<string, NativeComparison[]>()
+for (const [group, candidates] of Object.entries(CANDIDATE_GROUPS)) {
+  nativeResults.set(group, candidates.map(compareNativeCandidate))
+}
+const nativeAll = [...nativeResults.values()].flat()
+const nativeCount = (verdict: NativeVerdict, list: NativeComparison[] = nativeAll) =>
+  list.filter((r) => r.verdict === verdict).length
+
+console.table(
+  [...nativeResults.entries()].map(([group, list]) => ({
+    group,
+    total: list.length,
+    covered: nativeCount('COVERED', list),
+    refused: nativeCount('REFUSED', list),
+    silent: nativeCount('SILENT', list),
+  })),
+)
+
+console.log(
+  `Coverage:    ${nativeCount('COVERED')}/${nativeAll.length} = ` +
+    `${pct(nativeCount('COVERED'), nativeAll.length)}  (Dowel emits a style)`,
+)
+console.log(
+  `Refused:     ${nativeCount('REFUSED')}   (build-time error naming the utility)\n` +
+    `Silent:      ${nativeCount('SILENT')}   (no style, no diagnostic)`,
+)
+
+const refusedByGroup = [...nativeResults.entries()]
+  .map(([group, list]) => [group, list.filter((r) => r.verdict === 'REFUSED')] as const)
+  .filter(([, list]) => list.length > 0)
+if (refusedByGroup.length > 0) {
+  console.log('\nRefused, by group:')
+  for (const [group, list] of refusedByGroup) {
+    console.log(`  ${group}: ${list.map((r) => r.candidate).join(' ')}`)
+  }
+}
+
+const silent = nativeAll.filter((r) => r.verdict === 'SILENT')
+if (silent.length > 0) {
+  console.log(`\nSilent (${silent.length}) -- these compile to nothing without saying so:`)
+  for (const s of silent) {
     console.log(`  ${s.candidate}: ${s.detail}`)
   }
 }

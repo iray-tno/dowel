@@ -250,9 +250,9 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
             }
             .to_string(),
         )],
-        // RN has no white-space property, but `nowrap` is the default for
-        // Text and the wrapping/truncation knob is the `numberOfLines`
-        // prop -- so this is a no-op there rather than an error.
+        // RN Text wraps by default, so `normal` is genuinely a no-op there.
+        // `nowrap` is refused upstream -- suppressing wrapping needs the
+        // `numberOfLines` prop, not a style.
         StyleProperty::WhiteSpace(_) => Vec::new(),
         // All refused upstream by `unsupported_on_native`.
         StyleProperty::LetterSpacing(_)

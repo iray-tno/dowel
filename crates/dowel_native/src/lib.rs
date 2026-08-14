@@ -491,6 +491,27 @@ export function Login() {
     }
 
     #[test]
+    fn nowrap_is_refused_but_normal_is_a_genuine_no_op() {
+        // React Native's Text *wraps* by default, so `whitespace-normal`
+        // asks for what already happens and can be dropped. `nowrap` asks
+        // for the opposite, which needs the `numberOfLines` prop rather
+        // than a style -- dropping that one silently would lose it.
+        let nowrap = r#"
+            import { Text } from '@dowel/core'
+            const el = <Text className="whitespace-nowrap">x</Text>
+            "#;
+        let parsed = dowel_parser::parse_tsx(nowrap);
+        assert_eq!(lower(&parsed.roots[0], nowrap).diagnostics.len(), 1);
+
+        let normal = r#"
+            import { Text } from '@dowel/core'
+            const el = <Text className="whitespace-normal">x</Text>
+            "#;
+        let parsed = dowel_parser::parse_tsx(normal);
+        assert!(lower(&parsed.roots[0], normal).diagnostics.is_empty());
+    }
+
+    #[test]
     fn viewport_height_is_refused_and_leaves_valid_output() {
         let source = r#"
             import { View } from '@dowel/core'

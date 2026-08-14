@@ -11,7 +11,7 @@ export const CANDIDATE_GROUPS: Record<string, string[]> = {
   // between LTR and RTL, unlike the symmetric `px-*`/`mx-*` pair.
   logical: ['ps-4', 'pe-4', 'ms-2', 'me-2', 'start-2', 'end-2'],
   sizing: ['w-full', 'w-4', 'w-1/2', 'w-auto', 'h-full', 'h-4', 'h-screen', 'size-4', 'min-w-0', 'max-w-md'],
-  typography: ['text-xs', 'text-sm', 'text-base', 'text-lg', 'text-xl', 'text-2xl', 'font-normal', 'font-medium', 'font-bold', 'text-left', 'text-center', 'leading-6', 'leading-tight', 'tracking-wide', 'truncate', 'uppercase'],
+  typography: ['text-xs', 'text-sm', 'text-base', 'text-lg', 'text-xl', 'text-2xl', 'font-normal', 'font-medium', 'font-bold', 'text-left', 'text-center', 'leading-6', 'leading-tight', 'tracking-wide', 'truncate', 'uppercase', 'whitespace-nowrap', 'whitespace-normal'],
   color: ['bg-blue-500', 'bg-white', 'text-gray-900', 'text-black', 'border-red-500', 'bg-transparent'],
   border: ['border', 'border-2', 'border-t', 'border-b-4', 'border-solid', 'border-dashed', 'rounded', 'rounded-sm', 'rounded-md', 'rounded-lg', 'rounded-xl', 'rounded-full', 'rounded-none'],
   effects: ['opacity-0', 'opacity-50', 'opacity-100', 'shadow', 'shadow-lg', 'blur-sm'],

@@ -79,3 +79,34 @@ export function Second() {
   // exist as separate unrelated strings.
   assert.notEqual(output!.match(/dowel_r0_0/)?.[0], undefined)
 })
+
+const DYNAMIC_SOURCE = `import { View } from '@dowel/core'
+
+export function Card({ extra }) {
+  return <View className={extra} />
+}
+`
+
+test('hands an unreadable className to the generated resolver instead of failing', () => {
+  // This used to be a build error: RN has no className to pass it through
+  // to. It now resolves on device from the project-wide candidate map.
+  const output = transformDowelSource(DYNAMIC_SOURCE, '/app/src/Card.tsx', '/app')
+  assert.ok(output)
+  assert.match(output!, /dowelClasses\(extra\)/)
+  assert.match(output!, /import \{ dowelClasses \} from '\.\.\/node_modules\/\.dowel\/candidates\.native\.js'/)
+})
+
+test('does not import the candidate module into files that never call it', () => {
+  // Otherwise every lowered file would depend on a module that only exists
+  // once the config-time scan has run.
+  const output = transformDowelSource(LOGIN_SOURCE, '/app/src/Login.tsx', '/app')
+  assert.ok(output)
+  assert.ok(!output!.includes('dowelClasses'))
+})
+
+test('says what is missing when the candidate module was never generated', () => {
+  assert.throws(
+    () => transformDowelSource(DYNAMIC_SOURCE, '/app/src/Card.tsx'),
+    /generateCandidateModule/,
+  )
+})

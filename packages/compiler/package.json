@@ -6,6 +6,10 @@
   "license": "MIT",
   "type": "module",
   "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./project": "./src/project.ts"
+  },
   "scripts": {
     "build:native": "node scripts/build-native.mjs"
   }

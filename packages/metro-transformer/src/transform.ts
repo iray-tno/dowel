@@ -15,6 +15,8 @@
 //   file, since that's the idiomatic RN pattern.
 
 import { compileNative, type CompiledNativeComponent } from '@dowel/compiler'
+import { importSpecifier } from '@dowel/compiler/project'
+import { candidateModulePath } from './project.ts'
 
 const DOWEL_CORE_IMPORT_RE = /import\s*\{[^}]*\}\s*from\s*['"]@dowel\/core['"]\s*\n?/
 const RN_PRIMITIVE_TAGS = ['View', 'Text', 'Pressable'] as const
@@ -40,7 +42,11 @@ function mergeStyleObjects(blocks: string[]): string {
  * Returns the rewritten source, or `null` if there's nothing for Dowel to
  * do (not a `.tsx` file, or no `@dowel/core` usage found).
  */
-export function transformDowelSource(code: string, filename: string): string | null {
+export function transformDowelSource(
+  code: string,
+  filename: string,
+  projectRoot?: string,
+): string | null {
   if (!filename.endsWith('.tsx') || !code.includes('@dowel/core')) {
     return null
   }
@@ -94,6 +100,21 @@ export function transformDowelSource(code: string, filename: string): string | n
   const rnImports = [...usedTags, 'StyleSheet'].join(', ')
   const mergedStyles = mergeStyleObjects(styleBlocks)
   next = `import { ${rnImports} } from 'react-native'\nconst styles = StyleSheet.create(${mergedStyles})\n${next}`
+
+  // Only when something actually calls it. The candidate module is
+  // generated at config time (see `./project.ts`); a file with no
+  // unresolvable className must not depend on it having been generated.
+  if (next.includes('dowelClasses(')) {
+    if (projectRoot === undefined) {
+      throw new Error(
+        `[dowel] ${filename} has a className the compiler can't read, which needs the generated ` +
+          `candidate module -- but no projectRoot was given, so its location is unknown. Call ` +
+          `generateCandidateModule(projectRoot) from metro.config.js.`,
+      )
+    }
+    const specifier = importSpecifier(filename, candidateModulePath(projectRoot))
+    next = `import { dowelClasses } from '${specifier}'\n${next}`
+  }
 
   return next
 }

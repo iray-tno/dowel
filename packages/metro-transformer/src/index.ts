@@ -19,7 +19,10 @@ const require = createRequire(import.meta.url)
 interface TransformParams {
   src: string
   filename: string
-  options: unknown
+  /// Metro's transform options. `projectRoot` is what locates the
+  /// generated candidate module -- this transformer runs in a `jest-worker`
+  /// subprocess, so it shares nothing else with the config that wrote it.
+  options: { projectRoot?: string } & Record<string, unknown>
   [key: string]: unknown
 }
 
@@ -41,9 +44,10 @@ function loadUpstream(): UpstreamTransformer {
 }
 
 export function transform(params: TransformParams): unknown {
-  const rewritten = transformDowelSource(params.src, params.filename)
+  const rewritten = transformDowelSource(params.src, params.filename, params.options?.projectRoot)
   const nextParams = rewritten === null ? params : { ...params, src: rewritten }
   return loadUpstream().transform(nextParams)
 }
 
 export { transformDowelSource } from './transform.ts'
+export { generateCandidateModule, candidateModulePath } from './project.ts'

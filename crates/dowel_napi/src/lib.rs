@@ -162,6 +162,17 @@ impl CandidateCache {
         dowel_web::render_candidate_stylesheet(&self.inner.union())
     }
 
+    /// The React Native counterpart of `renderCss`: a JS module holding a
+    /// class-name -> style-object map plus a resolver bound to it.
+    ///
+    /// A separate call rather than a second field on one result because a
+    /// project builds for one platform at a time -- generating the module
+    /// a Web build will never import would be wasted work.
+    #[napi]
+    pub fn render_native_module(&self) -> String {
+        dowel_native::render_candidate_module(&self.inner.union())
+    }
+
     /// Number of files tracked.
     #[napi(getter)]
     pub fn size(&self) -> u32 {

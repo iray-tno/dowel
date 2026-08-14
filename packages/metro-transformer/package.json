@@ -10,7 +10,8 @@
     "test": "node --test src/*.test.ts"
   },
   "dependencies": {
-    "@dowel/compiler": "workspace:*"
+    "@dowel/compiler": "workspace:*",
+    "@dowel/runtime": "workspace:*"
   },
   "peerDependencies": {
     "metro-react-native-babel-transformer": "*"

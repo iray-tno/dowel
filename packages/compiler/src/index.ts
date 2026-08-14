@@ -43,7 +43,12 @@ export interface CandidateCache {
   /// so an unchanged one doesn't cause a stylesheet rewrite.
   scanFile(path: string, source: string, modifiedMs: number): boolean
   forget(path: string): boolean
+  /// The Web stylesheet: rules under the classes' real Tailwind names, for
+  /// the browser's own CSS engine to match.
   renderCss(): string
+  /// The Native equivalent: a JS module exporting `dowelClasses`, a
+  /// resolver bound to this project's class-name -> style-object map.
+  renderNativeModule(): string
   persist(): void
   readonly size: number
 }

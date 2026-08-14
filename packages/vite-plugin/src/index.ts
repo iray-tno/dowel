@@ -17,26 +17,13 @@
 // owns the project walk and the file-deletion signal, while the cache in
 // Rust owns scanning, staleness, and persistence.
 
-import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import type { Plugin, ViteDevServer } from 'vite'
-import { compile, openCandidateCache, type CandidateCache } from '@dowel/compiler'
+import { compile, type CandidateCache } from '@dowel/compiler'
+import { importSpecifier, scanProject, scannableFile } from '@dowel/compiler/project'
 
 const DOWEL_CORE_IMPORT_RE = /import\s*\{[^}]*\}\s*from\s*['"]@dowel\/core['"]\s*\n?/
-
-/// Files worth scanning for class candidates. Not just `.tsx`: a class
-/// string can live in any module the app pulls in -- a `variants.ts` map, a
-/// plain helper -- and be handed to `className` from there.
-const SCANNABLE = new Set(['.tsx', '.jsx', '.ts', '.js', '.mts', '.mjs'])
-
-/// Directories never worth walking. `node_modules` in particular would turn
-/// a scan of a small app into a scan of its entire dependency tree.
-const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.next', 'coverage'])
-
-/// Where the cache and generated stylesheet live. Under `node_modules` by
-/// Vite convention (already git-ignored, already understood as derived) and
-/// deliberately outside the source tree, since neither file is authored.
-const CACHE_DIR = path.join('node_modules', '.dowel')
 
 /// Renames this component's `dowel-N` class names to be unique across every
 /// component in the file -- `compile()` starts counting from `dowel-0`
@@ -46,47 +33,6 @@ const CACHE_DIR = path.join('node_modules', '.dowel')
 /// must NOT be touched by this.
 function namespaceDowelClasses(text: string, rootIndex: number): string {
   return text.replace(/\bdowel-(\d+)\b/g, `dowel-r${rootIndex}-$1`)
-}
-
-/// The real file behind a module id, or `undefined` if there isn't one.
-///
-/// Not every id Vite hands `transform` is a path: virtual modules are
-/// `\0`-prefixed, and dev requests carry `?v=` query strings. Both have to
-/// be filtered out before anything touches the filesystem.
-function scannableFile(id: string): string | undefined {
-  if (id.startsWith('\0') || id.includes('node_modules')) {
-    return undefined
-  }
-  const file = id.split('?')[0]
-  return SCANNABLE.has(path.extname(file)) ? file : undefined
-}
-
-function* walkSources(dir: string): Generator<string> {
-  let entries
-  try {
-    entries = readdirSync(dir, { withFileTypes: true })
-  } catch {
-    // A directory that vanished mid-walk or that we can't read isn't worth
-    // failing a build over -- at worst its classes miss the stylesheet.
-    return
-  }
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name)
-    if (entry.isDirectory()) {
-      if (!SKIP_DIRS.has(entry.name) && !entry.name.startsWith('.')) {
-        yield* walkSources(full)
-      }
-    } else if (SCANNABLE.has(path.extname(entry.name))) {
-      yield full
-    }
-  }
-}
-
-/// Import specifier for `target` as seen from `fromFile`, in the
-/// forward-slash form module specifiers require even on Windows.
-function importSpecifier(fromFile: string, target: string): string {
-  const relative = path.relative(path.dirname(fromFile), target).replaceAll('\\', '/')
-  return relative.startsWith('.') ? relative : `./${relative}`
 }
 
 export function dowel(): Plugin {
@@ -120,23 +66,12 @@ export function dowel(): Plugin {
     },
 
     buildStart() {
-      const cacheDir = path.join(root, CACHE_DIR)
-      mkdirSync(cacheDir, { recursive: true })
-      candidateCssPath = path.join(cacheDir, 'candidates.css')
-      cache = openCandidateCache(path.join(cacheDir, 'candidates.json'))
-
-      // The whole project, not just what the bundler happens to reach:
-      // a class can be produced by a module the graph never resolves
-      // statically. Files unchanged since the last build are skipped
-      // without ever being read.
-      for (const file of walkSources(root)) {
-        const modifiedMs = statSync(file).mtimeMs
-        if (cache.isCurrent(file, modifiedMs)) {
-          continue
-        }
-        cache.scanFile(file, readFileSync(file, 'utf8'), modifiedMs)
-      }
-      cache.persist()
+      // The whole project, not just what the bundler happens to reach: a
+      // class can be produced by a module the graph never resolves
+      // statically.
+      const project = scanProject(root)
+      cache = project.cache
+      candidateCssPath = path.join(project.dir, 'candidates.css')
       writeCandidateCss()
     },
 
@@ -154,7 +89,7 @@ export function dowel(): Plugin {
       if (file) {
         // `enforce: 'pre'` means `code` is still the source as written,
         // which is what the scanner expects. Keyed by the same absolute
-        // path `buildStart`'s walk used, so a file scanned there isn't
+        // path `scanProject`'s walk used, so a file scanned there isn't
         // recorded twice under two spellings.
         const modifiedMs = statSync(file, { throwIfNoEntry: false })?.mtimeMs ?? 0
         if (cache.scanFile(path.resolve(file), code, modifiedMs)) {

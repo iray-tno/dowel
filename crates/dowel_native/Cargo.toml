@@ -7,6 +7,4 @@ description = "Dowel IR to React Native primitive/StyleSheet lowering (Native ba
 
 [dependencies]
 dowel_ir = { path = "../dowel_ir" }
-
-[dev-dependencies]
 dowel_parser = { path = "../dowel_parser" }

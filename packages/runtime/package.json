@@ -5,5 +5,8 @@
   "description": "Runtime fallback for genuinely dynamic styles, interactive behavior, and accessibility behavior.",
   "license": "MIT",
   "type": "module",
-  "main": "./src/index.ts"
+  "main": "./src/index.ts",
+  "scripts": {
+    "test": "node --test src/*.test.ts"
+  }
 }

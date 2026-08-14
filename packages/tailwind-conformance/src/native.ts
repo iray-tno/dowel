@@ -17,6 +17,13 @@ export interface NativeComparison {
   candidate: string
   verdict: NativeVerdict
   detail?: string
+  /**
+   * Set when a utility lowers on some primitives but is refused on
+   * others. Counting it as covered answers "is this usable on Native",
+   * but writing it on the wrong element still fails the build -- so the
+   * restriction has to be reported, not folded into the number.
+   */
+  restrictedTo?: string[]
 }
 
 const WEB_ONLY = 'WEB_ONLY_PROPERTY_ON_NATIVE'
@@ -70,11 +77,16 @@ export function compareNativeCandidate(candidate: string): NativeComparison {
     result: probe(candidate, primitive),
   }))
 
-  const working = attempts.find((a) => a.result.verdict === 'COVERED')
-  if (working) {
-    return working.primitive === 'View'
-      ? working.result
-      : { ...working.result, detail: `only on ${working.primitive}` }
+  const working = attempts.filter((a) => a.result.verdict === 'COVERED')
+  if (working.length > 0) {
+    const covered = working[0].result
+    if (working.length === PROBE_PRIMITIVES.length) {
+      return covered
+    }
+    // Works somewhere but not everywhere. Still covered, but the report
+    // must say where -- otherwise the number quietly implies it works on
+    // any element, and using it on the wrong one is a build failure.
+    return { ...covered, restrictedTo: working.map((a) => a.primitive) }
   }
   // Otherwise report the more informative verdict: a refusal names the
   // reason, silence doesn't.

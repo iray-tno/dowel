@@ -107,6 +107,7 @@ console.table(
     group,
     total: list.length,
     covered: nativeCount('COVERED', list),
+    restricted: list.filter((r) => r.restrictedTo).length,
     refused: nativeCount('REFUSED', list),
     silent: nativeCount('SILENT', list),
   })),
@@ -120,6 +121,17 @@ console.log(
   `Refused:     ${nativeCount('REFUSED')}   (build-time error naming the utility)\n` +
     `Silent:      ${nativeCount('SILENT')}   (no style, no diagnostic)`,
 )
+
+const restricted = nativeAll.filter((r) => r.restrictedTo)
+if (restricted.length > 0) {
+  console.log(
+    `\nRestricted (${restricted.length}) -- counted as covered, but only on some primitives;` +
+      `\nusing them elsewhere is a build error:`,
+  )
+  for (const r of restricted) {
+    console.log(`  ${r.candidate}: ${r.restrictedTo!.join(', ')} only`)
+  }
+}
 
 const refusedByGroup = [...nativeResults.entries()]
   .map(([group, list]) => [group, list.filter((r) => r.verdict === 'REFUSED')] as const)

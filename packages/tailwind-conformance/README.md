@@ -16,6 +16,8 @@ The report has two sections, measuring different things:
 
 Each candidate is tried on both `View` and `Text` and counts as covered if either works, because whether a utility lowers can depend on the primitive: truncation becomes `numberOfLines`, which only exists on `Text`. The question being answered is "can this be used on Native at all", not "does it work on a View".
 
+That rule would hide something on its own, so anything covered on some primitives but not others is also listed separately as **restricted**. Writing one of those on the wrong element is still a build error, and a bare coverage number would quietly imply otherwise.
+
 That third category is the point of the split. A refusal is a supportable answer; disappearing quietly is the failure mode this project keeps trying to avoid, so the two aren't lumped together as "unsupported". A `SILENT` entry isn't automatically a bug — `whitespace-normal` is one, because RN's Text already wraps — but each one should be a decision someone made, not an oversight.
 
 A refusal outranks partial output: `truncate`'s `overflow` lowers fine while its `text-overflow` can't, and since the error stops the build, calling it "covered" would claim a build that actually fails.

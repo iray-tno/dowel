@@ -42,6 +42,19 @@ test('injects a StyleSheet.create declaration and rewrites the JSX span', () => 
   assert.match(output!, /<Pressable style=\{styles\.dowel_r0_2\}[^>]*>Continue<\/Pressable>/)
 })
 
+test('fails the build on a Web-only utility instead of dropping it', () => {
+  // `block` has no React Native equivalent, so there is no correct output
+  // to fall back to -- compiling anyway would look right on Web and be
+  // silently wrong on device.
+  const source = `import { View } from '@dowel/core'
+
+export function Card() {
+  return <View className="block" />
+}
+`
+  assert.throws(() => transformDowelSource(source, 'Card.tsx'), /WEB_ONLY_PROPERTY_ON_NATIVE/)
+})
+
 test('namespaces style/JSX identifiers per root so multiple components in one file do not collide', () => {
   const source = `import { View } from '@dowel/core'
 

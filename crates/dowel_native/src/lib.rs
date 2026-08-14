@@ -29,7 +29,8 @@ mod markup;
 mod style;
 
 use dowel_ir::{
-    Breakpoint, Condition, ConditionExpr, Diagnostic, ExprRef, Node, StyleProperty, TextContent,
+    Breakpoint, Condition, ConditionExpr, Diagnostic, DiagnosticCode, Display, ExprRef, Node,
+    Severity, StyleProperty, TextContent,
 };
 
 pub struct LowerOutput {
@@ -129,6 +130,26 @@ fn render_node(
     // isn't a valid style value at all, so it must not be used there.
     let mut pressed_parts: Vec<String> = Vec::new();
 
+    for declaration in &node.style {
+        // Refused rather than dropped: silently ignoring a `block`/`grid`
+        // would leave a layout that looks right on Web and is wrong on
+        // device with nothing pointing at the cause.
+        if let StyleProperty::Display(d) = declaration.property {
+            if !d.is_supported_on_native() {
+                diagnostics.push(Diagnostic {
+                    code: DiagnosticCode::WebOnlyPropertyOnNative,
+                    severity: Severity::Error,
+                    message: format!(
+                        "`display: {}` has no React Native equivalent -- its layout engine \
+                         supports only flex, none, and contents.",
+                        web_only_display_name(d)
+                    ),
+                    span: node.span,
+                });
+            }
+        }
+    }
+
     for (condition, props) in dowel_ir::group_by_condition(&node.style) {
         let props = dowel_ir::dedupe_last_wins(props);
         if props.is_empty() {
@@ -202,6 +223,18 @@ fn render_node(
     };
 
     format!("<{component}{props_text}>{inner}</{component}>")
+}
+
+fn web_only_display_name(display: Display) -> &'static str {
+    match display {
+        Display::Block => "block",
+        Display::InlineFlex => "inline-flex",
+        Display::Grid => "grid",
+        // Supported values never reach this -- the caller checks first.
+        Display::Flex => "flex",
+        Display::None => "none",
+        Display::Contents => "contents",
+    }
 }
 
 fn escape_jsx_text(text: &str) -> String {
@@ -408,6 +441,35 @@ export function Login() {
         assert!(output.jsx.contains("style={styles.dowel0}"));
         assert!(output.styles.contains("dowel0_hover: {"));
         assert!(!output.jsx.contains("dowel0_hover"));
+    }
+
+    #[test]
+    fn web_only_display_is_refused_rather_than_dropped() {
+        let source = r#"
+            import { View } from '@dowel/core'
+            const el = <View className="block" />
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0], source);
+
+        assert_eq!(output.diagnostics.len(), 1);
+        assert_eq!(output.diagnostics[0].code, dowel_ir::DiagnosticCode::WebOnlyPropertyOnNative);
+        assert_eq!(output.diagnostics[0].severity, dowel_ir::Severity::Error);
+        // And nothing is emitted for it, so a build that ignored the error
+        // still can't produce an invalid RN style value.
+        assert!(!output.styles.contains("display"));
+    }
+
+    #[test]
+    fn portable_display_values_lower_normally() {
+        let source = r#"
+            import { View } from '@dowel/core'
+            const el = <View className="hidden" />
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0], source);
+        assert!(output.diagnostics.is_empty());
+        assert!(output.styles.contains("display: 'none',"));
     }
 
     #[test]

@@ -25,6 +25,7 @@ fn diagnostic_code_str(code: DiagnosticCode) -> &'static str {
     match code {
         DiagnosticCode::A11yInteractiveWithoutRole => "A11Y_INTERACTIVE_WITHOUT_ROLE",
         DiagnosticCode::UnsafePropSpreadAfterStyle => "UNSAFE_PROP_SPREAD_AFTER_STYLE",
+        DiagnosticCode::WebOnlyPropertyOnNative => "WEB_ONLY_PROPERTY_ON_NATIVE",
     }
 }
 
@@ -32,6 +33,9 @@ fn to_js_diagnostic(diagnostic: Diagnostic) -> CompileDiagnostic {
     CompileDiagnostic {
         code: diagnostic_code_str(diagnostic.code).to_string(),
         severity: match diagnostic.severity {
+            // Build-stopping; callers are expected to fail on this rather
+            // than print it (see @dowel/metro-transformer).
+            Severity::Error => "error".to_string(),
             Severity::Warning => "warning".to_string(),
             Severity::Info => "info".to_string(),
         },

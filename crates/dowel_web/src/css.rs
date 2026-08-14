@@ -15,8 +15,9 @@
 //! correct-but-unresolved, not silently wrong.
 
 use dowel_ir::{
-    Align, BorderStyle, Breakpoint, Color, Condition, ConditionExpr, Dimension, FlexDirection,
-    FlexShorthand, Justify, Length, Position, Radius, StyleProperty, TextAlign,
+    Align, AlignSelf, BorderStyle, Breakpoint, Color, Condition, ConditionExpr, Dimension, Display,
+    FlexDirection, FlexShorthand, Justify, Length, Position, Radius, StyleProperty, TextAlign,
+    TextTransform,
 };
 
 fn length_px(length: Length) -> String {
@@ -29,6 +30,17 @@ fn dimension_value(dim: Dimension) -> String {
         Dimension::Length(length) => length_px(length),
         Dimension::Percent(pct) => format!("{pct}%"),
         Dimension::Auto => "auto".to_string(),
+    }
+}
+
+fn justify_keyword(justify: &Justify) -> &'static str {
+    match justify {
+        Justify::Start => "flex-start",
+        Justify::Center => "center",
+        Justify::End => "flex-end",
+        Justify::Between => "space-between",
+        Justify::Around => "space-around",
+        Justify::Evenly => "space-evenly",
     }
 }
 
@@ -55,6 +67,18 @@ fn color_var(color: &Color) -> String {
 /// output stays recognizable to anyone used to reading Tailwind's CSS.
 pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
     match prop {
+        StyleProperty::Display(d) => (
+            "display",
+            match d {
+                Display::Flex => "flex",
+                Display::None => "none",
+                Display::Contents => "contents",
+                Display::Block => "block",
+                Display::InlineFlex => "inline-flex",
+                Display::Grid => "grid",
+            }
+            .to_string(),
+        ),
         StyleProperty::FlexDirection(dir) => (
             "flex-direction",
             match dir {
@@ -85,18 +109,22 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
             }
             .to_string(),
         ),
-        StyleProperty::JustifyContent(justify) => (
-            "justify-content",
-            match justify {
-                Justify::Start => "flex-start",
-                Justify::Center => "center",
-                Justify::End => "flex-end",
-                Justify::Between => "space-between",
-                Justify::Around => "space-around",
-                Justify::Evenly => "space-evenly",
+        StyleProperty::AlignSelf(align) => (
+            "align-self",
+            match align {
+                AlignSelf::Auto => "auto",
+                AlignSelf::Start => "flex-start",
+                AlignSelf::Center => "center",
+                AlignSelf::End => "flex-end",
+                AlignSelf::Stretch => "stretch",
+                AlignSelf::Baseline => "baseline",
             }
             .to_string(),
         ),
+        StyleProperty::AlignContent(justify) => ("align-content", justify_keyword(justify).to_string()),
+        StyleProperty::JustifyContent(justify) => {
+            ("justify-content", justify_keyword(justify).to_string())
+        }
         StyleProperty::Gap(l) => ("gap", length_px(*l)),
         StyleProperty::RowGap(l) => ("row-gap", length_px(*l)),
         StyleProperty::ColumnGap(l) => ("column-gap", length_px(*l)),
@@ -114,6 +142,11 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
         StyleProperty::PaddingInlineEnd(l) => ("padding-inline-end", length_px(*l)),
         StyleProperty::Width(d) => ("width", dimension_value(*d)),
         StyleProperty::Height(d) => ("height", dimension_value(*d)),
+        StyleProperty::MinWidth(d) => ("min-width", dimension_value(*d)),
+        StyleProperty::MinHeight(d) => ("min-height", dimension_value(*d)),
+        StyleProperty::MaxWidth(d) => ("max-width", dimension_value(*d)),
+        StyleProperty::MaxHeight(d) => ("max-height", dimension_value(*d)),
+        StyleProperty::ZIndex(z) => ("z-index", format!("{z}")),
         StyleProperty::Position(pos) => (
             "position",
             match pos {
@@ -161,6 +194,16 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
                 TextAlign::Left => "left",
                 TextAlign::Center => "center",
                 TextAlign::Right => "right",
+            }
+            .to_string(),
+        ),
+        StyleProperty::TextTransform(t) => (
+            "text-transform",
+            match t {
+                TextTransform::Uppercase => "uppercase",
+                TextTransform::Lowercase => "lowercase",
+                TextTransform::Capitalize => "capitalize",
+                TextTransform::None => "none",
             }
             .to_string(),
         ),

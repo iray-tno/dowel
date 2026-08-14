@@ -19,8 +19,8 @@
 //!   property to defer to the way Web's `var(--dowel-color-x)` does.
 
 use dowel_ir::{
-    Align, BorderStyle, Color, Dimension, FlexDirection, FlexShorthand, Justify, Length, Position,
-    Radius, StyleProperty, TextAlign,
+    Align, AlignSelf, BorderStyle, Color, Dimension, Display, FlexDirection, FlexShorthand, Justify,
+    Length, Position, Radius, StyleProperty, TextAlign, TextTransform,
 };
 
 fn number(length: Length) -> String {
@@ -40,6 +40,18 @@ fn dimension_value(dim: Dimension) -> String {
 /// docs); otherwise falls back to a marker string deliberately not
 /// real-color-shaped, so a missed resolution fails loudly instead of
 /// rendering a plausible-but-wrong color.
+fn justify_literal(justify: &Justify) -> String {
+    match justify {
+        Justify::Start => "'flex-start'",
+        Justify::Center => "'center'",
+        Justify::End => "'flex-end'",
+        Justify::Between => "'space-between'",
+        Justify::Around => "'space-around'",
+        Justify::Evenly => "'space-evenly'",
+    }
+    .to_string()
+}
+
 fn border_style_literal(style: &BorderStyle) -> String {
     match style {
         BorderStyle::Solid => "'solid'",
@@ -64,6 +76,16 @@ fn resolve_color(color: &Color) -> String {
 /// equivalent and must expand to two keys).
 pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
     match prop {
+        StyleProperty::Display(d) => match d {
+            Display::Flex => vec![("display", "'flex'".to_string())],
+            Display::None => vec![("display", "'none'".to_string())],
+            Display::Contents => vec![("display", "'contents'".to_string())],
+            // No RN equivalent (Yoga has only the three above). The caller
+            // raises `WebOnlyPropertyOnNative` and fails the build; nothing
+            // is emitted here so a build that ignored the error can't ship
+            // an invalid style value either.
+            Display::Block | Display::InlineFlex | Display::Grid => Vec::new(),
+        },
         StyleProperty::FlexDirection(dir) => vec![(
             "flexDirection",
             match dir {
@@ -91,18 +113,20 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
             }
             .to_string(),
         )],
-        StyleProperty::JustifyContent(justify) => vec![(
-            "justifyContent",
-            match justify {
-                Justify::Start => "'flex-start'",
-                Justify::Center => "'center'",
-                Justify::End => "'flex-end'",
-                Justify::Between => "'space-between'",
-                Justify::Around => "'space-around'",
-                Justify::Evenly => "'space-evenly'",
+        StyleProperty::AlignSelf(align) => vec![(
+            "alignSelf",
+            match align {
+                AlignSelf::Auto => "'auto'",
+                AlignSelf::Start => "'flex-start'",
+                AlignSelf::Center => "'center'",
+                AlignSelf::End => "'flex-end'",
+                AlignSelf::Stretch => "'stretch'",
+                AlignSelf::Baseline => "'baseline'",
             }
             .to_string(),
         )],
+        StyleProperty::AlignContent(justify) => vec![("alignContent", justify_literal(justify))],
+        StyleProperty::JustifyContent(justify) => vec![("justifyContent", justify_literal(justify))],
         StyleProperty::Gap(l) => vec![("gap", number(*l))],
         StyleProperty::RowGap(l) => vec![("rowGap", number(*l))],
         StyleProperty::ColumnGap(l) => vec![("columnGap", number(*l))],
@@ -122,6 +146,11 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
         StyleProperty::PaddingInlineEnd(l) => vec![("paddingEnd", number(*l))],
         StyleProperty::Width(d) => vec![("width", dimension_value(*d))],
         StyleProperty::Height(d) => vec![("height", dimension_value(*d))],
+        StyleProperty::MinWidth(d) => vec![("minWidth", dimension_value(*d))],
+        StyleProperty::MinHeight(d) => vec![("minHeight", dimension_value(*d))],
+        StyleProperty::MaxWidth(d) => vec![("maxWidth", dimension_value(*d))],
+        StyleProperty::MaxHeight(d) => vec![("maxHeight", dimension_value(*d))],
+        StyleProperty::ZIndex(z) => vec![("zIndex", format!("{z}"))],
         StyleProperty::Position(pos) => vec![(
             "position",
             match pos {
@@ -177,6 +206,16 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
                 TextAlign::Left => "'left'",
                 TextAlign::Center => "'center'",
                 TextAlign::Right => "'right'",
+            }
+            .to_string(),
+        )],
+        StyleProperty::TextTransform(t) => vec![(
+            "textTransform",
+            match t {
+                TextTransform::Uppercase => "'uppercase'",
+                TextTransform::Lowercase => "'lowercase'",
+                TextTransform::Capitalize => "'capitalize'",
+                TextTransform::None => "'none'",
             }
             .to_string(),
         )],

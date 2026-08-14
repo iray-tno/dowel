@@ -5,8 +5,9 @@
 //! callers decide what to do with an unmapped utility (Phase 0: drop it).
 
 use dowel_ir::{
-    Align, BorderStyle, Breakpoint, Color, Condition, Dimension, FlexDirection, FlexShorthand,
-    FontWeight, Justify, Length, Position, Radius, StyleProperty, TextAlign,
+    Align, AlignSelf, BorderStyle, Breakpoint, Color, Condition, Dimension, Display, FlexDirection,
+    FlexShorthand, FontWeight, Justify, Length, Position, Radius, StyleProperty, TextAlign,
+    TextTransform,
 };
 
 /// Tailwind's default spacing scale: `spacing(n) = n * 0.25rem`, and the
@@ -56,6 +57,31 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
         "text-right" => return Some(StyleProperty::TextAlign(TextAlign::Right)),
         "relative" => return Some(StyleProperty::Position(Position::Relative)),
         "absolute" => return Some(StyleProperty::Position(Position::Absolute)),
+        "flex" => return Some(StyleProperty::Display(Display::Flex)),
+        "hidden" => return Some(StyleProperty::Display(Display::None)),
+        "contents" => return Some(StyleProperty::Display(Display::Contents)),
+        // Accepted here and refused later by the Native backend, rather
+        // than dropped at parse time: the Web backend can lower them fine,
+        // and a build error naming the class beats silence.
+        "block" => return Some(StyleProperty::Display(Display::Block)),
+        "inline-flex" => return Some(StyleProperty::Display(Display::InlineFlex)),
+        "grid" => return Some(StyleProperty::Display(Display::Grid)),
+        "self-auto" => return Some(StyleProperty::AlignSelf(AlignSelf::Auto)),
+        "self-start" => return Some(StyleProperty::AlignSelf(AlignSelf::Start)),
+        "self-center" => return Some(StyleProperty::AlignSelf(AlignSelf::Center)),
+        "self-end" => return Some(StyleProperty::AlignSelf(AlignSelf::End)),
+        "self-stretch" => return Some(StyleProperty::AlignSelf(AlignSelf::Stretch)),
+        "self-baseline" => return Some(StyleProperty::AlignSelf(AlignSelf::Baseline)),
+        "content-start" => return Some(StyleProperty::AlignContent(Justify::Start)),
+        "content-center" => return Some(StyleProperty::AlignContent(Justify::Center)),
+        "content-end" => return Some(StyleProperty::AlignContent(Justify::End)),
+        "content-between" => return Some(StyleProperty::AlignContent(Justify::Between)),
+        "content-around" => return Some(StyleProperty::AlignContent(Justify::Around)),
+        "content-evenly" => return Some(StyleProperty::AlignContent(Justify::Evenly)),
+        "uppercase" => return Some(StyleProperty::TextTransform(TextTransform::Uppercase)),
+        "lowercase" => return Some(StyleProperty::TextTransform(TextTransform::Lowercase)),
+        "capitalize" => return Some(StyleProperty::TextTransform(TextTransform::Capitalize)),
+        "normal-case" => return Some(StyleProperty::TextTransform(TextTransform::None)),
         // `border-{solid,dashed,...}` set all four sides, so they live in
         // `expand_base_utility` (multi-property) and never reach here.
         _ => {}
@@ -102,6 +128,31 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
     if let Some(rest) = token.strip_prefix("h-") {
         if let Some(d) = parse_dimension_suffix(rest) {
             return Some(StyleProperty::Height(d));
+        }
+    }
+    if let Some(rest) = token.strip_prefix("min-w-") {
+        if let Some(d) = parse_dimension_suffix(rest) {
+            return Some(StyleProperty::MinWidth(d));
+        }
+    }
+    if let Some(rest) = token.strip_prefix("min-h-") {
+        if let Some(d) = parse_dimension_suffix(rest) {
+            return Some(StyleProperty::MinHeight(d));
+        }
+    }
+    if let Some(rest) = token.strip_prefix("max-w-") {
+        if let Some(d) = parse_max_size_suffix(rest) {
+            return Some(StyleProperty::MaxWidth(d));
+        }
+    }
+    if let Some(rest) = token.strip_prefix("max-h-") {
+        if let Some(d) = parse_max_size_suffix(rest) {
+            return Some(StyleProperty::MaxHeight(d));
+        }
+    }
+    if let Some(rest) = token.strip_prefix("z-") {
+        if let Ok(z) = rest.parse::<i32>() {
+            return Some(StyleProperty::ZIndex(z));
         }
     }
 
@@ -165,6 +216,29 @@ fn parse_border_radius(token: &str) -> Option<Radius> {
         _ => return None,
     };
     Some(Radius::Length(Length::Px(px)))
+}
+
+/// `max-w-*`/`max-h-*` additionally accept Tailwind's named container
+/// scale (`max-w-md` = `--container-md` = 28rem), which the plain
+/// width/height utilities don't.
+fn parse_max_size_suffix(suffix: &str) -> Option<Dimension> {
+    let rem = match suffix {
+        "3xs" => 16.0,
+        "2xs" => 18.0,
+        "xs" => 20.0,
+        "sm" => 24.0,
+        "md" => 28.0,
+        "lg" => 32.0,
+        "xl" => 36.0,
+        "2xl" => 42.0,
+        "3xl" => 48.0,
+        "4xl" => 56.0,
+        "5xl" => 64.0,
+        "6xl" => 72.0,
+        "7xl" => 80.0,
+        _ => return parse_dimension_suffix(suffix),
+    };
+    Some(Dimension::Length(Length::Px(rem * 16.0)))
 }
 
 /// Width/height accept more than the spacing scale: `w-1/2` fractions and
@@ -602,6 +676,51 @@ mod tests {
 
         let (_, props) = expand_utility("border-2");
         assert!(props.contains(&StyleProperty::BorderLeftWidth(Length::Px(2.0))));
+    }
+
+    #[test]
+    fn parses_display_including_the_web_only_values() {
+        assert_eq!(
+            expand_utility("hidden"),
+            (Condition::Always, vec![StyleProperty::Display(Display::None)])
+        );
+        // Accepted at parse time even though Native can't lower it -- the
+        // Web backend can, and dowel_native raises a build error naming it.
+        assert_eq!(
+            expand_utility("grid"),
+            (Condition::Always, vec![StyleProperty::Display(Display::Grid)])
+        );
+        assert!(!Display::Grid.is_supported_on_native());
+        assert!(Display::None.is_supported_on_native());
+    }
+
+    #[test]
+    fn parses_the_remaining_tier_one_utilities() {
+        assert_eq!(
+            expand_utility("z-10"),
+            (Condition::Always, vec![StyleProperty::ZIndex(10)])
+        );
+        assert_eq!(
+            expand_utility("min-w-0"),
+            (Condition::Always, vec![StyleProperty::MinWidth(Dimension::Length(Length::Px(0.0)))])
+        );
+        // max-w-* uses Tailwind's named container scale, not the spacing one.
+        assert_eq!(
+            expand_utility("max-w-md"),
+            (Condition::Always, vec![StyleProperty::MaxWidth(Dimension::Length(Length::Px(448.0)))])
+        );
+        assert_eq!(
+            expand_utility("self-center"),
+            (Condition::Always, vec![StyleProperty::AlignSelf(AlignSelf::Center)])
+        );
+        assert_eq!(
+            expand_utility("content-center"),
+            (Condition::Always, vec![StyleProperty::AlignContent(Justify::Center)])
+        );
+        assert_eq!(
+            expand_utility("uppercase"),
+            (Condition::Always, vec![StyleProperty::TextTransform(TextTransform::Uppercase)])
+        );
     }
 
     #[test]

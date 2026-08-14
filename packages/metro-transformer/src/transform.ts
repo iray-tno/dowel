@@ -50,6 +50,16 @@ export function transformDowelSource(code: string, filename: string): string | n
     return null
   }
 
+  // Error-severity diagnostics stop the build. The case this exists for --
+  // a Web-only utility like `block`/`grid` reaching the Native backend --
+  // has no correct Native output, so continuing would ship a layout that
+  // looks right on Web and is silently wrong on device.
+  const errors = components.flatMap((c) => c.diagnostics.filter((d) => d.severity === 'error'))
+  if (errors.length > 0) {
+    const detail = errors.map((d) => `  ${d.code}: ${d.message}`).join('\n')
+    throw new Error(`[dowel] ${filename} cannot be compiled for React Native:\n${detail}`)
+  }
+
   for (const component of components) {
     for (const diagnostic of component.diagnostics) {
       // eslint-disable-next-line no-console

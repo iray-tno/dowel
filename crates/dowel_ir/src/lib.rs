@@ -35,6 +35,11 @@ pub struct Diagnostic {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
+    /// Build-stopping. Reserved for cases where continuing would ship
+    /// something silently wrong -- e.g. a Web-only utility reaching the
+    /// Native backend, where dropping it would leave a layout that looks
+    /// right on Web and is broken on device with no signal.
+    Error,
     Warning,
     Info,
 }
@@ -47,6 +52,12 @@ pub enum DiagnosticCode {
     /// could silently override it at runtime; that node's className is not
     /// compiled and falls back instead of failing silently.
     UnsafePropSpreadAfterStyle,
+    /// A utility with no React Native equivalent reached the Native
+    /// backend. Verified against Yoga (RN's layout engine), whose `display`
+    /// is only Flex/None/Contents and which has no grid implementation at
+    /// all -- so `block`, `inline-flex`, `grid` and friends can't be
+    /// approximated, only refused.
+    WebOnlyPropertyOnNative,
 }
 
 // ---------------------------------------------------------------------------
@@ -137,9 +148,18 @@ pub struct StyleDeclaration {
 #[derive(Debug, Clone, PartialEq)]
 pub enum StyleProperty {
     // Layout
+    /// Originally left out on the grounds that `display: flex` is part of
+    /// every `View`'s base style (proposal §8.1) rather than something a
+    /// user sets. That reasoning didn't cover `hidden`, which is common and
+    /// has a direct equivalent on both platforms.
+    Display(Display),
     FlexDirection(FlexDirection),
     Flex(FlexShorthand),
     AlignItems(Align),
+    AlignSelf(AlignSelf),
+    /// Reuses `Justify` -- CSS's `align-content` takes the same keyword set
+    /// as `justify-content`, and both platforms accept them there.
+    AlignContent(Justify),
     JustifyContent(Justify),
     Gap(Length),
     RowGap(Length),
@@ -170,6 +190,11 @@ pub enum StyleProperty {
     PaddingInlineEnd(Length),
     Width(Dimension),
     Height(Dimension),
+    MinWidth(Dimension),
+    MinHeight(Dimension),
+    MaxWidth(Dimension),
+    MaxHeight(Dimension),
+    ZIndex(i32),
     Position(Position),
     InsetTop(Length),
     InsetRight(Length),
@@ -212,6 +237,7 @@ pub enum StyleProperty {
     FontWeight(FontWeight),
     LineHeight(Length),
     TextAlign(TextAlign),
+    TextTransform(TextTransform),
     TextColor(Color),
 }
 
@@ -254,6 +280,28 @@ pub enum Justify {
 pub enum Position {
     Relative,
     Absolute,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Display {
+    Flex,
+    None,
+    Contents,
+    // No React Native equivalent: Yoga implements exactly Flex/None/
+    // Contents and has no grid at all, so these can't be approximated.
+    // `dowel_native` refuses them rather than dropping them silently.
+    Block,
+    InlineFlex,
+    Grid,
+}
+
+impl Display {
+    /// Whether React Native can express this at all -- see the variants'
+    /// own note. Used by the Native backend to decide between lowering and
+    /// raising `WebOnlyPropertyOnNative`.
+    pub fn is_supported_on_native(self) -> bool {
+        matches!(self, Display::Flex | Display::None | Display::Contents)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -304,6 +352,26 @@ pub enum TextAlign {
     Left,
     Center,
     Right,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextTransform {
+    Uppercase,
+    Lowercase,
+    Capitalize,
+    None,
+}
+
+/// `align-self` takes `Align`'s keywords plus `auto`, so it can't reuse
+/// `Align` directly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AlignSelf {
+    Auto,
+    Start,
+    Center,
+    End,
+    Stretch,
+    Baseline,
 }
 
 // ---------------------------------------------------------------------------

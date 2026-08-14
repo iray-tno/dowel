@@ -57,6 +57,17 @@ if (mismatches.length > 0) {
   }
 }
 
+const unsupported = [...results.entries()]
+  .map(([group, list]) => [group, list.filter((r) => r.verdict === 'UNSUPPORTED')] as const)
+  .filter(([, list]) => list.length > 0)
+if (unsupported.length > 0) {
+  const total = unsupported.reduce((n, [, list]) => n + list.length, 0)
+  console.log(`\nUnsupported (${total}) -- coverage gaps, by group:`)
+  for (const [group, list] of unsupported) {
+    console.log(`  ${group}: ${list.map((r) => r.candidate).join(' ')}`)
+  }
+}
+
 const accepted = all.filter((r) => r.verdict === 'MATCH' && r.detail)
 if (accepted.length > 0) {
   console.log(`\nAccepted differences (${accepted.length}) -- counted as matches:`)

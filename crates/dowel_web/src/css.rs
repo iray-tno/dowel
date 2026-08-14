@@ -32,6 +32,15 @@ fn dimension_value(dim: Dimension) -> String {
     }
 }
 
+fn border_style_keyword(style: &BorderStyle) -> &'static str {
+    match style {
+        BorderStyle::Solid => "solid",
+        BorderStyle::Dashed => "dashed",
+        BorderStyle::Dotted => "dotted",
+        BorderStyle::None => "none",
+    }
+}
+
 fn color_var(color: &Color) -> String {
     let Color::Token(token) = color;
     match dowel_ir::resolve_color_token(token) {
@@ -99,6 +108,10 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
         StyleProperty::PaddingRight(l) => ("padding-right", length_px(*l)),
         StyleProperty::PaddingBottom(l) => ("padding-bottom", length_px(*l)),
         StyleProperty::PaddingLeft(l) => ("padding-left", length_px(*l)),
+        StyleProperty::MarginInlineStart(l) => ("margin-inline-start", length_px(*l)),
+        StyleProperty::MarginInlineEnd(l) => ("margin-inline-end", length_px(*l)),
+        StyleProperty::PaddingInlineStart(l) => ("padding-inline-start", length_px(*l)),
+        StyleProperty::PaddingInlineEnd(l) => ("padding-inline-end", length_px(*l)),
         StyleProperty::Width(d) => ("width", dimension_value(*d)),
         StyleProperty::Height(d) => ("height", dimension_value(*d)),
         StyleProperty::Position(pos) => (
@@ -113,6 +126,8 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
         StyleProperty::InsetRight(l) => ("right", length_px(*l)),
         StyleProperty::InsetBottom(l) => ("bottom", length_px(*l)),
         StyleProperty::InsetLeft(l) => ("left", length_px(*l)),
+        StyleProperty::InsetInlineStart(l) => ("inset-inline-start", length_px(*l)),
+        StyleProperty::InsetInlineEnd(l) => ("inset-inline-end", length_px(*l)),
         StyleProperty::BackgroundColor(c) => ("background-color", color_var(c)),
         StyleProperty::Opacity(o) => ("opacity", format!("{o}")),
         StyleProperty::BorderColor(c) => ("border-color", color_var(c)),
@@ -120,16 +135,14 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
         StyleProperty::BorderRightWidth(l) => ("border-right-width", length_px(*l)),
         StyleProperty::BorderBottomWidth(l) => ("border-bottom-width", length_px(*l)),
         StyleProperty::BorderLeftWidth(l) => ("border-left-width", length_px(*l)),
-        StyleProperty::BorderStyle(style) => (
-            "border-style",
-            match style {
-                BorderStyle::Solid => "solid",
-                BorderStyle::Dashed => "dashed",
-                BorderStyle::Dotted => "dotted",
-                BorderStyle::None => "none",
-            }
-            .to_string(),
-        ),
+        StyleProperty::BorderTopStyle(s) => ("border-top-style", border_style_keyword(s).to_string()),
+        StyleProperty::BorderRightStyle(s) => {
+            ("border-right-style", border_style_keyword(s).to_string())
+        }
+        StyleProperty::BorderBottomStyle(s) => {
+            ("border-bottom-style", border_style_keyword(s).to_string())
+        }
+        StyleProperty::BorderLeftStyle(s) => ("border-left-style", border_style_keyword(s).to_string()),
         StyleProperty::BorderRadius(l) => ("border-radius", length_px(*l)),
         StyleProperty::FontSize(l) => ("font-size", length_px(*l)),
         StyleProperty::FontWeight(w) => ("font-weight", format!("{}", w.0)),

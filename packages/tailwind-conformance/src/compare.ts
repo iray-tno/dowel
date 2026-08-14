@@ -19,6 +19,21 @@ export interface Comparison {
   detail?: string
 }
 
+/**
+ * Differences that are deliberate and permanent, so they shouldn't sit in
+ * the report as standing mismatches. Each needs a reason, not just an
+ * entry -- an allowlist is the easiest place to hide a real bug.
+ */
+const ACCEPTED_DIFFERENCES: Record<string, { property: string; reason: string }> = {
+  'rounded-full': {
+    property: 'border-radius',
+    // Tailwind emits `calc(infinity * 1px)`. React Native has no infinity,
+    // and a large finite radius is already clamped to 50% of the box by
+    // both platforms, so the rendering is identical for any real element.
+    reason: 'infinity has no React Native equivalent; 9999px is the conventional stand-in',
+  },
+}
+
 /** Runs a single utility through Dowel and returns its declaration block. */
 function dowelDeclarations(candidate: string): string {
   const source = `import { View } from '@dowel/core'\nconst el = <View className="${candidate}" />\n`
@@ -32,14 +47,20 @@ function dowelDeclarations(candidate: string): string {
     .join('')
 }
 
-function diffSummary(expected: Map<string, string>, actual: Map<string, string>): string {
+function diffSummary(
+  expected: Map<string, string>,
+  actual: Map<string, string>,
+  accepted?: { property: string },
+): string {
   const parts: string[] = []
   for (const [prop, value] of expected) {
+    if (accepted && accepted.property === prop) continue
     const got = actual.get(prop)
     if (got === undefined) parts.push(`missing ${prop}: ${value}`)
     else if (got !== value) parts.push(`${prop}: expected ${value}, got ${got}`)
   }
   for (const [prop, value] of actual) {
+    if (accepted && accepted.property === prop) continue
     if (!expected.has(prop)) parts.push(`extra ${prop}: ${value}`)
   }
   return parts.join('; ')
@@ -80,8 +101,10 @@ export function compareCandidate(
     return { candidate, verdict: 'SKIPPED', detail: 'tailwind rule had no comparable declarations' }
   }
 
-  const detail = diffSummary(expected.declarations, actual.declarations)
-  return detail === ''
-    ? { candidate, verdict: 'MATCH' }
-    : { candidate, verdict: 'MISMATCH', detail }
+  const accepted = ACCEPTED_DIFFERENCES[candidate]
+  const detail = diffSummary(expected.declarations, actual.declarations, accepted)
+  if (detail !== '') return { candidate, verdict: 'MISMATCH', detail }
+  return accepted
+    ? { candidate, verdict: 'MATCH', detail: `accepted difference: ${accepted.reason}` }
+    : { candidate, verdict: 'MATCH' }
 }

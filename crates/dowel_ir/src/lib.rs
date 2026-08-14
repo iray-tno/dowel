@@ -157,6 +157,17 @@ pub enum StyleProperty {
     PaddingRight(Length),
     PaddingBottom(Length),
     PaddingLeft(Length),
+    // Writing-direction-relative counterparts, kept as their own variants
+    // rather than resolved to a physical side: which side "start" means
+    // isn't known until runtime (the document's direction on Web,
+    // `I18nManager.isRTL` on Native), so collapsing them here would bake in
+    // LTR and silently break RTL layouts. Both platforms have real
+    // equivalents to lower onto -- CSS `*-inline-start/end`, RN
+    // `paddingStart`/`marginEnd`/etc.
+    MarginInlineStart(Length),
+    MarginInlineEnd(Length),
+    PaddingInlineStart(Length),
+    PaddingInlineEnd(Length),
     Width(Dimension),
     Height(Dimension),
     Position(Position),
@@ -164,6 +175,8 @@ pub enum StyleProperty {
     InsetRight(Length),
     InsetBottom(Length),
     InsetLeft(Length),
+    InsetInlineStart(Length),
+    InsetInlineEnd(Length),
 
     // Visual
     BackgroundColor(Color),
@@ -180,7 +193,18 @@ pub enum StyleProperty {
     /// emits a style declaration alongside every border-width utility for
     /// exactly this reason, and Dowel has no preflight/reset of its own to
     /// lean on instead.
-    BorderStyle(BorderStyle),
+    ///
+    /// Per-side, and that matters more than it looks: an all-sides
+    /// `border-style: solid` makes the three sides *without* an explicit
+    /// width fall back to `border-width`'s initial value (`medium`) and
+    /// render, so `border-t-2` would draw a full box instead of one edge.
+    /// React Native has no per-side border style; its backend collapses
+    /// these into its single `borderStyle` (harmless there, since RN
+    /// defaults every border width to 0 rather than `medium`).
+    BorderTopStyle(BorderStyle),
+    BorderRightStyle(BorderStyle),
+    BorderBottomStyle(BorderStyle),
+    BorderLeftStyle(BorderStyle),
     BorderRadius(Length),
 
     // Typography

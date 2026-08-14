@@ -56,10 +56,8 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
         "text-right" => return Some(StyleProperty::TextAlign(TextAlign::Right)),
         "relative" => return Some(StyleProperty::Position(Position::Relative)),
         "absolute" => return Some(StyleProperty::Position(Position::Absolute)),
-        "border-solid" => return Some(StyleProperty::BorderStyle(BorderStyle::Solid)),
-        "border-dashed" => return Some(StyleProperty::BorderStyle(BorderStyle::Dashed)),
-        "border-dotted" => return Some(StyleProperty::BorderStyle(BorderStyle::Dotted)),
-        "border-none" => return Some(StyleProperty::BorderStyle(BorderStyle::None)),
+        // `border-{solid,dashed,...}` set all four sides, so they live in
+        // `expand_base_utility` (multi-property) and never reach here.
         _ => {}
     }
 
@@ -245,10 +243,18 @@ fn parse_spacing_utility(token: &str) -> Option<StyleProperty> {
         "pr" => Some(StyleProperty::PaddingRight(value)),
         "pb" => Some(StyleProperty::PaddingBottom(value)),
         "pl" => Some(StyleProperty::PaddingLeft(value)),
+        // Direction-relative: `ps`/`pe` and `ms`/`me` are Tailwind's
+        // logical counterparts to `pl`/`pr` and `ml`/`mr`.
+        "ps" => Some(StyleProperty::PaddingInlineStart(value)),
+        "pe" => Some(StyleProperty::PaddingInlineEnd(value)),
         "mt" => Some(StyleProperty::MarginTop(value)),
         "mr" => Some(StyleProperty::MarginRight(value)),
         "mb" => Some(StyleProperty::MarginBottom(value)),
         "ml" => Some(StyleProperty::MarginLeft(value)),
+        "ms" => Some(StyleProperty::MarginInlineStart(value)),
+        "me" => Some(StyleProperty::MarginInlineEnd(value)),
+        "start" => Some(StyleProperty::InsetInlineStart(value)),
+        "end" => Some(StyleProperty::InsetInlineEnd(value)),
         _ => None,
     }
 }
@@ -300,9 +306,13 @@ pub fn expand_utility(token: &str) -> (Condition, Vec<StyleProperty>) {
 /// `gap-x-2`, `gap-y-2`) expand to more than one longhand property, so they
 /// can't fit through `parse_utility`'s one-token-to-one-property shape.
 fn expand_base_utility(token: &str) -> Vec<StyleProperty> {
+    // `px`/`mx` are the *logical* inline axis in Tailwind
+    // (`padding-inline`), not left/right. For a symmetric value the
+    // rendering is identical either way, but keeping them logical matches
+    // Tailwind's own output and composes correctly with `ps-*`/`pe-*`.
     if let Some(rest) = token.strip_prefix("px-") {
         if let Some(v) = parse_spacing_suffix(rest) {
-            return vec![StyleProperty::PaddingLeft(v), StyleProperty::PaddingRight(v)];
+            return vec![StyleProperty::PaddingInlineStart(v), StyleProperty::PaddingInlineEnd(v)];
         }
     }
     if let Some(rest) = token.strip_prefix("py-") {
@@ -322,7 +332,7 @@ fn expand_base_utility(token: &str) -> Vec<StyleProperty> {
     }
     if let Some(rest) = token.strip_prefix("mx-") {
         if let Some(v) = parse_spacing_suffix(rest) {
-            return vec![StyleProperty::MarginLeft(v), StyleProperty::MarginRight(v)];
+            return vec![StyleProperty::MarginInlineStart(v), StyleProperty::MarginInlineEnd(v)];
         }
     }
     if let Some(rest) = token.strip_prefix("my-") {
@@ -365,6 +375,13 @@ fn expand_base_utility(token: &str) -> Vec<StyleProperty> {
             return vec![StyleProperty::Width(d), StyleProperty::Height(d)];
         }
     }
+    match token {
+        "border-solid" => return all_sides_border_style(BorderStyle::Solid),
+        "border-dashed" => return all_sides_border_style(BorderStyle::Dashed),
+        "border-dotted" => return all_sides_border_style(BorderStyle::Dotted),
+        "border-none" => return all_sides_border_style(BorderStyle::None),
+        _ => {}
+    }
     if let Some(props) = expand_border_width(token) {
         return props;
     }
@@ -393,18 +410,10 @@ fn expand_base_utility(token: &str) -> Vec<StyleProperty> {
 /// through to color when the suffix isn't numeric.
 fn expand_border_width(token: &str) -> Option<Vec<StyleProperty>> {
     let rest = token.strip_prefix("border")?;
-    let solid = StyleProperty::BorderStyle(BorderStyle::Solid);
 
     // Bare `border` == 1px on every side.
     if rest.is_empty() {
-        let one = Length::Px(1.0);
-        return Some(vec![
-            StyleProperty::BorderTopWidth(one),
-            StyleProperty::BorderRightWidth(one),
-            StyleProperty::BorderBottomWidth(one),
-            StyleProperty::BorderLeftWidth(one),
-            solid,
-        ]);
+        return Some(all_sides_border(Length::Px(1.0)));
     }
 
     let rest = rest.strip_prefix('-')?;
@@ -421,19 +430,50 @@ fn expand_border_width(token: &str) -> Option<Vec<StyleProperty>> {
         _ => (None, parse_border_width_px(rest)?),
     };
 
+    // The style is scoped to the same side as the width. Setting it on all
+    // four would make the other sides fall back to `border-width: medium`
+    // and render, turning `border-t` into a full box.
     Some(match side {
-        Some("t") => vec![StyleProperty::BorderTopWidth(width), solid],
-        Some("r") => vec![StyleProperty::BorderRightWidth(width), solid],
-        Some("b") => vec![StyleProperty::BorderBottomWidth(width), solid],
-        Some("l") => vec![StyleProperty::BorderLeftWidth(width), solid],
-        _ => vec![
+        Some("t") => vec![
             StyleProperty::BorderTopWidth(width),
-            StyleProperty::BorderRightWidth(width),
-            StyleProperty::BorderBottomWidth(width),
-            StyleProperty::BorderLeftWidth(width),
-            solid,
+            StyleProperty::BorderTopStyle(BorderStyle::Solid),
         ],
+        Some("r") => vec![
+            StyleProperty::BorderRightWidth(width),
+            StyleProperty::BorderRightStyle(BorderStyle::Solid),
+        ],
+        Some("b") => vec![
+            StyleProperty::BorderBottomWidth(width),
+            StyleProperty::BorderBottomStyle(BorderStyle::Solid),
+        ],
+        Some("l") => vec![
+            StyleProperty::BorderLeftWidth(width),
+            StyleProperty::BorderLeftStyle(BorderStyle::Solid),
+        ],
+        _ => all_sides_border(width),
     })
+}
+
+fn all_sides_border(width: Length) -> Vec<StyleProperty> {
+    vec![
+        StyleProperty::BorderTopWidth(width),
+        StyleProperty::BorderRightWidth(width),
+        StyleProperty::BorderBottomWidth(width),
+        StyleProperty::BorderLeftWidth(width),
+        StyleProperty::BorderTopStyle(BorderStyle::Solid),
+        StyleProperty::BorderRightStyle(BorderStyle::Solid),
+        StyleProperty::BorderBottomStyle(BorderStyle::Solid),
+        StyleProperty::BorderLeftStyle(BorderStyle::Solid),
+    ]
+}
+
+fn all_sides_border_style(style: BorderStyle) -> Vec<StyleProperty> {
+    vec![
+        StyleProperty::BorderTopStyle(style),
+        StyleProperty::BorderRightStyle(style),
+        StyleProperty::BorderBottomStyle(style),
+        StyleProperty::BorderLeftStyle(style),
+    ]
 }
 
 /// Border widths are plain pixel counts, not multiples of the spacing
@@ -477,7 +517,10 @@ mod tests {
             expand_utility("px-4"),
             (
                 Condition::Always,
-                vec![StyleProperty::PaddingLeft(Length::Px(16.0)), StyleProperty::PaddingRight(Length::Px(16.0))]
+                vec![
+                    StyleProperty::PaddingInlineStart(Length::Px(16.0)),
+                    StyleProperty::PaddingInlineEnd(Length::Px(16.0))
+                ]
             )
         );
         assert_eq!(
@@ -553,26 +596,73 @@ mod tests {
         // CSS defaults border-style to none, so a width with no style
         // renders nothing -- Tailwind pairs them for the same reason.
         let (_, props) = expand_utility("border");
-        assert!(props.contains(&StyleProperty::BorderStyle(BorderStyle::Solid)));
+        assert!(props.contains(&StyleProperty::BorderTopStyle(BorderStyle::Solid)));
         assert!(props.contains(&StyleProperty::BorderTopWidth(Length::Px(1.0))));
-        assert_eq!(props.len(), 5);
+        assert_eq!(props.len(), 8); // 4 widths + 4 styles
 
         let (_, props) = expand_utility("border-2");
         assert!(props.contains(&StyleProperty::BorderLeftWidth(Length::Px(2.0))));
+    }
 
-        // Per-side, bare and with an explicit width.
+    #[test]
+    fn direction_relative_utilities_stay_logical() {
+        // These are the ones that actually flip between LTR and RTL, so
+        // they must not be resolved to a physical side at compile time --
+        // which side "start" is isn't known until runtime.
+        assert_eq!(
+            expand_utility("ps-4"),
+            (Condition::Always, vec![StyleProperty::PaddingInlineStart(Length::Px(16.0))])
+        );
+        assert_eq!(
+            expand_utility("me-2"),
+            (Condition::Always, vec![StyleProperty::MarginInlineEnd(Length::Px(8.0))])
+        );
+        assert_eq!(
+            expand_utility("start-2"),
+            (Condition::Always, vec![StyleProperty::InsetInlineStart(Length::Px(8.0))])
+        );
+        // The physical ones stay physical -- Tailwind has both families.
+        assert_eq!(
+            expand_utility("pl-4"),
+            (Condition::Always, vec![StyleProperty::PaddingLeft(Length::Px(16.0))])
+        );
+        assert_eq!(
+            expand_utility("left-2"),
+            (Condition::Always, vec![StyleProperty::InsetLeft(Length::Px(8.0))])
+        );
+    }
+
+    #[test]
+    fn per_side_border_scopes_its_style_to_that_side() {
+        // The important part: NOT an all-sides `border-style`. That would
+        // leave the other three sides styled but width-less, so CSS's
+        // `border-width: medium` initial value kicks in and draws them --
+        // turning `border-t` into a full box.
         assert_eq!(
             expand_utility("border-t").1,
             vec![
                 StyleProperty::BorderTopWidth(Length::Px(1.0)),
-                StyleProperty::BorderStyle(BorderStyle::Solid)
+                StyleProperty::BorderTopStyle(BorderStyle::Solid)
             ]
         );
         assert_eq!(
             expand_utility("border-b-4").1,
             vec![
                 StyleProperty::BorderBottomWidth(Length::Px(4.0)),
-                StyleProperty::BorderStyle(BorderStyle::Solid)
+                StyleProperty::BorderBottomStyle(BorderStyle::Solid)
+            ]
+        );
+    }
+
+    #[test]
+    fn standalone_border_style_utilities_cover_all_sides() {
+        assert_eq!(
+            expand_utility("border-dashed").1,
+            vec![
+                StyleProperty::BorderTopStyle(BorderStyle::Dashed),
+                StyleProperty::BorderRightStyle(BorderStyle::Dashed),
+                StyleProperty::BorderBottomStyle(BorderStyle::Dashed),
+                StyleProperty::BorderLeftStyle(BorderStyle::Dashed),
             ]
         );
     }

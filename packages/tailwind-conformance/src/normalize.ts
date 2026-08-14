@@ -130,6 +130,28 @@ function canonicalizeValue(value: string): string {
 }
 
 /**
+ * Block-axis logical properties only diverge from their physical
+ * counterparts under a vertical `writing-mode`. React Native has no such
+ * mode, so Dowel assumes horizontal throughout and lowers `py-*` to
+ * top/bottom; treating the two as equal here reflects that project-wide
+ * assumption rather than papering over a difference.
+ *
+ * Inline-axis properties are deliberately *not* folded: start/end vs
+ * left/right genuinely differ under RTL, which both target platforms
+ * support.
+ */
+const BLOCK_AXIS_EQUIVALENTS: Record<string, string> = {
+  'padding-block-start': 'padding-top',
+  'padding-block-end': 'padding-bottom',
+  'margin-block-start': 'margin-top',
+  'margin-block-end': 'margin-bottom',
+}
+
+function canonicalizePropertyName(prop: string): string {
+  return BLOCK_AXIS_EQUIVALENTS[prop] ?? prop
+}
+
+/**
  * Per-property canonicalization for values that are equivalent in CSS but
  * spelled differently. `opacity: 50%` and `opacity: 0.5` are the same
  * declaration; Tailwind writes the former, Dowel the latter.
@@ -165,13 +187,35 @@ function expandShorthand(prop: string, value: string): Array<[string, string]> {
     ] as Array<[string, string]>
   }
 
+  // The inline/block logical shorthands take 1 or 2 values (start, end).
+  const axis = (prefix: string, suffix: string, names: [string, string]) => {
+    const parts = value.split(/\s+/)
+    const [start, end] = parts.length === 1 ? [parts[0], parts[0]] : parts
+    return [
+      [`${prefix}-${suffix}-${names[0]}`, start],
+      [`${prefix}-${suffix}-${names[1]}`, end],
+    ] as Array<[string, string]>
+  }
+
   switch (prop) {
     case 'padding':
       return sides('padding')
     case 'margin':
       return sides('margin')
+    case 'padding-inline':
+      return axis('padding', 'inline', ['start', 'end'])
+    case 'padding-block':
+      return axis('padding', 'block', ['start', 'end'])
+    case 'margin-inline':
+      return axis('margin', 'inline', ['start', 'end'])
+    case 'margin-block':
+      return axis('margin', 'block', ['start', 'end'])
+    case 'inset-inline':
+      return axis('inset', 'inline', ['start', 'end'])
     case 'border-width':
       return sides('border', '-width')
+    case 'border-style':
+      return sides('border', '-style')
     case 'inset':
       return FOUR_SIDES.map((side, i) => {
         const parts = value.split(/\s+/)
@@ -235,7 +279,8 @@ export function normalize(block: string, vars: Map<string, string>): Normalized 
       continue
     }
     for (const [expandedProp, expandedValue] of expandShorthand(prop, value)) {
-      declarations.set(expandedProp, canonicalizeProperty(expandedProp, canonicalizeValue(expandedValue)))
+      const name = canonicalizePropertyName(expandedProp)
+      declarations.set(name, canonicalizeProperty(name, canonicalizeValue(expandedValue)))
     }
   }
 

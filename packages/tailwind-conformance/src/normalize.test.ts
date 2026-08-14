@@ -67,12 +67,26 @@ test('folds a unitless line-height ratio against the font size in the same rule'
 
 test('resolves --tw-border-style to its registered initial value', () => {
   assert.deepEqual(decls('border-style: var(--tw-border-style); border-width: 1px;'), {
-    'border-style': 'solid',
+    'border-top-style': 'solid',
+    'border-right-style': 'solid',
+    'border-bottom-style': 'solid',
+    'border-left-style': 'solid',
     'border-top-width': '1px',
     'border-right-width': '1px',
     'border-bottom-width': '1px',
     'border-left-width': '1px',
   })
+})
+
+test('expands the border-style shorthand to per-side longhands', () => {
+  // Tailwind writes the shorthand; Dowel emits per-side longhands so that
+  // `border-t` can scope its style to one edge.
+  assert.deepEqual(
+    decls('border-style: solid;'),
+    decls(
+      'border-top-style: solid; border-right-style: solid; border-bottom-style: solid; border-left-style: solid;',
+    ),
+  )
 })
 
 test('treats zero as unit-agnostic', () => {

@@ -52,6 +52,14 @@ if (mismatches.length > 0) {
   }
 }
 
+const accepted = all.filter((r) => r.verdict === 'MATCH' && r.detail)
+if (accepted.length > 0) {
+  console.log(`\nAccepted differences (${accepted.length}) -- counted as matches:`)
+  for (const a of accepted) {
+    console.log(`  ${a.candidate}: ${a.detail}`)
+  }
+}
+
 const skipped = all.filter((r) => r.verdict === 'SKIPPED')
 if (skipped.length > 0) {
   console.log(`\nSkipped (${skipped.length}) -- no claim made either way:`)

@@ -66,10 +66,21 @@ pub fn lower(root: &Node, source: &str) -> LowerOutput {
     let mut styles = String::from("{\n");
     for (name, props) in &style_entries {
         styles.push_str(&format!("  {name}: {{\n"));
+        // Distinct IR properties can collapse onto one RN key (all four
+        // per-side border styles map to `borderStyle`), which would emit a
+        // duplicate object key. Keep the last, matching how JS itself would
+        // resolve it -- but written once.
+        let mut emitted: Vec<(&'static str, String)> = Vec::new();
         for prop in props {
             for (key, value) in style::property_and_value(prop) {
-                styles.push_str(&format!("    {key}: {value},\n"));
+                match emitted.iter_mut().find(|(existing, _)| *existing == key) {
+                    Some(slot) => slot.1 = value,
+                    None => emitted.push((key, value)),
+                }
             }
+        }
+        for (key, value) in emitted {
+            styles.push_str(&format!("    {key}: {value},\n"));
         }
         styles.push_str("  },\n");
     }
@@ -277,7 +288,10 @@ export function Login() {
         assert!(output.styles.contains("fontSize: 20,"));
         assert!(output.styles.contains("fontWeight: '700',"));
         assert!(output.styles.contains("dowel2: {"));
-        assert!(output.styles.contains("paddingLeft: 16,"));
+        // `px-4` is Tailwind's logical inline axis, so this lowers to RN's
+        // direction-relative props rather than paddingLeft/paddingRight.
+        assert!(output.styles.contains("paddingStart: 16,"));
+        assert!(output.styles.contains("paddingEnd: 16,"));
         // No `px`/CSS units anywhere -- these are unitless RN numbers.
         assert!(!output.styles.contains("px"));
 

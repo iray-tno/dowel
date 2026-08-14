@@ -6,7 +6,10 @@
 export const CANDIDATE_GROUPS: Record<string, string[]> = {
   layout: ['flex', 'inline-flex', 'block', 'hidden', 'grid', 'flex-1', 'flex-auto', 'flex-none', 'flex-row', 'flex-col', 'grid-cols-3'],
   align: ['items-center', 'items-start', 'items-end', 'items-stretch', 'justify-center', 'justify-between', 'justify-start', 'justify-end', 'self-center', 'content-center'],
-  spacing: ['p-4', 'px-4', 'py-2', 'pt-1', 'pb-8', 'm-4', 'mx-auto', 'mt-2', 'mb-0', 'gap-4', 'gap-x-2', 'gap-y-2', 'space-x-2'],
+  spacing: ['p-4', 'px-4', 'py-2', 'pt-1', 'pb-8', 'pl-4', 'pr-4', 'm-4', 'mx-auto', 'mt-2', 'mb-0', 'ml-2', 'gap-4', 'gap-x-2', 'gap-y-2', 'space-x-2'],
+  // Direction-relative utilities: these are the ones that actually differ
+  // between LTR and RTL, unlike the symmetric `px-*`/`mx-*` pair.
+  logical: ['ps-4', 'pe-4', 'ms-2', 'me-2', 'start-2', 'end-2'],
   sizing: ['w-full', 'w-4', 'w-1/2', 'w-auto', 'h-full', 'h-4', 'h-screen', 'size-4', 'min-w-0', 'max-w-md'],
   typography: ['text-xs', 'text-sm', 'text-base', 'text-lg', 'text-xl', 'text-2xl', 'font-normal', 'font-medium', 'font-bold', 'text-left', 'text-center', 'leading-6', 'leading-tight', 'tracking-wide', 'truncate', 'uppercase'],
   color: ['bg-blue-500', 'bg-white', 'text-gray-900', 'text-black', 'border-red-500', 'bg-transparent'],

@@ -232,7 +232,9 @@ export function Login() {
         assert!(output.css.contains("font-size: 20px;"));
         assert!(output.css.contains("font-weight: 700;"));
         assert!(output.css.contains(".dowel-2 {"));
-        assert!(output.css.contains("padding-left: 16px;"));
+        // `px-4` is Tailwind's logical inline axis, not left/right.
+        assert!(output.css.contains("padding-inline-start: 16px;"));
+        assert!(output.css.contains("padding-inline-end: 16px;"));
 
         assert!(output.diagnostics.is_empty());
     }

@@ -40,6 +40,17 @@ fn dimension_value(dim: Dimension) -> String {
 /// docs); otherwise falls back to a marker string deliberately not
 /// real-color-shaped, so a missed resolution fails loudly instead of
 /// rendering a plausible-but-wrong color.
+fn border_style_literal(style: &BorderStyle) -> String {
+    match style {
+        BorderStyle::Solid => "'solid'",
+        BorderStyle::Dashed => "'dashed'",
+        BorderStyle::Dotted => "'dotted'",
+        // RN has no 'none' border style; a zero width is how you hide one.
+        BorderStyle::None => "'solid'",
+    }
+    .to_string()
+}
+
 fn resolve_color(color: &Color) -> String {
     let Color::Token(token) = color;
     match dowel_ir::resolve_color_token(token) {
@@ -103,6 +114,12 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
         StyleProperty::PaddingRight(l) => vec![("paddingRight", number(*l))],
         StyleProperty::PaddingBottom(l) => vec![("paddingBottom", number(*l))],
         StyleProperty::PaddingLeft(l) => vec![("paddingLeft", number(*l))],
+        // RN's own direction-relative props; they resolve against
+        // `I18nManager.isRTL` at runtime, same role as CSS's inline-start/end.
+        StyleProperty::MarginInlineStart(l) => vec![("marginStart", number(*l))],
+        StyleProperty::MarginInlineEnd(l) => vec![("marginEnd", number(*l))],
+        StyleProperty::PaddingInlineStart(l) => vec![("paddingStart", number(*l))],
+        StyleProperty::PaddingInlineEnd(l) => vec![("paddingEnd", number(*l))],
         StyleProperty::Width(d) => vec![("width", dimension_value(*d))],
         StyleProperty::Height(d) => vec![("height", dimension_value(*d))],
         StyleProperty::Position(pos) => vec![(
@@ -117,6 +134,8 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
         StyleProperty::InsetRight(l) => vec![("right", number(*l))],
         StyleProperty::InsetBottom(l) => vec![("bottom", number(*l))],
         StyleProperty::InsetLeft(l) => vec![("left", number(*l))],
+        StyleProperty::InsetInlineStart(l) => vec![("start", number(*l))],
+        StyleProperty::InsetInlineEnd(l) => vec![("end", number(*l))],
         StyleProperty::BackgroundColor(c) => vec![("backgroundColor", resolve_color(c))],
         StyleProperty::Opacity(o) => vec![("opacity", format!("{o}"))],
         StyleProperty::BorderColor(c) => vec![("borderColor", resolve_color(c))],
@@ -127,18 +146,15 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
         StyleProperty::BorderRightWidth(l) => vec![("borderRightWidth", number(*l))],
         StyleProperty::BorderBottomWidth(l) => vec![("borderBottomWidth", number(*l))],
         StyleProperty::BorderLeftWidth(l) => vec![("borderLeftWidth", number(*l))],
-        // RN has no per-side borderStyle -- it's one property for all sides.
-        StyleProperty::BorderStyle(style) => vec![(
-            "borderStyle",
-            match style {
-                BorderStyle::Solid => "'solid'",
-                BorderStyle::Dashed => "'dashed'",
-                BorderStyle::Dotted => "'dotted'",
-                // RN has no 'none'; zero-width is how you hide a border.
-                BorderStyle::None => "'solid'",
-            }
-            .to_string(),
-        )],
+        // RN has no per-side border style -- one `borderStyle` covers all
+        // four. Collapsing is safe here in a way it wouldn't be on Web:
+        // RN defaults every border width to 0, so a style on a side with
+        // no width renders nothing (whereas CSS would fall back to
+        // `medium` and draw it).
+        StyleProperty::BorderTopStyle(s)
+        | StyleProperty::BorderRightStyle(s)
+        | StyleProperty::BorderBottomStyle(s)
+        | StyleProperty::BorderLeftStyle(s) => vec![("borderStyle", border_style_literal(s))],
         StyleProperty::BorderRadius(l) => vec![("borderRadius", number(*l))],
         StyleProperty::FontSize(l) => vec![("fontSize", number(*l))],
         // RN's `fontWeight` type is a *string* ('100'..'900'/'normal'/

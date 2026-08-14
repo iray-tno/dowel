@@ -232,6 +232,23 @@ pub enum StyleProperty {
     BorderLeftStyle(BorderStyle),
     BorderRadius(Radius),
 
+    /// CSS states these as standalone properties (`rotate: 45deg`), which
+    /// is also how Tailwind v4 emits them. React Native has no standalone
+    /// equivalents -- only a combined `transform` -- so the Native backend
+    /// composes whichever of these are present into one entry, in CSS's
+    /// defined application order (translate, then rotate, then scale).
+    Rotate(Angle),
+    /// A ratio: `scale-95` is 0.95, not 95.
+    Scale(f32),
+    TranslateX(Length),
+    TranslateY(Length),
+    /// Kept as the already-composed CSS value rather than a structured
+    /// list. React Native accepts a string for `boxShadow`/`filter` too, so
+    /// both backends emit the same text and there's nothing for a
+    /// structured form to buy here.
+    BoxShadow(String),
+    Filter(String),
+
     // Typography
     FontSize(Length),
     FontWeight(FontWeight),
@@ -352,6 +369,11 @@ pub enum TextAlign {
     Left,
     Center,
     Right,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Angle {
+    pub degrees: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

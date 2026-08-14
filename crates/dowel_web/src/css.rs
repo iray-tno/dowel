@@ -197,6 +197,19 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
             }
             .to_string(),
         ),
+        // Standalone properties, as CSS defines them and Tailwind emits
+        // them -- the `transform` shorthand isn't used on either side.
+        // Tailwind writes both axes explicitly for scale/translate, so
+        // these do the same rather than relying on one-value expansion.
+        StyleProperty::Rotate(a) => ("rotate", format!("{}deg", a.degrees)),
+        StyleProperty::Scale(s) => {
+            let pct = s * 100.0;
+            ("scale", format!("{pct}% {pct}%"))
+        }
+        StyleProperty::TranslateX(l) => ("translate", format!("{} 0", length_px(*l))),
+        StyleProperty::TranslateY(l) => ("translate", format!("0 {}", length_px(*l))),
+        StyleProperty::BoxShadow(s) => ("box-shadow", s.clone()),
+        StyleProperty::Filter(f) => ("filter", f.clone()),
         StyleProperty::TextTransform(t) => (
             "text-transform",
             match t {

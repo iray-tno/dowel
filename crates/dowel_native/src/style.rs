@@ -40,6 +40,38 @@ fn dimension_value(dim: Dimension) -> String {
 /// docs); otherwise falls back to a marker string deliberately not
 /// real-color-shaped, so a missed resolution fails loudly instead of
 /// rendering a plausible-but-wrong color.
+/// Builds React Native's combined `transform` array from whichever
+/// standalone transform properties a rule carries, or `None` if it carries
+/// none. Ordered translate -> rotate -> scale, matching how CSS applies its
+/// standalone properties, so the two platforms compose identically.
+pub fn transform_entry(props: &[StyleProperty]) -> Option<(&'static str, String)> {
+    let mut parts: Vec<String> = Vec::new();
+    for prop in props {
+        if let StyleProperty::TranslateX(Length::Px(v)) = prop {
+            parts.push(format!("{{ translateX: {v} }}"));
+        }
+    }
+    for prop in props {
+        if let StyleProperty::TranslateY(Length::Px(v)) = prop {
+            parts.push(format!("{{ translateY: {v} }}"));
+        }
+    }
+    for prop in props {
+        if let StyleProperty::Rotate(a) = prop {
+            parts.push(format!("{{ rotate: '{}deg' }}", a.degrees));
+        }
+    }
+    for prop in props {
+        if let StyleProperty::Scale(s) = prop {
+            parts.push(format!("{{ scale: {s} }}"));
+        }
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    Some(("transform", format!("[{}]", parts.join(", "))))
+}
+
 fn justify_literal(justify: &Justify) -> String {
     match justify {
         Justify::Start => "'flex-start'",
@@ -209,6 +241,15 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
             }
             .to_string(),
         )],
+        // Composed into a single `transform` by the caller, since RN has no
+        // standalone rotate/scale/translate -- see `transform_entry`.
+        StyleProperty::Rotate(_)
+        | StyleProperty::Scale(_)
+        | StyleProperty::TranslateX(_)
+        | StyleProperty::TranslateY(_) => Vec::new(),
+        // RN accepts a string for both, so the CSS text carries over as-is.
+        StyleProperty::BoxShadow(s) => vec![("boxShadow", format!("'{s}'"))],
+        StyleProperty::Filter(f) => vec![("filter", format!("'{f}'"))],
         StyleProperty::TextTransform(t) => vec![(
             "textTransform",
             match t {

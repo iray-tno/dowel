@@ -110,6 +110,36 @@ test('declines to fold calc() mixing incompatible units', () => {
   assert.equal(result.unresolved.length, 1)
 })
 
+test('resolves registers assigned in the same rule that references them', () => {
+  // Tailwind sets `--tw-blur` and reads it back in the very next
+  // declaration; the assignment isn't output to compare, but it has to be
+  // in scope first.
+  assert.deepEqual(
+    decls('--tw-blur: blur(8px); filter: var(--tw-blur,) var(--tw-brightness,);'),
+    { filter: 'blur(8px)' },
+  )
+})
+
+test('resolves a long var() chain without truncating the tail', () => {
+  // Regression: each pass resolves one var(), and Tailwind's `filter`
+  // chains nine. A depth cap of 8 left the last one unresolved, which
+  // showed up as a bogus SKIP rather than an obviously wrong value.
+  const nine = Array.from({ length: 9 }, (_, i) => `var(--slot-${i},)`).join(' ')
+  const withVars = new Map(vars)
+  withVars.set('--slot-8', 'blur(8px)')
+  const result = normalize(`filter: ${nine};`, withVars)
+  assert.equal(result.unresolved.length, 0)
+  assert.equal(result.declarations.get('filter'), 'blur(8px)')
+})
+
+test('drops fully transparent box-shadow layers', () => {
+  // Tailwind always splices its ring/inset-ring registers into box-shadow;
+  // unset they are `0 0 #0000`, which paints nothing.
+  assert.deepEqual(decls('box-shadow: 0 0 #0000, 0 0 #0000, 0 1px 3px 0 rgb(0 0 0 / 0.1);'), {
+    'box-shadow': '0 1px 3px 0 rgb(0 0 0 / 0.1)',
+  })
+})
+
 test('skips Tailwind runtime register declarations', () => {
   // `--tw-*` assignments feed later declarations; they are not output to
   // compare on their own.

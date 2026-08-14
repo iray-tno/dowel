@@ -54,7 +54,12 @@ function splitOne(decl: string): [string, string] {
  * is left in place so the caller marks the rule unresolved.
  */
 function resolveVars(value: string, vars: Map<string, string>, depth = 0): string {
-  if (depth > 8) return value
+  // Generous, because each pass resolves only the first `var()` and a
+  // single declaration can chain many: Tailwind's `filter` alone splices in
+  // nine. The cap is here to stop a self-referential custom property from
+  // looping forever, not to bound normal nesting -- an earlier limit of 8
+  // silently left the tail of that `filter` unresolved.
+  if (depth > 100) return value
   const re = /var\(\s*(--[a-z0-9-]+)\s*(?:,\s*([^]*?)\s*)?\)/i
   const match = re.exec(value)
   if (!match) return value
@@ -161,7 +166,45 @@ function canonicalizeProperty(prop: string, value: string): string {
     const pct = /^(-?[\d.]+)%$/.exec(value)
     if (pct) return canonicalizeValue(`${parseFloat(pct[1]) / 100}`)
   }
+  if (prop === 'box-shadow') return dropNoOpShadowLayers(value)
+  // Tailwind builds `filter` from a fixed list of slots
+  // (`var(--tw-blur,) var(--tw-brightness,) ...`), most of which resolve to
+  // nothing; collapse the leftover whitespace so one active filter compares
+  // equal to Dowel's single function.
+  if (prop === 'filter') return value.replace(/\s+/g, ' ').trim()
   return value
+}
+
+/**
+ * Tailwind's `box-shadow` always splices in its ring/inset-ring registers,
+ * which default to `0 0 #0000` -- fully transparent, i.e. no shadow at all.
+ * Dropping them lets a rule with one real shadow compare equal to Dowel's,
+ * which emits only that shadow.
+ */
+function dropNoOpShadowLayers(value: string): string {
+  const layers = splitTopLevel(value, ',')
+    .map((layer) => layer.trim())
+    .filter((layer) => layer !== '' && !/^0 0 #0000$/.test(layer))
+  return layers.join(', ')
+}
+
+/** Splits on `sep`, ignoring separators nested inside parentheses. */
+function splitTopLevel(value: string, sep: string): string[] {
+  const out: string[] = []
+  let depth = 0
+  let current = ''
+  for (const ch of value) {
+    if (ch === '(') depth++
+    if (ch === ')') depth--
+    if (ch === sep && depth === 0) {
+      out.push(current)
+      current = ''
+      continue
+    }
+    current += ch
+  }
+  out.push(current)
+  return out
 }
 
 const FOUR_SIDES = ['top', 'right', 'bottom', 'left'] as const
@@ -265,12 +308,20 @@ export function normalize(block: string, vars: Map<string, string>): Normalized 
   const declarations = new Map<string, string>()
   const unresolved: string[] = []
 
-  for (const [prop, rawValue] of splitDeclarations(block)) {
-    // Tailwind's own runtime registers aren't real output; they only feed
-    // the declarations that follow, which are compared on their own.
+  const parsed = splitDeclarations(block)
+  // Tailwind assigns its `--tw-*` registers in the same rule that goes on
+  // to reference them (`--tw-blur: blur(8px); filter: var(--tw-blur,) ...`).
+  // Those assignments aren't output to compare on their own, but they have
+  // to be in scope before anything else in the rule is resolved.
+  const scoped = new Map(vars)
+  for (const [prop, value] of parsed) {
+    if (prop.startsWith('--')) scoped.set(prop, value)
+  }
+
+  for (const [prop, rawValue] of parsed) {
     if (prop.startsWith('--')) continue
 
-    let value = resolveVars(rawValue, vars)
+    let value = resolveVars(rawValue, scoped)
     value = evaluateCalc(value)
     value = canonicalizeValue(value)
 

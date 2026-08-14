@@ -6,14 +6,16 @@ import { compareCandidate, type Comparison } from './compare.ts'
 import { buildOracle } from './oracle.ts'
 import { loadThemeVars, tailwindVersion } from './theme.ts'
 
-const vars = loadThemeVars()
 const oracle = await buildOracle(ALL_CANDIDATES)
+// Theme values plus the `@property` register defaults the utilities
+// reference without a fallback -- both needed to resolve Tailwind's output.
+const vars = new Map([...loadThemeVars(), ...oracle.registerDefaults])
 
 const results = new Map<string, Comparison[]>()
 for (const [group, candidates] of Object.entries(CANDIDATE_GROUPS)) {
   results.set(
     group,
-    candidates.map((candidate) => compareCandidate(candidate, oracle.get(candidate), vars)),
+    candidates.map((candidate) => compareCandidate(candidate, oracle.rules.get(candidate), vars)),
   )
 }
 

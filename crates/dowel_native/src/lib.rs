@@ -80,6 +80,9 @@ pub fn lower(root: &Node, source: &str) -> LowerOutput {
                 }
             }
         }
+        if let Some(transform) = style::transform_entry(props) {
+            emitted.push(transform);
+        }
         for (key, value) in emitted {
             styles.push_str(&format!("    {key}: {value},\n"));
         }
@@ -441,6 +444,34 @@ export function Login() {
         assert!(output.jsx.contains("style={styles.dowel0}"));
         assert!(output.styles.contains("dowel0_hover: {"));
         assert!(!output.jsx.contains("dowel0_hover"));
+    }
+
+    #[test]
+    fn transforms_compose_into_rn_single_transform_array() {
+        // RN has no standalone rotate/scale/translate, so several IR
+        // properties collapse into one entry -- ordered translate, rotate,
+        // scale to match how CSS applies its standalone equivalents.
+        let source = r#"
+            import { View } from '@dowel/core'
+            const el = <View className="scale-95 rotate-45 translate-x-2" />
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0], source);
+        assert!(output.styles.contains(
+            "transform: [{ translateX: 8 }, { rotate: '45deg' }, { scale: 0.95 }],"
+        ));
+    }
+
+    #[test]
+    fn shadow_and_filter_carry_across_as_strings() {
+        let source = r#"
+            import { View } from '@dowel/core'
+            const el = <View className="shadow-lg blur-sm" />
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0], source);
+        assert!(output.styles.contains("boxShadow: '0 10px 15px -3px"));
+        assert!(output.styles.contains("filter: 'blur(8px)',"));
     }
 
     #[test]

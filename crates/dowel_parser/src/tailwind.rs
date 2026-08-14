@@ -5,7 +5,7 @@
 //! callers decide what to do with an unmapped utility (Phase 0: drop it).
 
 use dowel_ir::{
-    Align, AlignSelf, BorderStyle, Breakpoint, Color, Condition, Dimension, Display, FlexDirection,
+    Align, AlignSelf, Angle, BorderStyle, Breakpoint, Color, Condition, Dimension, Display, FlexDirection,
     FlexShorthand, FontWeight, Justify, Length, Position, Radius, StyleProperty, TextAlign,
     TextTransform,
 };
@@ -155,6 +155,15 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
             return Some(StyleProperty::ZIndex(z));
         }
     }
+    if let Some(shadow) = parse_shadow(token) {
+        return Some(StyleProperty::BoxShadow(shadow.to_string()));
+    }
+    if let Some(blur) = parse_blur(token) {
+        return Some(StyleProperty::Filter(format!("blur({blur}px)")));
+    }
+    if let Some(prop) = parse_transform(token) {
+        return Some(prop);
+    }
 
     if let Some(weight) = parse_font_weight(token) {
         return Some(StyleProperty::FontWeight(weight));
@@ -216,6 +225,71 @@ fn parse_border_radius(token: &str) -> Option<Radius> {
         _ => return None,
     };
     Some(Radius::Length(Length::Px(px)))
+}
+
+/// Tailwind's `--shadow-*` scale, verbatim. Emitted as a composed CSS
+/// string because React Native's `boxShadow` accepts one too, so both
+/// backends can carry the same text.
+///
+/// Tailwind's own `box-shadow` declaration also splices in its ring and
+/// inset-ring registers, but those are `0 0 #0000` (fully transparent, a
+/// no-op) unless a `ring-*` utility is present -- which Dowel doesn't
+/// support -- so only the shadow itself is emitted.
+fn parse_shadow(token: &str) -> Option<&'static str> {
+    Some(match token {
+        "shadow-2xs" => "0 1px rgb(0 0 0 / 0.05)",
+        "shadow-xs" => "0 1px 2px 0 rgb(0 0 0 / 0.05)",
+        "shadow-sm" | "shadow" => "0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)",
+        "shadow-md" => "0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)",
+        "shadow-lg" => "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)",
+        "shadow-xl" => "0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)",
+        "shadow-2xl" => "0 25px 50px -12px rgb(0 0 0 / 0.25)",
+        "shadow-inner" => "inset 0 2px 4px 0 rgb(0 0 0 / 0.05)",
+        "shadow-none" => "none",
+        _ => return None,
+    })
+}
+
+fn parse_blur(token: &str) -> Option<f32> {
+    Some(match token {
+        "blur-xs" => 4.0,
+        "blur-sm" | "blur" => 8.0,
+        "blur-md" => 12.0,
+        "blur-lg" => 16.0,
+        "blur-xl" => 24.0,
+        "blur-2xl" => 40.0,
+        "blur-3xl" => 64.0,
+        _ => return None,
+    })
+}
+
+/// `rotate-<deg>`, `scale-<pct>`, `translate-x-<n>`, `translate-y-<n>`,
+/// each optionally negated with a leading `-`.
+fn parse_transform(token: &str) -> Option<StyleProperty> {
+    let (negative, token) = match token.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, token),
+    };
+    let sign = if negative { -1.0 } else { 1.0 };
+
+    if let Some(rest) = token.strip_prefix("rotate-") {
+        let degrees: f32 = rest.parse().ok()?;
+        return Some(StyleProperty::Rotate(Angle { degrees: degrees * sign }));
+    }
+    if let Some(rest) = token.strip_prefix("scale-") {
+        let pct: f32 = rest.parse().ok()?;
+        // Tailwind's scale scale is a percentage; the IR holds the ratio.
+        return Some(StyleProperty::Scale(pct / 100.0 * sign));
+    }
+    if let Some(rest) = token.strip_prefix("translate-x-") {
+        let Length::Px(v) = parse_spacing_suffix(rest)?;
+        return Some(StyleProperty::TranslateX(Length::Px(v * sign)));
+    }
+    if let Some(rest) = token.strip_prefix("translate-y-") {
+        let Length::Px(v) = parse_spacing_suffix(rest)?;
+        return Some(StyleProperty::TranslateY(Length::Px(v * sign)));
+    }
+    None
 }
 
 /// `max-w-*`/`max-h-*` additionally accept Tailwind's named container
@@ -720,6 +794,45 @@ mod tests {
         assert_eq!(
             expand_utility("uppercase"),
             (Condition::Always, vec![StyleProperty::TextTransform(TextTransform::Uppercase)])
+        );
+    }
+
+    #[test]
+    fn parses_effects_and_transforms() {
+        assert_eq!(
+            expand_utility("blur-sm"),
+            (Condition::Always, vec![StyleProperty::Filter("blur(8px)".to_string())])
+        );
+        assert_eq!(
+            expand_utility("shadow-lg").1,
+            vec![StyleProperty::BoxShadow(
+                "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)".to_string()
+            )]
+        );
+        assert_eq!(
+            expand_utility("rotate-45"),
+            (Condition::Always, vec![StyleProperty::Rotate(Angle { degrees: 45.0 })])
+        );
+        // Tailwind's scale scale is a percentage; the IR keeps the ratio.
+        assert_eq!(
+            expand_utility("scale-95"),
+            (Condition::Always, vec![StyleProperty::Scale(0.95)])
+        );
+        assert_eq!(
+            expand_utility("translate-x-2"),
+            (Condition::Always, vec![StyleProperty::TranslateX(Length::Px(8.0))])
+        );
+    }
+
+    #[test]
+    fn negated_transforms_are_recognized() {
+        assert_eq!(
+            expand_utility("-rotate-45"),
+            (Condition::Always, vec![StyleProperty::Rotate(Angle { degrees: -45.0 })])
+        );
+        assert_eq!(
+            expand_utility("-translate-y-2"),
+            (Condition::Always, vec![StyleProperty::TranslateY(Length::Px(-8.0))])
         );
     }
 

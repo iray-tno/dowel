@@ -9,8 +9,20 @@ import { tailwindPackageDir } from './theme.ts'
 
 export type OracleRules = Map<string, string>
 
+export interface Oracle {
+  rules: OracleRules
+  /**
+   * Initial values of the `--tw-*` registers Tailwind declares via
+   * `@property`. Its utilities reference these without a fallback (e.g.
+   * `box-shadow: var(--tw-ring-shadow), var(--tw-shadow)`), so resolving
+   * one needs them -- read from the compiled output rather than hardcoded
+   * so they can't drift from the version under test.
+   */
+  registerDefaults: Map<string, string>
+}
+
 /** Compiles `candidates` and returns each one's declaration block. */
-export async function buildOracle(candidates: string[]): Promise<OracleRules> {
+export async function buildOracle(candidates: string[]): Promise<Oracle> {
   const dir = tailwindPackageDir()
   const compiler = await compile('@import "tailwindcss";', {
     base: dir,
@@ -36,7 +48,18 @@ export async function buildOracle(candidates: string[]): Promise<OracleRules> {
       rules.set(candidate, (rules.get(candidate) ?? '') + declarations)
     }
   }
-  return rules
+  return { rules, registerDefaults: extractRegisterDefaults(css) }
+}
+
+function extractRegisterDefaults(css: string): Map<string, string> {
+  const defaults = new Map<string, string>()
+  const re = /@property\s+(--[a-z0-9-]+)\s*\{([^}]*)\}/gi
+  let match: RegExpExecArray | null
+  while ((match = re.exec(css))) {
+    const initial = /initial-value:\s*([^;]+);/i.exec(match[2])
+    if (initial) defaults.set(match[1], initial[1].trim())
+  }
+  return defaults
 }
 
 /** How Tailwind escapes a candidate when writing it as a CSS selector. */

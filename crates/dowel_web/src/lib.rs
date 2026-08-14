@@ -10,7 +10,6 @@ mod css;
 mod markup;
 
 use dowel_ir::{Diagnostic, Node, Primitive};
-use dowel_parser::ScannedUtility;
 
 pub struct LowerOutput {
     pub jsx: String,
@@ -45,11 +44,10 @@ impl ClassAllocator {
 /// re-emit `ExprRef`/`ConditionExpr` guards verbatim (they're spans into
 /// it, not evaluated by the compiler; see `dowel_ir`'s doc comments).
 ///
-/// `scanned` is the source's candidate classes (`dowel_parser::
-/// scan_class_candidates`). They're only emitted when the tree actually
-/// has a `className` that couldn't be resolved statically -- see
-/// `render_fallback_utilities`.
-pub fn lower(root: &Node, source: &str, scanned: &[ScannedUtility]) -> LowerOutput {
+/// CSS for classes that can only be known at runtime is *not* emitted
+/// here: candidates are a project-wide set, so their stylesheet is built
+/// once by `render_candidate_stylesheet` rather than per file.
+pub fn lower(root: &Node, source: &str) -> LowerOutput {
     let mut allocator = ClassAllocator { next: 0 };
     let mut rules = String::new();
     let mut diagnostics = Vec::new();
@@ -68,38 +66,37 @@ pub fn lower(root: &Node, source: &str, scanned: &[ScannedUtility]) -> LowerOutp
         css.push_str(keyframes);
         css.push_str("\n\n");
     }
-    css.push_str(&render_fallback_utilities(root, scanned));
     css.push_str(&rules);
 
     LowerOutput { jsx, css, diagnostics }
 }
 
-/// CSS for scanned candidate classes, under their real Tailwind names.
+/// One stylesheet for every candidate class in the project, written under
+/// the classes' real Tailwind names.
 ///
-/// Only emitted when some `className` in the tree couldn't be resolved
-/// statically. Everything Dowel *could* read is already compiled into
-/// scoped `.dowel-N` rules, so emitting these unconditionally would ship
-/// a second, redundant copy of the same styles on every file.
+/// This is what makes proposal §7's third tier do something: a `className`
+/// the compiler couldn't read is passed through, evaluates to a class
+/// string at runtime, and finds a matching rule here. No runtime code is
+/// involved -- the browser's CSS engine does the resolution.
 ///
-/// This is what makes proposal §7's third tier actually do something: the
-/// preserved expression evaluates to a class string at runtime, and now
-/// there's a matching rule for the browser to apply. No runtime code is
-/// involved -- the CSS engine does the resolution.
-fn render_fallback_utilities(root: &Node, scanned: &[ScannedUtility]) -> String {
-    if scanned.is_empty() || !has_class_name_fallback(root) {
-        return String::new();
-    }
+/// Project-wide rather than per-file because the union is: a class written
+/// in one module can be produced by an expression in another. Emitting it
+/// per file would ship the whole set once per file that needs any of it.
+///
+/// Unrecognized names are skipped rather than reported. The candidate list
+/// comes from scanning, so it's expected to contain tokens that only
+/// looked like classes.
+pub fn render_candidate_stylesheet(class_names: &[String]) -> String {
     let mut out = String::new();
-    for utility in scanned {
+    for name in class_names {
+        let Some(utility) = dowel_parser::resolve_class_name(name) else {
+            continue;
+        };
         let selector = css::escape_class_selector(&utility.class_name);
         out.push_str(&css::render_rule(&selector, &utility.condition, &utility.properties));
         out.push_str("\n\n");
     }
     out
-}
-
-fn has_class_name_fallback(node: &Node) -> bool {
-    !node.class_name_fallback.is_empty() || node.children.iter().any(has_class_name_fallback)
 }
 
 /// Every distinct `@keyframes` block the tree's animations need, in
@@ -183,10 +180,10 @@ fn render_node(
     // (the Vite plugin splices it back into React source), not raw HTML.
     //
     // Anything the parser couldn't decompose statically (proposal §7's
-    // third tier) is concatenated back on at runtime. `lower` emits CSS
-    // for every candidate class the scanner found in this file, so
-    // whichever one the expression evaluates to has a real rule behind it
-    // -- the browser's own CSS engine does the resolution, no runtime.
+    // third tier) is concatenated back on at runtime. What it evaluates to
+    // is matched by the project-wide candidate stylesheet
+    // (`render_candidate_stylesheet`) -- the browser's own CSS engine does
+    // the resolution, with no runtime code involved.
     let mut attrs = if node.class_name_fallback.is_empty() {
         format!(r#" className="{classes}""#)
     } else {
@@ -196,9 +193,9 @@ fn render_node(
                 severity: dowel_ir::Severity::Warning,
                 message: format!(
                     "`{}` can't be resolved at build time, so it's passed through and its CSS \
-                     comes from scanning this file for candidate classes. Only classes whose \
-                     text appears in this file are covered -- one built from a variable, or \
-                     coming from another module, still won't be.",
+                     comes from the project-wide candidate stylesheet instead. Only classes \
+                     whose text appears literally somewhere in the project are covered -- one \
+                     assembled at runtime (`` `bg-${{color}}-500` ``) still won't be.",
                     source_text(source, *expr_ref)
                 ),
                 span: node.span,
@@ -310,7 +307,7 @@ export function Login() {
     fn lowers_the_login_example_to_html_and_css() {
         let parsed = dowel_parser::parse_tsx(LOGIN_EXAMPLE);
         let root = &parsed.roots[0];
-        let output = lower(root, LOGIN_EXAMPLE, &[]);
+        let output = lower(root, LOGIN_EXAMPLE);
 
         assert!(output.jsx.starts_with(r#"<div className="dowel-view dowel-0">"#));
         assert!(output.jsx.contains("<span className=\"dowel-1\">Welcome</span>"));
@@ -338,7 +335,7 @@ export function Login() {
             const el = <View className="hover:text-xl" />
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source, &[]);
+        let output = lower(&parsed.roots[0], source);
         assert!(output.css.contains(".dowel-0:hover {"));
         assert!(output.css.contains("font-size: 20px;"));
     }
@@ -350,7 +347,7 @@ export function Login() {
             const el = <View className={classNameFromProps} />
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source, &[]);
+        let output = lower(&parsed.roots[0], source);
 
         // The expression reaches the DOM instead of vanishing...
         assert!(output.jsx.contains("classNameFromProps"));
@@ -364,59 +361,49 @@ export function Login() {
     }
 
     #[test]
-    fn scanned_candidates_give_an_unresolvable_class_name_real_css() {
-        // The classes here live inside a function body -- exactly what the
-        // AST-based reader can't see. Scanning finds them, and the CSS is
-        // emitted under their real Tailwind names so the string the
-        // expression produces at runtime actually matches something. No
-        // runtime code involved: the browser's CSS engine resolves it.
-        let source = r#"
-            import { View } from '@dowel/core'
-            function getDynamic(isWide) {
-              return isWide ? 'p-8' : 'p-2'
-            }
-            const el = <View className={getDynamic(isWide)} />
-            "#;
-        let parsed = dowel_parser::parse_tsx(source);
-        let scanned = dowel_parser::scan_class_candidates(source);
-        let output = lower(&parsed.roots[0], source, &scanned);
-
-        assert!(output.css.contains(".p-8 {"));
-        assert!(output.css.contains(".p-2 {"));
-        assert!(output.css.contains("padding-top: 32px;"));
+    fn candidate_css_uses_the_real_tailwind_names() {
+        // The classes a scan finds live somewhere the AST-based reader
+        // can't see them, so the only thing that can match at runtime is
+        // the name itself. No runtime code is involved: the browser's CSS
+        // engine resolves it.
+        let css = render_candidate_stylesheet(&["p-8".to_string(), "p-2".to_string()]);
+        assert!(css.contains(".p-8 {"));
+        assert!(css.contains(".p-2 {"));
+        assert!(css.contains("padding-top: 32px;"));
     }
 
     #[test]
-    fn scanned_candidates_are_not_emitted_without_a_fallback() {
-        // Everything readable is already compiled into scoped rules, so
-        // emitting these too would ship a second copy of the same styles
-        // on every file.
+    fn candidate_css_is_not_emitted_per_file() {
+        // Per-file lowering compiles everything readable into scoped rules
+        // and stops there -- the candidate set is project-wide, so shipping
+        // it from `lower` would put a copy in every file that needs any of
+        // it.
         let source = r#"
             import { View } from '@dowel/core'
-            const el = <View className="p-4" />
+            import { cn } from 'clsx'
+            const el = <View className={cn('p-4', getDynamic())} />
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let scanned = dowel_parser::scan_class_candidates(source);
-        assert!(!scanned.is_empty(), "the scanner should still find p-4");
-
-        let output = lower(&parsed.roots[0], source, &scanned);
-        assert!(output.css.contains(".dowel-0 {"));
-        assert!(!output.css.contains(".p-4 {"));
+        let output = lower(&parsed.roots[0], source);
+        assert!(output.css.contains(".dowel-0 {"), "{}", output.css);
+        assert!(!output.css.contains(".p-4 {"), "{}", output.css);
     }
 
     #[test]
-    fn scanned_variant_classes_are_escaped_in_the_selector() {
+    fn candidate_variant_classes_are_escaped_in_the_selector() {
         // `hover:bg-blue-500` contains selector syntax and has to be
         // written `.hover\:bg-blue-500:hover` to match literally.
-        let source = r#"
-            import { View } from '@dowel/core'
-            const extra = 'hover:bg-blue-500'
-            const el = <View className={extra} />
-            "#;
-        let parsed = dowel_parser::parse_tsx(source);
-        let scanned = dowel_parser::scan_class_candidates(source);
-        let output = lower(&parsed.roots[0], source, &scanned);
-        assert!(output.css.contains(r".hover\:bg-blue-500:hover {"));
+        let css = render_candidate_stylesheet(&["hover:bg-blue-500".to_string()]);
+        assert!(css.contains(r".hover\:bg-blue-500:hover {"));
+    }
+
+    #[test]
+    fn unrecognized_candidates_are_skipped() {
+        // Scanning is imprecise by design, so the stylesheet has to
+        // tolerate tokens that only looked like classes.
+        let css = render_candidate_stylesheet(&["useState".to_string(), "p-4".to_string()]);
+        assert!(css.contains(".p-4 {"));
+        assert!(!css.contains("useState"));
     }
 
     #[test]
@@ -430,7 +417,7 @@ export function Login() {
             const el = <View className={cn('p-4', active && 'text-xl', getDynamic())} />
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source, &[]);
+        let output = lower(&parsed.roots[0], source);
 
         assert!(output.css.contains("padding-top: 16px;"));
         assert!(output.css.contains("font-size: 20px;"));
@@ -449,7 +436,7 @@ export function Login() {
             const el = <View className="space-x-2" />
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source, &[]);
+        let output = lower(&parsed.roots[0], source);
         assert!(output.css.contains(":where(.dowel-0 > :not(:last-child)) {"));
         assert!(output.css.contains("margin-inline-end: 8px;"));
         // Not on the element itself.
@@ -467,7 +454,7 @@ export function Login() {
             )
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source, &[]);
+        let output = lower(&parsed.roots[0], source);
         assert!(output.css.contains("animation: spin 1s linear infinite;"));
         // An `animation` declaration is inert without its keyframes, and
         // two users of the same animation must not duplicate the block.
@@ -481,7 +468,7 @@ export function Login() {
             const el = <View className="p-4" {...rest} onLayout={onLayout} testID="row" />
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source, &[]);
+        let output = lower(&parsed.roots[0], source);
         assert!(output.jsx.contains("{...rest}"));
         assert!(output.jsx.contains("onLayout={onLayout}"));
         assert!(output.jsx.contains(r#"testID="row""#));
@@ -494,7 +481,7 @@ export function Login() {
             const el = <Button className="pressed:opacity-50">Save</Button>
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source, &[]);
+        let output = lower(&parsed.roots[0], source);
         assert!(output.css.contains(".dowel-0:active {"));
         assert!(output.css.contains("opacity: 0.5;"));
     }
@@ -510,7 +497,7 @@ export function Login() {
             const el = <Pressable onPress={handleTap}>Tap</Pressable>
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source, &[]);
+        let output = lower(&parsed.roots[0], source);
         assert_eq!(output.diagnostics.len(), 1);
         assert_eq!(output.diagnostics[0].code, dowel_ir::DiagnosticCode::A11yInteractiveWithoutRole);
         assert!(!output.jsx.contains("role="));
@@ -527,7 +514,7 @@ export function Login() {
             )
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source, &[]);
+        let output = lower(&parsed.roots[0], source);
         assert!(output.diagnostics.is_empty());
         assert!(output.jsx.contains(r#"role="button""#));
     }
@@ -539,7 +526,7 @@ export function Login() {
             const el = <Button disabled={isLoading}>Save</Button>
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source, &[]);
+        let output = lower(&parsed.roots[0], source);
         assert!(output.jsx.contains("disabled={isLoading}"));
         assert!(!output.jsx.contains("aria-disabled"));
     }
@@ -553,7 +540,7 @@ export function Login() {
             const el = <Pressable disabled={isLoading} accessibilityRole="button">Save</Pressable>
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source, &[]);
+        let output = lower(&parsed.roots[0], source);
         assert!(output.jsx.contains("aria-disabled={isLoading}"));
     }
 
@@ -565,7 +552,7 @@ export function Login() {
             const el = <View className={cn('p-4', active && 'text-xl')} />
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source, &[]);
+        let output = lower(&parsed.roots[0], source);
 
         // The guard is re-emitted verbatim, wired to toggle attribute
         // *presence* (not a literal "true"/"false" string, which would

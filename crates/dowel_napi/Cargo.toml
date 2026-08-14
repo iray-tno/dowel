@@ -9,6 +9,7 @@ description = "Node native binding exposing the Dowel compiler to JS build tooli
 crate-type = ["cdylib"]
 
 [dependencies]
+dowel_cache = { path = "../dowel_cache" }
 dowel_ir = { path = "../dowel_ir" }
 dowel_native = { version = "0.0.0", path = "../dowel_native" }
 dowel_parser = { path = "../dowel_parser" }

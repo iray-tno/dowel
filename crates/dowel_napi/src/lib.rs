@@ -80,15 +80,11 @@ fn parser_diagnostics_for(
 #[napi]
 pub fn compile(source: String) -> Vec<CompiledComponent> {
     let parsed = dowel_parser::parse_tsx(&source);
-    // Candidate classes for the fallback path. Scanned once per file, and
-    // only actually emitted by `lower` when some className in that root
-    // couldn't be resolved statically.
-    let scanned = dowel_parser::scan_class_candidates(&source);
     parsed
         .roots
         .iter()
         .map(|root| {
-            let output = dowel_web::lower(root, &source, &scanned);
+            let output = dowel_web::lower(root, &source);
             let mut diagnostics = parser_diagnostics_for(&parsed, root);
             diagnostics.extend(output.diagnostics.into_iter().map(to_js_diagnostic));
             CompiledComponent {
@@ -100,6 +96,83 @@ pub fn compile(source: String) -> Vec<CompiledComponent> {
             }
         })
         .collect()
+}
+
+/// The build-side half of proposal §7's third tier.
+///
+/// A `className` the compiler couldn't read is passed through to runtime,
+/// so something has to have already emitted CSS for whatever string it
+/// evaluates to. That set can't come from the file being transformed --
+/// a class written in one module can be produced by an expression in
+/// another -- so it's accumulated across the whole project here, and the
+/// stylesheet is generated once from the union.
+///
+/// Lives on the JS side rather than inside `compile()` because the
+/// bundler owns the project walk and knows about file deletions; this
+/// only owns the scanning, the staleness rule, and persistence.
+#[napi]
+pub struct CandidateCache {
+    inner: dowel_cache::CandidateCache,
+}
+
+#[napi]
+impl CandidateCache {
+    /// Opens the cache at `path` (JSON on disk today -- the format is the
+    /// Rust side's business). Pass no path for a build that has nothing to
+    /// resume from, e.g. a one-shot production build.
+    #[napi(constructor)]
+    pub fn new(path: Option<String>) -> Self {
+        let store: Box<dyn dowel_cache::SnapshotStore> = match path {
+            Some(path) => Box::new(dowel_cache::JsonFileStore::new(path)),
+            None => Box::new(dowel_cache::MemoryStore::new()),
+        };
+        CandidateCache { inner: dowel_cache::CandidateCache::open(store) }
+    }
+
+    /// Whether `path` was already scanned at this exact `modifiedMs`, i.e.
+    /// the caller can skip reading and scanning it entirely.
+    #[napi]
+    pub fn is_current(&self, path: String, modified_ms: f64) -> bool {
+        self.inner.is_current(&path, modified_ms as u64)
+    }
+
+    /// Scans `source` and records the result under `path`.
+    ///
+    /// Returns whether the candidate set changed -- saving a file without
+    /// touching its classes returns `false`, so callers can leave the
+    /// generated stylesheet alone instead of rewriting identical bytes and
+    /// triggering a pointless HMR round.
+    #[napi]
+    pub fn scan_file(&mut self, path: String, source: String, modified_ms: f64) -> bool {
+        let class_names = dowel_parser::scan_class_candidates(&source);
+        self.inner.record(&path, modified_ms as u64, class_names)
+    }
+
+    /// Drops a deleted file's contribution. Returns whether it was tracked.
+    #[napi]
+    pub fn forget(&mut self, path: String) -> bool {
+        self.inner.forget(&path)
+    }
+
+    /// The stylesheet for every candidate in the project, written under the
+    /// classes' real Tailwind names so a runtime-produced string matches by
+    /// itself -- no runtime resolution code involved.
+    #[napi]
+    pub fn render_css(&self) -> String {
+        dowel_web::render_candidate_stylesheet(&self.inner.union())
+    }
+
+    /// Number of files tracked.
+    #[napi(getter)]
+    pub fn size(&self) -> u32 {
+        self.inner.len() as u32
+    }
+
+    /// Writes the cache back, if anything changed since it was opened.
+    #[napi]
+    pub fn persist(&mut self) -> napi::Result<()> {
+        self.inner.persist().map_err(|err| napi::Error::from_reason(err.to_string()))
+    }
 }
 
 #[napi(object)]

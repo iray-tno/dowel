@@ -32,9 +32,32 @@ export interface CompiledNativeComponent {
   spanEnd: number
 }
 
+/// Accumulates the project's runtime-resolvable class candidates (proposal
+/// §7's third tier) and turns them into one stylesheet. See the Rust side's
+/// doc comment for why this is project-wide rather than per file.
+export interface CandidateCache {
+  /// True when `path` was already scanned at exactly this mtime -- the
+  /// caller can skip reading the file at all.
+  isCurrent(path: string, modifiedMs: number): boolean
+  /// Records a scan of `source`. Returns whether the candidate set changed,
+  /// so an unchanged one doesn't cause a stylesheet rewrite.
+  scanFile(path: string, source: string, modifiedMs: number): boolean
+  forget(path: string): boolean
+  renderCss(): string
+  persist(): void
+  readonly size: number
+}
+
+interface CandidateCacheConstructor {
+  /// `path` is where the cache persists between builds; omit it to keep the
+  /// cache in memory only.
+  new (path?: string): CandidateCache
+}
+
 interface NativeBinding {
   compile(source: string): CompiledComponent[]
   compileNative(source: string): CompiledNativeComponent[]
+  CandidateCache: CandidateCacheConstructor
 }
 
 let native: NativeBinding | undefined
@@ -63,4 +86,8 @@ export function compile(source: string): CompiledComponent[] {
 // both backends; the transformer-side integration is separate future work.
 export function compileNative(source: string): CompiledNativeComponent[] {
   return loadNative().compileNative(source)
+}
+
+export function openCandidateCache(path?: string): CandidateCache {
+  return new (loadNative().CandidateCache)(path)
 }

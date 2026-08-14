@@ -69,6 +69,7 @@ fn build_node(
     el: &JSXElement,
     module_record: &ModuleRecord,
     diagnostics: &mut Vec<Diagnostic>,
+    consumed: &mut Vec<SourceSpan>,
 ) -> Option<Node> {
     let JSXElementName::IdentifierReference(ident) = &el.opening_element.name else {
         return None;
@@ -117,6 +118,10 @@ fn build_node(
                 seen_class_name = true;
                 match &attr.value {
                     Some(JSXAttributeValue::StringLiteral(literal)) => {
+                        // Every token here is compiled unconditionally, so
+                        // the whole literal is accounted for and the
+                        // candidate scan skips it (see `crate::scan`).
+                        consumed.push(to_span(literal.span()));
                         for token in literal.value.split_whitespace() {
                             let (condition, properties) = tailwind::expand_utility(token);
                             for property in properties {
@@ -129,6 +134,7 @@ fn build_node(
                             dynamic_class::decompose_class_name(&container.expression, module_record);
                         style.extend(decomposed.declarations);
                         class_name_fallback.extend(decomposed.fallback);
+                        consumed.extend(decomposed.consumed);
                     }
                     _ => {}
                 }
@@ -177,7 +183,7 @@ fn build_node(
     for child in &el.children {
         match child {
             JSXChild::Element(child_el) => {
-                if let Some(child_node) = build_node(child_el, module_record, diagnostics) {
+                if let Some(child_node) = build_node(child_el, module_record, diagnostics, consumed) {
                     children.push(child_node);
                 }
             }
@@ -204,12 +210,14 @@ pub struct JsxCollector<'r, 'a> {
     /// independent of which backend it later lowers to) -- as opposed to
     /// the lowering-level ones each backend raises during `lower()`.
     pub diagnostics: Vec<Diagnostic>,
+    /// See `dynamic_class::Decomposed::consumed`.
+    pub consumed: Vec<SourceSpan>,
     module_record: &'r ModuleRecord<'a>,
 }
 
 impl<'r, 'a> JsxCollector<'r, 'a> {
     pub fn new(module_record: &'r ModuleRecord<'a>) -> Self {
-        Self { roots: Vec::new(), diagnostics: Vec::new(), module_record }
+        Self { roots: Vec::new(), diagnostics: Vec::new(), consumed: Vec::new(), module_record }
     }
 }
 
@@ -219,7 +227,7 @@ impl<'r, 'a> Visit<'a> for JsxCollector<'r, 'a> {
         // already recurses into children itself, so falling through to the
         // generic walker here would visit (and re-collect) nested elements
         // a second time.
-        if let Some(node) = build_node(it, self.module_record, &mut self.diagnostics) {
+        if let Some(node) = build_node(it, self.module_record, &mut self.diagnostics, &mut self.consumed) {
             self.roots.push(node);
         }
     }

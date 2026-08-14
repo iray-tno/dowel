@@ -48,21 +48,38 @@ impl CandidateCache {
     }
 
     /// Records what a scan of `path` found, replacing any earlier entry.
-    pub fn record(&mut self, path: &str, modified_ms: u64, class_names: Vec<String>) {
+    ///
+    /// Returns whether the file's *candidates* changed -- not whether
+    /// anything was written. Saving a file with no class edits bumps its
+    /// mtime, which the cache must store but which leaves the generated
+    /// stylesheet byte-identical; callers use this to skip rewriting it.
+    pub fn record(&mut self, path: &str, modified_ms: u64, class_names: Vec<String>) -> bool {
         let entry = FileEntry { modified_ms, class_names };
-        if self.snapshot.files.get(path) == Some(&entry) {
-            return;
+        match self.snapshot.files.get(path) {
+            Some(existing) if existing == &entry => false,
+            Some(existing) => {
+                let changed = existing.class_names != entry.class_names;
+                self.snapshot.files.insert(path.to_string(), entry);
+                self.dirty = true;
+                changed
+            }
+            None => {
+                self.snapshot.files.insert(path.to_string(), entry);
+                self.dirty = true;
+                true
+            }
         }
-        self.snapshot.files.insert(path.to_string(), entry);
-        self.dirty = true;
     }
 
     /// Drops a file's entry -- for when a source file is deleted, so its
-    /// candidates stop appearing in the union.
-    pub fn forget(&mut self, path: &str) {
-        if self.snapshot.files.remove(path).is_some() {
+    /// candidates stop appearing in the union. Returns whether anything was
+    /// there to drop.
+    pub fn forget(&mut self, path: &str) -> bool {
+        let removed = self.snapshot.files.remove(path).is_some();
+        if removed {
             self.dirty = true;
         }
+        removed
     }
 
     /// Every candidate class across every file, deduplicated and sorted.
@@ -133,6 +150,18 @@ mod tests {
         cache.record("a.tsx", 1, vec!["p-4".into()]);
         cache.forget("a.tsx");
         assert!(cache.union().is_empty());
+    }
+
+    #[test]
+    fn record_reports_candidate_changes_not_mere_rewrites() {
+        let mut cache = in_memory();
+        assert!(cache.record("a.tsx", 1, vec!["p-4".into()]), "a new file is a change");
+        assert!(
+            !cache.record("a.tsx", 2, vec!["p-4".into()]),
+            "a touched file with the same classes leaves the stylesheet identical"
+        );
+        assert!(cache.is_current("a.tsx", 2), "...but the new mtime is still stored");
+        assert!(cache.record("a.tsx", 3, vec!["p-8".into()]));
     }
 
     #[test]

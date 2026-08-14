@@ -13,8 +13,17 @@
 //! fallback path, never the precise one. False positives cost unused CSS
 //! rules; a missed candidate costs a silently unstyled element, so the
 //! scan errs toward including too much.
+//!
+//! With one subtraction: ranges the compiler *did* read exactly are
+//! skipped. Without that, `className="p-4"` would both compile into a
+//! scoped rule and reappear as `.p-4` in the candidate stylesheet -- which
+//! would grow with the app's entire static utility surface and give back
+//! the bloat precise reading exists to avoid. The subtraction is
+//! per-occurrence, not global: the same class written statically in one
+//! file and produced dynamically in another is still covered by the
+//! second file's scan.
 
-use dowel_ir::{Condition, StyleProperty};
+use dowel_ir::{Condition, SourceSpan, StyleProperty};
 
 use crate::tailwind;
 
@@ -28,30 +37,67 @@ pub struct ScannedUtility {
     pub properties: Vec<StyleProperty>,
 }
 
-/// Characters that can appear inside a Tailwind class. Anything else ends
-/// a candidate.
-fn is_class_char(c: char) -> bool {
-    c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | ':' | '/' | '.' | '[' | ']' | '%' | '!')
+/// Bytes that can appear inside a Tailwind class. Anything else ends a
+/// candidate.
+///
+/// Byte-wise rather than char-wise so token boundaries are also byte
+/// offsets, which is what the consumed-span subtraction compares against.
+/// Safe for UTF-8: every class byte is ASCII, so a multi-byte character's
+/// continuation bytes always end a token rather than splitting one.
+fn is_class_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b':' | b'/' | b'.' | b'[' | b']' | b'%' | b'!')
 }
 
-/// Splits `source` into candidate tokens and keeps the ones that resolve.
+/// Resolves one class name, or `None` if it isn't a utility Dowel knows.
+pub fn resolve_class_name(class_name: &str) -> Option<ScannedUtility> {
+    let (condition, properties) = tailwind::expand_utility(class_name);
+    if properties.is_empty() {
+        return None;
+    }
+    Some(ScannedUtility { class_name: class_name.to_string(), condition, properties })
+}
+
+/// Class names in `source` that resolve to real styles and that the
+/// compiler did *not* already read exactly.
 ///
-/// Deduplicated, in first-appearance order so output stays deterministic.
-pub fn scan_class_candidates(source: &str) -> Vec<ScannedUtility> {
-    let mut found: Vec<ScannedUtility> = Vec::new();
-    for token in source.split(|c: char| !is_class_char(c)) {
-        if token.is_empty() || found.iter().any(|u| u.class_name == token) {
+/// Returns names rather than resolved utilities because that's what the
+/// build cache stores: a name is a durable fact about the source, while
+/// the properties behind it are derived from Dowel's utility table and
+/// would go stale the moment that table changed.
+///
+/// Deduplicated, in first-appearance order.
+pub fn scan_class_candidates(source: &str) -> Vec<String> {
+    // A source that doesn't parse yields no consumed spans, so it degrades
+    // to a plain scan -- more candidates than necessary, never fewer.
+    let consumed = crate::parse_tsx(source).consumed_class_spans;
+    scan_outside(source, &consumed)
+}
+
+fn is_consumed(consumed: &[SourceSpan], start: usize, end: usize) -> bool {
+    consumed.iter().any(|span| start < span.end as usize && end > span.start as usize)
+}
+
+fn scan_outside(source: &str, consumed: &[SourceSpan]) -> Vec<String> {
+    let bytes = source.as_bytes();
+    let mut found: Vec<String> = Vec::new();
+    let mut start: Option<usize> = None;
+
+    for i in 0..=bytes.len() {
+        if i < bytes.len() && is_class_byte(bytes[i]) {
+            start.get_or_insert(i);
             continue;
         }
-        let (condition, properties) = tailwind::expand_utility(token);
-        if properties.is_empty() {
+        let Some(token_start) = start.take() else { continue };
+        if is_consumed(consumed, token_start, i) {
             continue;
         }
-        found.push(ScannedUtility {
-            class_name: token.to_string(),
-            condition,
-            properties,
-        });
+        let token = &source[token_start..i];
+        if found.iter().any(|name| name == token) {
+            continue;
+        }
+        if resolve_class_name(token).is_some() {
+            found.push(token.to_string());
+        }
     }
     found
 }
@@ -69,7 +115,7 @@ mod tests {
               return isWide ? 'p-4' : 'p-8'
             }
         "#;
-        let names: Vec<_> = scan_class_candidates(source).into_iter().map(|u| u.class_name).collect();
+        let names = scan_class_candidates(source);
         assert!(names.contains(&"p-4".to_string()));
         assert!(names.contains(&"p-8".to_string()));
     }
@@ -77,9 +123,8 @@ mod tests {
     #[test]
     fn keeps_variant_prefixes_intact() {
         let found = scan_class_candidates("const c = 'hover:bg-blue-500'");
-        assert_eq!(found.len(), 1);
-        assert_eq!(found[0].class_name, "hover:bg-blue-500");
-        assert_eq!(found[0].condition, Condition::Hover);
+        assert_eq!(found, vec!["hover:bg-blue-500"]);
+        assert_eq!(resolve_class_name("hover:bg-blue-500").unwrap().condition, Condition::Hover);
     }
 
     #[test]
@@ -91,7 +136,45 @@ mod tests {
 
     #[test]
     fn deduplicates() {
-        let found = scan_class_candidates("'p-4' 'p-4' 'p-4'");
-        assert_eq!(found.len(), 1);
+        let found = scan_class_candidates("const a = 'p-4', b = 'p-4', c = 'p-4'");
+        assert_eq!(found, vec!["p-4"]);
+    }
+
+    #[test]
+    fn skips_classes_the_compiler_already_compiled_away() {
+        // The whole point of reading `className` precisely: `p-4` becomes
+        // a scoped rule, so shipping `.p-4` as well would put the app's
+        // entire static utility surface back into the bundle.
+        let source = r#"
+            import { View } from '@dowel/core'
+            const el = <View className="p-4 text-xl" />
+        "#;
+        assert!(scan_class_candidates(source).is_empty(), "{:?}", scan_class_candidates(source));
+    }
+
+    #[test]
+    fn keeps_the_unreadable_half_of_a_mixed_class_name() {
+        // `p-4` compiled away; `bg-blue-500` only exists as a call's
+        // return value, so it still needs a rule under its own name.
+        let source = r#"
+            import { View } from '@dowel/core'
+            import { cn } from 'clsx'
+            function accent() { return 'bg-blue-500' }
+            const el = <View className={cn('p-4', accent())} />
+        "#;
+        assert_eq!(scan_class_candidates(source), vec!["bg-blue-500"]);
+    }
+
+    #[test]
+    fn a_class_compiled_away_here_is_still_found_where_it_is_dynamic() {
+        // The subtraction is per-occurrence. Writing `p-4` statically in
+        // one place must not hide the copy another module produces.
+        let source = r#"
+            import { View } from '@dowel/core'
+            function pick() { return 'p-4' }
+            const a = <View className="p-4" />
+            const b = <View className={pick()} />
+        "#;
+        assert_eq!(scan_class_candidates(source), vec!["p-4"]);
     }
 }

@@ -5,7 +5,7 @@ mod jsx;
 mod scan;
 mod tailwind;
 
-pub use scan::{scan_class_candidates, ScannedUtility};
+pub use scan::{resolve_class_name, scan_class_candidates, ScannedUtility};
 
 use dowel_ir::{Diagnostic, Node};
 use jsx::JsxCollector;
@@ -19,6 +19,10 @@ pub struct ParseOutput {
     /// Diagnostics about the source as written, independent of target
     /// platform -- backends raise their own separately during `lower()`.
     pub diagnostics: Vec<Diagnostic>,
+    /// Source ranges the compiler read exactly and turned into scoped
+    /// rules. The candidate scan subtracts these, so a class that already
+    /// compiled away doesn't also ship under its Tailwind name.
+    pub consumed_class_spans: Vec<dowel_ir::SourceSpan>,
 }
 
 /// Parses TSX source into Dowel IR node trees, one per top-level JSX
@@ -31,7 +35,11 @@ pub fn parse_tsx(source_text: &str) -> ParseOutput {
     let mut collector = JsxCollector::new(&ret.module_record);
     collector.visit_program(&ret.program);
 
-    ParseOutput { roots: collector.roots, diagnostics: collector.diagnostics }
+    ParseOutput {
+        roots: collector.roots,
+        diagnostics: collector.diagnostics,
+        consumed_class_spans: collector.consumed,
+    }
 }
 
 #[cfg(test)]

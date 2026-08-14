@@ -32,6 +32,13 @@ const RECOGNIZED_CX_MODULES: [&str; 3] = ["clsx", "classnames", "tailwind-merge"
 pub struct Decomposed {
     pub declarations: Vec<StyleDeclaration>,
     pub fallback: Vec<ExprRef>,
+    /// Source ranges whose classes are now fully accounted for by
+    /// `declarations`, so the candidate scan can leave them alone (see
+    /// `crate::scan`). Recorded per string literal and only when *every*
+    /// token in it compiled -- one fallback token makes the whole literal
+    /// scannable again, which costs an unused rule rather than a missing
+    /// one.
+    pub consumed: Vec<SourceSpan>,
 }
 
 pub fn decompose_class_name(expr: &JSXExpression, module_record: &ModuleRecord) -> Decomposed {
@@ -142,6 +149,7 @@ fn decompose(
 ) {
     match target {
         Target::StringLiteral(lit) => {
+            let mut fell_back = false;
             for token in lit.value.split_whitespace() {
                 let (token_condition, properties) = tailwind::expand_utility(token);
                 if properties.is_empty() {
@@ -166,7 +174,11 @@ fn decompose(
                     // -- Condition doesn't support that composition yet.
                     // Falls back rather than silently dropping either half.
                     out.fallback.push(to_expr_ref(lit.span));
+                    fell_back = true;
                 }
+            }
+            if !fell_back {
+                out.consumed.push(SourceSpan { start: lit.span.start, end: lit.span.end });
             }
         }
         Target::Logical(logical) => {

@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+  "crates/dowel_cache",
   "crates/dowel_ir",
   "crates/dowel_parser",
   "crates/dowel_web",

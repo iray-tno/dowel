@@ -29,7 +29,7 @@ mod markup;
 mod style;
 
 use dowel_ir::{
-    Breakpoint, Condition, ConditionExpr, Diagnostic, DiagnosticCode, Display, ExprRef, Node,
+    Breakpoint, Condition, ConditionExpr, Diagnostic, DiagnosticCode, ExprRef, Node,
     Severity, StyleProperty, TextContent,
 };
 
@@ -74,6 +74,13 @@ pub fn lower(root: &Node, source: &str) -> LowerOutput {
         let mut emitted: Vec<(&'static str, String)> = Vec::new();
         for prop in props {
             for (key, value) in style::property_and_value(prop) {
+                // A property refused for Native (see
+                // `StyleProperty::unsupported_on_native`) yields no value;
+                // writing the key anyway would emit `height: ,`, which isn't
+                // even parseable JS.
+                if value.is_empty() {
+                    continue;
+                }
                 match emitted.iter_mut().find(|(existing, _)| *existing == key) {
                     Some(slot) => slot.1 = value,
                     None => emitted.push((key, value)),
@@ -134,22 +141,16 @@ fn render_node(
     let mut pressed_parts: Vec<String> = Vec::new();
 
     for declaration in &node.style {
-        // Refused rather than dropped: silently ignoring a `block`/`grid`
-        // would leave a layout that looks right on Web and is wrong on
-        // device with nothing pointing at the cause.
-        if let StyleProperty::Display(d) = declaration.property {
-            if !d.is_supported_on_native() {
-                diagnostics.push(Diagnostic {
-                    code: DiagnosticCode::WebOnlyPropertyOnNative,
-                    severity: Severity::Error,
-                    message: format!(
-                        "`display: {}` has no React Native equivalent -- its layout engine \
-                         supports only flex, none, and contents.",
-                        web_only_display_name(d)
-                    ),
-                    span: node.span,
-                });
-            }
+        // Refused rather than dropped: silently ignoring a `block`/`grid`/
+        // `h-screen` would leave a layout that looks right on Web and is
+        // wrong on device with nothing pointing at the cause.
+        if let Some(reason) = declaration.property.unsupported_on_native() {
+            diagnostics.push(Diagnostic {
+                code: DiagnosticCode::WebOnlyPropertyOnNative,
+                severity: Severity::Error,
+                message: format!("{reason} -- this utility is Web-only."),
+                span: node.span,
+            });
         }
     }
 
@@ -226,18 +227,6 @@ fn render_node(
     };
 
     format!("<{component}{props_text}>{inner}</{component}>")
-}
-
-fn web_only_display_name(display: Display) -> &'static str {
-    match display {
-        Display::Block => "block",
-        Display::InlineFlex => "inline-flex",
-        Display::Grid => "grid",
-        // Supported values never reach this -- the caller checks first.
-        Display::Flex => "flex",
-        Display::None => "none",
-        Display::Contents => "contents",
-    }
 }
 
 fn escape_jsx_text(text: &str) -> String {
@@ -489,6 +478,24 @@ export function Login() {
         // And nothing is emitted for it, so a build that ignored the error
         // still can't produce an invalid RN style value.
         assert!(!output.styles.contains("display"));
+    }
+
+    #[test]
+    fn viewport_height_is_refused_and_leaves_valid_output() {
+        let source = r#"
+            import { View } from '@dowel/core'
+            const el = <View className="h-screen" />
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0], source);
+
+        assert_eq!(output.diagnostics.len(), 1);
+        assert_eq!(output.diagnostics[0].code, dowel_ir::DiagnosticCode::WebOnlyPropertyOnNative);
+        assert_eq!(output.diagnostics[0].severity, dowel_ir::Severity::Error);
+        // The key must be dropped entirely, not written with an empty
+        // value -- `height: ,` isn't parseable JS.
+        assert!(!output.styles.contains("height"));
+        assert!(!output.styles.contains(": ,"));
     }
 
     #[test]

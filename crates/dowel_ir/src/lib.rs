@@ -169,10 +169,10 @@ pub enum StyleProperty {
     // set disjoint sides independently, and only per-side variants let
     // "last declaration for a property wins" flattening compose them
     // correctly instead of one clobbering the other.
-    MarginTop(Length),
-    MarginRight(Length),
-    MarginBottom(Length),
-    MarginLeft(Length),
+    MarginTop(Dimension),
+    MarginRight(Dimension),
+    MarginBottom(Dimension),
+    MarginLeft(Dimension),
     PaddingTop(Length),
     PaddingRight(Length),
     PaddingBottom(Length),
@@ -184,8 +184,8 @@ pub enum StyleProperty {
     // LTR and silently break RTL layouts. Both platforms have real
     // equivalents to lower onto -- CSS `*-inline-start/end`, RN
     // `paddingStart`/`marginEnd`/etc.
-    MarginInlineStart(Length),
-    MarginInlineEnd(Length),
+    MarginInlineStart(Dimension),
+    MarginInlineEnd(Dimension),
     PaddingInlineStart(Length),
     PaddingInlineEnd(Length),
     Width(Dimension),
@@ -314,10 +314,45 @@ pub enum Display {
 
 impl Display {
     /// Whether React Native can express this at all -- see the variants'
-    /// own note. Used by the Native backend to decide between lowering and
-    /// raising `WebOnlyPropertyOnNative`.
+    /// own note.
     pub fn is_supported_on_native(self) -> bool {
         matches!(self, Display::Flex | Display::None | Display::Contents)
+    }
+}
+
+impl StyleProperty {
+    /// `Some(description)` when React Native has no way to express this, so
+    /// the Native backend can refuse it by name instead of dropping it. Kept
+    /// here rather than in that backend so every such case is listed in one
+    /// place as more are found.
+    pub fn unsupported_on_native(&self) -> Option<String> {
+        let viewport = |dim: &Dimension, property: &str| match dim {
+            Dimension::ViewportWidth(pct) => {
+                Some(format!("`{property}: {pct}vw`: React Native has no viewport unit"))
+            }
+            Dimension::ViewportHeight(pct) => {
+                Some(format!("`{property}: {pct}vh`: React Native has no viewport unit"))
+            }
+            _ => None,
+        };
+        match self {
+            StyleProperty::Display(d) if !d.is_supported_on_native() => Some(format!(
+                "`display: {}`: React Native's layout engine supports only flex, none and contents",
+                match d {
+                    Display::Block => "block",
+                    Display::InlineFlex => "inline-flex",
+                    Display::Grid => "grid",
+                    _ => unreachable!("guarded by is_supported_on_native"),
+                }
+            )),
+            StyleProperty::Width(d) => viewport(d, "width"),
+            StyleProperty::Height(d) => viewport(d, "height"),
+            StyleProperty::MinWidth(d) => viewport(d, "min-width"),
+            StyleProperty::MinHeight(d) => viewport(d, "min-height"),
+            StyleProperty::MaxWidth(d) => viewport(d, "max-width"),
+            StyleProperty::MaxHeight(d) => viewport(d, "max-height"),
+            _ => None,
+        }
     }
 }
 
@@ -351,6 +386,20 @@ pub enum Dimension {
     Length(Length),
     Percent(f32),
     Auto,
+    /// A percentage of the viewport (`h-screen` is `ViewportHeight(100.0)`).
+    /// React Native has no viewport unit -- screen size there is a runtime
+    /// value from `useWindowDimensions()`, which a static `StyleSheet`
+    /// can't hold -- so these are Web-only and the Native backend refuses
+    /// them rather than freezing a launch-time size that would go stale on
+    /// rotation.
+    ViewportWidth(f32),
+    ViewportHeight(f32),
+}
+
+impl Dimension {
+    pub fn is_supported_on_native(self) -> bool {
+        !matches!(self, Dimension::ViewportWidth(_) | Dimension::ViewportHeight(_))
+    }
 }
 
 /// Kept as an unresolved Tailwind token (e.g. `"blue-500"`), not RGBA --

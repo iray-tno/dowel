@@ -33,13 +33,13 @@ fn dimension_value(dim: Dimension) -> String {
         Dimension::Length(length) => number(length),
         Dimension::Percent(pct) => format!("'{pct}%'"),
         Dimension::Auto => "'auto'".to_string(),
+        // Refused upstream by `StyleProperty::unsupported_on_native`, which
+        // fails the build. Nothing is emitted here so a build that swallowed
+        // that error still can't ship a value RN would reject.
+        Dimension::ViewportWidth(_) | Dimension::ViewportHeight(_) => String::new(),
     }
 }
 
-/// Resolves against the default Tailwind palette where possible (see module
-/// docs); otherwise falls back to a marker string deliberately not
-/// real-color-shaped, so a missed resolution fails loudly instead of
-/// rendering a plausible-but-wrong color.
 /// Builds React Native's combined `transform` array from whichever
 /// standalone transform properties a rule carries, or `None` if it carries
 /// none. Ordered translate -> rotate -> scale, matching how CSS applies its
@@ -95,6 +95,10 @@ fn border_style_literal(style: &BorderStyle) -> String {
     .to_string()
 }
 
+/// Resolves against the default Tailwind palette where possible (see module
+/// docs); otherwise falls back to a marker string deliberately not
+/// real-color-shaped, so a missed resolution fails loudly instead of
+/// rendering a plausible-but-wrong color.
 fn resolve_color(color: &Color) -> String {
     let Color::Token(token) = color;
     match dowel_ir::resolve_color_token(token) {
@@ -162,18 +166,18 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
         StyleProperty::Gap(l) => vec![("gap", number(*l))],
         StyleProperty::RowGap(l) => vec![("rowGap", number(*l))],
         StyleProperty::ColumnGap(l) => vec![("columnGap", number(*l))],
-        StyleProperty::MarginTop(l) => vec![("marginTop", number(*l))],
-        StyleProperty::MarginRight(l) => vec![("marginRight", number(*l))],
-        StyleProperty::MarginBottom(l) => vec![("marginBottom", number(*l))],
-        StyleProperty::MarginLeft(l) => vec![("marginLeft", number(*l))],
+        StyleProperty::MarginTop(d) => vec![("marginTop", dimension_value(*d))],
+        StyleProperty::MarginRight(d) => vec![("marginRight", dimension_value(*d))],
+        StyleProperty::MarginBottom(d) => vec![("marginBottom", dimension_value(*d))],
+        StyleProperty::MarginLeft(d) => vec![("marginLeft", dimension_value(*d))],
         StyleProperty::PaddingTop(l) => vec![("paddingTop", number(*l))],
         StyleProperty::PaddingRight(l) => vec![("paddingRight", number(*l))],
         StyleProperty::PaddingBottom(l) => vec![("paddingBottom", number(*l))],
         StyleProperty::PaddingLeft(l) => vec![("paddingLeft", number(*l))],
         // RN's own direction-relative props; they resolve against
         // `I18nManager.isRTL` at runtime, same role as CSS's inline-start/end.
-        StyleProperty::MarginInlineStart(l) => vec![("marginStart", number(*l))],
-        StyleProperty::MarginInlineEnd(l) => vec![("marginEnd", number(*l))],
+        StyleProperty::MarginInlineStart(d) => vec![("marginStart", dimension_value(*d))],
+        StyleProperty::MarginInlineEnd(d) => vec![("marginEnd", dimension_value(*d))],
         StyleProperty::PaddingInlineStart(l) => vec![("paddingStart", number(*l))],
         StyleProperty::PaddingInlineEnd(l) => vec![("paddingEnd", number(*l))],
         StyleProperty::Width(d) => vec![("width", dimension_value(*d))],

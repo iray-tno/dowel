@@ -52,6 +52,11 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
         "h-full" => return Some(StyleProperty::Height(Dimension::Percent(100.0))),
         "w-auto" => return Some(StyleProperty::Width(Dimension::Auto)),
         "h-auto" => return Some(StyleProperty::Height(Dimension::Auto)),
+        // Web-only: refused by the Native backend rather than dropped.
+        "w-screen" => return Some(StyleProperty::Width(Dimension::ViewportWidth(100.0))),
+        "h-screen" => return Some(StyleProperty::Height(Dimension::ViewportHeight(100.0))),
+        "min-h-screen" => return Some(StyleProperty::MinHeight(Dimension::ViewportHeight(100.0))),
+        "max-h-screen" => return Some(StyleProperty::MaxHeight(Dimension::ViewportHeight(100.0))),
         "text-left" => return Some(StyleProperty::TextAlign(TextAlign::Left)),
         "text-center" => return Some(StyleProperty::TextAlign(TextAlign::Center)),
         "text-right" => return Some(StyleProperty::TextAlign(TextAlign::Right)),
@@ -179,6 +184,9 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
     if let Some(prop) = parse_spacing_utility(token) {
         return Some(prop);
     }
+    if let Some(prop) = parse_single_margin(token) {
+        return Some(prop);
+    }
     if let Some(rest) = token.strip_prefix("opacity-") {
         // Tailwind's opacity scale is 0-100 (in practice steps of 5),
         // meaning percent -- StyleProperty::Opacity wants the 0.0-1.0
@@ -225,6 +233,32 @@ fn parse_border_radius(token: &str) -> Option<Radius> {
         _ => return None,
     };
     Some(Radius::Length(Length::Px(px)))
+}
+
+/// Margin value: the spacing scale plus `auto`, which is what makes
+/// `mx-auto` (centre a fixed-width box) work. Padding has no `auto`.
+fn parse_margin_suffix(suffix: &str) -> Option<Dimension> {
+    if suffix == "auto" {
+        return Some(Dimension::Auto);
+    }
+    parse_spacing_suffix(suffix).map(Dimension::Length)
+}
+
+/// Single-side margins (`mt-2`, `ms-auto`, ...). The multi-side forms
+/// (`m-`, `mx-`, `my-`) expand to several properties and live in
+/// `expand_base_utility`.
+fn parse_single_margin(token: &str) -> Option<StyleProperty> {
+    let (prefix, rest) = token.split_once('-')?;
+    let value = parse_margin_suffix(rest)?;
+    match prefix {
+        "mt" => Some(StyleProperty::MarginTop(value)),
+        "mr" => Some(StyleProperty::MarginRight(value)),
+        "mb" => Some(StyleProperty::MarginBottom(value)),
+        "ml" => Some(StyleProperty::MarginLeft(value)),
+        "ms" => Some(StyleProperty::MarginInlineStart(value)),
+        "me" => Some(StyleProperty::MarginInlineEnd(value)),
+        _ => None,
+    }
 }
 
 /// Tailwind's `--shadow-*` scale, verbatim. Emitted as a composed CSS
@@ -395,12 +429,9 @@ fn parse_spacing_utility(token: &str) -> Option<StyleProperty> {
         // logical counterparts to `pl`/`pr` and `ml`/`mr`.
         "ps" => Some(StyleProperty::PaddingInlineStart(value)),
         "pe" => Some(StyleProperty::PaddingInlineEnd(value)),
-        "mt" => Some(StyleProperty::MarginTop(value)),
-        "mr" => Some(StyleProperty::MarginRight(value)),
-        "mb" => Some(StyleProperty::MarginBottom(value)),
-        "ml" => Some(StyleProperty::MarginLeft(value)),
-        "ms" => Some(StyleProperty::MarginInlineStart(value)),
-        "me" => Some(StyleProperty::MarginInlineEnd(value)),
+        // Margins accept `auto` where padding doesn't, so they take the
+        // wider `Dimension` and are parsed separately below.
+        "mt" | "mr" | "mb" | "ml" | "ms" | "me" => None,
         "start" => Some(StyleProperty::InsetInlineStart(value)),
         "end" => Some(StyleProperty::InsetInlineEnd(value)),
         _ => None,
@@ -479,17 +510,17 @@ fn expand_base_utility(token: &str) -> Vec<StyleProperty> {
         }
     }
     if let Some(rest) = token.strip_prefix("mx-") {
-        if let Some(v) = parse_spacing_suffix(rest) {
+        if let Some(v) = parse_margin_suffix(rest) {
             return vec![StyleProperty::MarginInlineStart(v), StyleProperty::MarginInlineEnd(v)];
         }
     }
     if let Some(rest) = token.strip_prefix("my-") {
-        if let Some(v) = parse_spacing_suffix(rest) {
+        if let Some(v) = parse_margin_suffix(rest) {
             return vec![StyleProperty::MarginTop(v), StyleProperty::MarginBottom(v)];
         }
     }
     if let Some(rest) = token.strip_prefix("m-") {
-        if let Some(v) = parse_spacing_suffix(rest) {
+        if let Some(v) = parse_margin_suffix(rest) {
             return vec![
                 StyleProperty::MarginTop(v),
                 StyleProperty::MarginRight(v),
@@ -798,6 +829,38 @@ mod tests {
     }
 
     #[test]
+    fn margins_accept_auto_where_padding_does_not() {
+        assert_eq!(
+            expand_utility("mx-auto"),
+            (
+                Condition::Always,
+                vec![
+                    StyleProperty::MarginInlineStart(Dimension::Auto),
+                    StyleProperty::MarginInlineEnd(Dimension::Auto)
+                ]
+            )
+        );
+        assert_eq!(
+            expand_utility("mt-auto"),
+            (Condition::Always, vec![StyleProperty::MarginTop(Dimension::Auto)])
+        );
+        // Padding has no `auto` in CSS, so this stays unrecognized rather
+        // than being invented.
+        assert_eq!(expand_utility("pt-auto"), (Condition::Always, vec![]));
+    }
+
+    #[test]
+    fn viewport_sizes_parse_and_are_flagged_web_only() {
+        let (_, props) = expand_utility("h-screen");
+        assert_eq!(props, vec![StyleProperty::Height(Dimension::ViewportHeight(100.0))]);
+        assert!(props[0].unsupported_on_native().is_some());
+        // A plain length on the same property stays portable.
+        assert!(StyleProperty::Height(Dimension::Length(Length::Px(4.0)))
+            .unsupported_on_native()
+            .is_none());
+    }
+
+    #[test]
     fn parses_effects_and_transforms() {
         assert_eq!(
             expand_utility("blur-sm"),
@@ -847,7 +910,7 @@ mod tests {
         );
         assert_eq!(
             expand_utility("me-2"),
-            (Condition::Always, vec![StyleProperty::MarginInlineEnd(Length::Px(8.0))])
+            (Condition::Always, vec![StyleProperty::MarginInlineEnd(Dimension::Length(Length::Px(8.0)))])
         );
         assert_eq!(
             expand_utility("start-2"),

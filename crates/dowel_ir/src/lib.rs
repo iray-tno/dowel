@@ -205,7 +205,7 @@ pub enum StyleProperty {
     BorderRightStyle(BorderStyle),
     BorderBottomStyle(BorderStyle),
     BorderLeftStyle(BorderStyle),
-    BorderRadius(Length),
+    BorderRadius(Radius),
 
     // Typography
     FontSize(Length),
@@ -262,6 +262,18 @@ pub enum BorderStyle {
     Dashed,
     Dotted,
     None,
+}
+
+/// Corner radius. `Full` ("pill shape", Tailwind's `rounded-full`) is its
+/// own variant rather than a large `Length`, because it's a distinct
+/// intent and the platforms express it differently: CSS has a literal
+/// `infinity`, React Native does not and needs a finite stand-in. Baking
+/// the finite value into the IR would force the Web backend to emit an
+/// approximation of something it can state exactly.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Radius {
+    Length(Length),
+    Full,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

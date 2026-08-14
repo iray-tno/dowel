@@ -21,7 +21,12 @@ const all = [...results.values()].flat()
 const count = (verdict: string, list: Comparison[] = all) => list.filter((r) => r.verdict === verdict).length
 const pct = (n: number, d: number) => (d === 0 ? '--' : `${((n / d) * 100).toFixed(1)}%`)
 
-console.log(`Tailwind conformance vs tailwindcss v${tailwindVersion()}\n`)
+console.log(`Tailwind conformance vs tailwindcss v${tailwindVersion()}`)
+// Stated up front so the headline numbers can't be read as covering both
+// backends: Tailwind only exists as CSS, so it can only be an oracle for
+// the Web lowering. dowel_native has no external ground truth to compare
+// against and is covered by its own assertions instead.
+console.log('Scope: Web backend only (dowel_web). Native lowering is not exercised here.\n')
 
 const rows = [...results.entries()].map(([group, list]) => {
   const comparable = list.length - count('SKIPPED', list)

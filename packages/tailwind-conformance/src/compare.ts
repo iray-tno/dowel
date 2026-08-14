@@ -23,16 +23,14 @@ export interface Comparison {
  * Differences that are deliberate and permanent, so they shouldn't sit in
  * the report as standing mismatches. Each needs a reason, not just an
  * entry -- an allowlist is the easiest place to hide a real bug.
+ *
+ * Deliberately empty: the one entry that lived here (`rounded-full`) was
+ * justified by a React Native limitation, which is not a valid excuse in a
+ * comparison that only ever exercises the *Web* backend. Dowel now models
+ * the radius as an intent (`Radius::Full`) so Web emits Tailwind's exact
+ * `calc(infinity * 1px)` and only Native falls back to a finite value.
  */
-const ACCEPTED_DIFFERENCES: Record<string, { property: string; reason: string }> = {
-  'rounded-full': {
-    property: 'border-radius',
-    // Tailwind emits `calc(infinity * 1px)`. React Native has no infinity,
-    // and a large finite radius is already clamped to 50% of the box by
-    // both platforms, so the rendering is identical for any real element.
-    reason: 'infinity has no React Native equivalent; 9999px is the conventional stand-in',
-  },
-}
+const ACCEPTED_DIFFERENCES: Record<string, { property: string; reason: string }> = {}
 
 /** Runs a single utility through Dowel and returns its declaration block. */
 function dowelDeclarations(candidate: string): string {

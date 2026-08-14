@@ -20,7 +20,7 @@
 
 use dowel_ir::{
     Align, BorderStyle, Color, Dimension, FlexDirection, FlexShorthand, Justify, Length, Position,
-    StyleProperty, TextAlign,
+    Radius, StyleProperty, TextAlign,
 };
 
 fn number(length: Length) -> String {
@@ -155,7 +155,17 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
         | StyleProperty::BorderRightStyle(s)
         | StyleProperty::BorderBottomStyle(s)
         | StyleProperty::BorderLeftStyle(s) => vec![("borderStyle", border_style_literal(s))],
-        StyleProperty::BorderRadius(l) => vec![("borderRadius", number(*l))],
+        StyleProperty::BorderRadius(r) => vec![(
+            "borderRadius",
+            match r {
+                Radius::Length(l) => number(*l),
+                // RN has no infinity. Any radius past half the box's
+                // shorter side already renders as a pill, so a large
+                // finite value is the standard way to express this -- the
+                // approximation is forced here, unlike on Web.
+                Radius::Full => "9999".to_string(),
+            },
+        )],
         StyleProperty::FontSize(l) => vec![("fontSize", number(*l))],
         // RN's `fontWeight` type is a *string* ('100'..'900'/'normal'/
         // 'bold'), not a number -- unlike CSS's numeric font-weight.

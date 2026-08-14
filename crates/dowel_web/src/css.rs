@@ -16,7 +16,7 @@
 
 use dowel_ir::{
     Align, BorderStyle, Breakpoint, Color, Condition, ConditionExpr, Dimension, FlexDirection,
-    FlexShorthand, Justify, Length, Position, StyleProperty, TextAlign,
+    FlexShorthand, Justify, Length, Position, Radius, StyleProperty, TextAlign,
 };
 
 fn length_px(length: Length) -> String {
@@ -143,7 +143,15 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
             ("border-bottom-style", border_style_keyword(s).to_string())
         }
         StyleProperty::BorderLeftStyle(s) => ("border-left-style", border_style_keyword(s).to_string()),
-        StyleProperty::BorderRadius(l) => ("border-radius", length_px(*l)),
+        StyleProperty::BorderRadius(r) => (
+            "border-radius",
+            match r {
+                Radius::Length(l) => length_px(*l),
+                // Exactly what Tailwind emits -- CSS can state this, so
+                // there's no reason to approximate it here.
+                Radius::Full => "calc(infinity * 1px)".to_string(),
+            },
+        ),
         StyleProperty::FontSize(l) => ("font-size", length_px(*l)),
         StyleProperty::FontWeight(w) => ("font-weight", format!("{}", w.0)),
         StyleProperty::LineHeight(l) => ("line-height", length_px(*l)),

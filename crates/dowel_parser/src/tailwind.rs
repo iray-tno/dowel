@@ -6,7 +6,7 @@
 
 use dowel_ir::{
     Align, BorderStyle, Breakpoint, Color, Condition, Dimension, FlexDirection, FlexShorthand,
-    FontWeight, Justify, Length, Position, StyleProperty, TextAlign,
+    FontWeight, Justify, Length, Position, Radius, StyleProperty, TextAlign,
 };
 
 /// Tailwind's default spacing scale: `spacing(n) = n * 0.25rem`, and the
@@ -146,7 +146,11 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
 /// default 16px root). Bare `rounded` is 0.25rem, which is *not* the same
 /// as `rounded-sm` in v4 -- they happen to share a value here but are
 /// separate scale entries.
-fn parse_border_radius(token: &str) -> Option<Length> {
+fn parse_border_radius(token: &str) -> Option<Radius> {
+    // Kept as an intent rather than a number -- see `dowel_ir::Radius`.
+    if token == "rounded-full" {
+        return Some(Radius::Full);
+    }
     let px = match token {
         "rounded" => 4.0,
         "rounded-none" => 0.0,
@@ -158,13 +162,9 @@ fn parse_border_radius(token: &str) -> Option<Length> {
         "rounded-2xl" => 16.0,
         "rounded-3xl" => 24.0,
         "rounded-4xl" => 32.0,
-        // Tailwind emits `calc(infinity * 1px)`; a large finite value is
-        // the conventional equivalent and is what RN needs anyway (it has
-        // no infinity).
-        "rounded-full" => 9999.0,
         _ => return None,
     };
-    Some(Length::Px(px))
+    Some(Radius::Length(Length::Px(px)))
 }
 
 /// Width/height accept more than the spacing scale: `w-1/2` fractions and

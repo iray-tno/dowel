@@ -228,6 +228,12 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
         StyleProperty::TransitionProperty(p) => ("transition-property", p.clone()),
         StyleProperty::TransitionDuration(ms) => ("transition-duration", format!("{ms}ms")),
         StyleProperty::TransitionTimingFunction(f) => ("transition-timing-function", f.clone()),
+        StyleProperty::Animation(a) => ("animation", a.shorthand().to_string()),
+        // Never reached: `render_rule` partitions these out into their own
+        // child-scoped rule before calling this. Emitting the margin on the
+        // element itself would be wrong, so there's nothing sensible to
+        // return -- an empty name is filtered by the caller.
+        StyleProperty::SpaceX(_) | StyleProperty::SpaceY(_) => ("", String::new()),
         StyleProperty::TextAlign(align) => (
             "text-align",
             match align {
@@ -325,15 +331,54 @@ pub fn condition_shape(condition: &Condition) -> (Option<String>, String) {
 /// group's already-deduped properties.
 pub fn render_rule(class_name: &str, condition: &Condition, props: &[StyleProperty]) -> String {
     let (media, suffix) = condition_shape(condition);
-    let mut body = String::new();
-    for prop in props {
-        let (name, value) = property_and_value(prop);
-        body.push_str(&format!("  {name}: {value};\n"));
+
+    // `space-*` targets the element's children rather than the element, so
+    // it becomes a second, child-scoped rule instead of a declaration here.
+    let (child_props, own_props): (Vec<_>, Vec<_>) =
+        props.iter().partition(|p| matches!(p, StyleProperty::SpaceX(_) | StyleProperty::SpaceY(_)));
+
+    let mut rules: Vec<String> = Vec::new();
+    if !own_props.is_empty() {
+        let mut body = String::new();
+        for prop in own_props {
+            let (name, value) = property_and_value(prop);
+            body.push_str(&format!("  {name}: {value};\n"));
+        }
+        rules.push(format!(".{class_name}{suffix} {{\n{body}}}"));
     }
-    let rule = format!(".{class_name}{suffix} {{\n{body}}}");
+    if !child_props.is_empty() {
+        let mut body = String::new();
+        for prop in child_props {
+            for (name, value) in space_declarations(prop) {
+                body.push_str(&format!("  {name}: {value};\n"));
+            }
+        }
+        // `:where()` keeps the specificity at zero, matching Tailwind, so
+        // a child's own utilities still win over the parent's spacing.
+        rules.push(format!(":where(.{class_name}{suffix} > :not(:last-child)) {{\n{body}}}"));
+    }
+
+    let rule = rules.join("\n\n");
     match media {
         Some(query) => format!("@media {query} {{\n{rule}\n}}"),
         None => rule,
+    }
+}
+
+/// The declarations `space-x-*`/`space-y-*` put on each non-last child.
+/// Both sides are written, not just the gap-bearing one, because Tailwind
+/// does the same -- its reverse-direction support needs the zero side to
+/// be explicit.
+fn space_declarations(prop: &StyleProperty) -> Vec<(&'static str, String)> {
+    match prop {
+        StyleProperty::SpaceX(l) => vec![
+            ("margin-inline-start", "0".to_string()),
+            ("margin-inline-end", length_px(*l)),
+        ],
+        StyleProperty::SpaceY(l) => {
+            vec![("margin-top", "0".to_string()), ("margin-bottom", length_px(*l))]
+        }
+        _ => Vec::new(),
     }
 }
 

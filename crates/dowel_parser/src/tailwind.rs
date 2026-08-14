@@ -5,7 +5,8 @@
 //! callers decide what to do with an unmapped utility (Phase 0: drop it).
 
 use dowel_ir::{
-    Align, AlignSelf, Angle, BorderStyle, Breakpoint, Color, Condition, Dimension, Display, Em,
+    Align, AlignSelf, Angle, Animation, BorderStyle, Breakpoint, Color, Condition, Dimension,
+    Display, Em,
     FlexDirection, FlexShorthand, FontWeight, Justify, Length, LineHeight, Overflow, Position,
     Radius, StyleProperty, TextAlign, TextOverflow, TextTransform, WhiteSpace,
 };
@@ -111,6 +112,11 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
         "content-between" => return Some(StyleProperty::AlignContent(Justify::Between)),
         "content-around" => return Some(StyleProperty::AlignContent(Justify::Around)),
         "content-evenly" => return Some(StyleProperty::AlignContent(Justify::Evenly)),
+        "animate-spin" => return Some(StyleProperty::Animation(Animation::Spin)),
+        "animate-ping" => return Some(StyleProperty::Animation(Animation::Ping)),
+        "animate-pulse" => return Some(StyleProperty::Animation(Animation::Pulse)),
+        "animate-bounce" => return Some(StyleProperty::Animation(Animation::Bounce)),
+        "animate-none" => return Some(StyleProperty::Animation(Animation::None)),
         "overflow-hidden" => return Some(StyleProperty::Overflow(Overflow::Hidden)),
         "overflow-visible" => return Some(StyleProperty::Overflow(Overflow::Visible)),
         "overflow-scroll" => return Some(StyleProperty::Overflow(Overflow::Scroll)),
@@ -177,6 +183,16 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
     if let Some(rest) = token.strip_prefix("grid-cols-") {
         if let Ok(n) = rest.parse::<u32>() {
             return Some(StyleProperty::GridTemplateColumns(n));
+        }
+    }
+    if let Some(rest) = token.strip_prefix("space-x-") {
+        if let Some(v) = parse_spacing_suffix(rest) {
+            return Some(StyleProperty::SpaceX(v));
+        }
+    }
+    if let Some(rest) = token.strip_prefix("space-y-") {
+        if let Some(v) = parse_spacing_suffix(rest) {
+            return Some(StyleProperty::SpaceY(v));
         }
     }
     if let Some(rest) = token.strip_prefix("top-") {

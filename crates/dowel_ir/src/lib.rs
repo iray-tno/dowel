@@ -273,6 +273,19 @@ pub enum StyleProperty {
     TransitionProperty(String),
     TransitionDuration(u32),
     TransitionTimingFunction(String),
+    /// Web-only, same reason as the transition properties. Carries the
+    /// named animation rather than its shorthand text so the backend can
+    /// also emit the matching `@keyframes`, which the shorthand alone
+    /// wouldn't tell it to do.
+    Animation(Animation),
+    /// The odd one out: this styles the element's *children*, not the
+    /// element. Tailwind's `space-x-*`/`space-y-*` are defined that way --
+    /// a gap between siblings applied as a margin on all but the last --
+    /// and there's no way to express it as a declaration on the parent.
+    /// The Web backend emits a child-scoped rule for it; React Native has
+    /// no selector engine, so it's refused there.
+    SpaceX(Length),
+    SpaceY(Length),
     TextAlign(TextAlign),
     TextTransform(TextTransform),
     TextColor(Color),
@@ -394,6 +407,16 @@ impl StyleProperty {
                 "CSS transitions: React Native has no declarative transition in its StyleSheet"
                     .to_string(),
             ),
+            StyleProperty::Animation(_) => Some(
+                "CSS animations: React Native animates imperatively (Animated/Reanimated), which \
+                 is a runtime dependency rather than a lowering"
+                    .to_string(),
+            ),
+            StyleProperty::SpaceX(_) | StyleProperty::SpaceY(_) => Some(
+                "`space-*`: it styles the element's children via a selector, and React Native has \
+                 no selector engine"
+                    .to_string(),
+            ),
             _ => None,
         }
     }
@@ -483,6 +506,49 @@ pub enum LineHeight {
     /// absolute number -- and the font size to multiply by isn't known at
     /// compile time, so this form is Web-only.
     Ratio(f32),
+}
+
+/// Tailwind's built-in animations. Named rather than stored as shorthand
+/// text because emitting `animation: spin 1s linear infinite` is only half
+/// the job -- the matching `@keyframes` has to reach the stylesheet too.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Animation {
+    Spin,
+    Ping,
+    Pulse,
+    Bounce,
+    None,
+}
+
+impl Animation {
+    /// The `animation` shorthand value.
+    pub fn shorthand(self) -> &'static str {
+        match self {
+            Animation::Spin => "spin 1s linear infinite",
+            Animation::Ping => "ping 1s cubic-bezier(0, 0, 0.2, 1) infinite",
+            Animation::Pulse => "pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite",
+            Animation::Bounce => "bounce 1s infinite",
+            Animation::None => "none",
+        }
+    }
+
+    /// The `@keyframes` block this animation needs, or `None` for `none`.
+    /// Verbatim from Tailwind's own definitions.
+    pub fn keyframes(self) -> Option<&'static str> {
+        Some(match self {
+            Animation::Spin => "@keyframes spin {\n  to {\n    transform: rotate(360deg);\n  }\n}",
+            Animation::Ping => {
+                "@keyframes ping {\n  75%, 100% {\n    transform: scale(2);\n    opacity: 0;\n  }\n}"
+            }
+            Animation::Pulse => "@keyframes pulse {\n  50% {\n    opacity: 0.5;\n  }\n}",
+            Animation::Bounce => {
+                "@keyframes bounce {\n  0%, 100% {\n    transform: translateY(-25%);\n    \
+                 animation-timing-function: cubic-bezier(0.8, 0, 1, 1);\n  }\n  50% {\n    \
+                 transform: none;\n    animation-timing-function: cubic-bezier(0, 0, 0.2, 1);\n  }\n}"
+            }
+            Animation::None => return None,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

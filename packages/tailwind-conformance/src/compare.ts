@@ -37,12 +37,17 @@ function dowelDeclarations(candidate: string): string {
   const source = `import { View } from '@dowel/core'\nconst el = <View className="${candidate}" />\n`
   const results = dowelCompile(source)
   if (results.length === 0) return ''
-  return extractRules(results[0].css)
-    // Drop the shared `.dowel-view` base rule -- it's View's own semantics
-    // (proposal 8.1), not anything this utility produced.
-    .filter((rule) => rule.selector !== '.dowel-view')
-    .map((rule) => rule.declarations)
-    .join('')
+  return (
+    extractRules(results[0].css)
+      // Keep only rules targeting one of Dowel's generated classes. That
+      // drops the shared `.dowel-view` base rule (View's own semantics,
+      // proposal 8.1, not something this utility produced) and the steps
+      // inside an `@keyframes` block, whose selectors are `to`/`50%` and
+      // whose declarations would otherwise be counted as the utility's own.
+      .filter((rule) => rule.selector.includes('.dowel-') && rule.selector !== '.dowel-view')
+      .map((rule) => rule.declarations)
+      .join('')
+  )
 }
 
 function diffSummary(

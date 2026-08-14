@@ -55,9 +55,39 @@ pub fn lower(root: &Node, source: &str) -> LowerOutput {
     if uses_view_base {
         css.push_str(VIEW_BASE_CSS);
     }
+    // An `animation` declaration is inert without its `@keyframes`, and
+    // those are document-level rather than per-node -- so they're collected
+    // across the whole tree and emitted once, deduplicated.
+    for keyframes in collect_keyframes(root) {
+        css.push_str(keyframes);
+        css.push_str("\n\n");
+    }
     css.push_str(&rules);
 
     LowerOutput { jsx, css, diagnostics }
+}
+
+/// Every distinct `@keyframes` block the tree's animations need, in
+/// first-use order so output stays deterministic.
+fn collect_keyframes(node: &Node) -> Vec<&'static str> {
+    let mut found: Vec<&'static str> = Vec::new();
+    collect_keyframes_into(node, &mut found);
+    found
+}
+
+fn collect_keyframes_into(node: &Node, found: &mut Vec<&'static str>) {
+    for declaration in &node.style {
+        if let dowel_ir::StyleProperty::Animation(animation) = declaration.property {
+            if let Some(keyframes) = animation.keyframes() {
+                if !found.contains(&keyframes) {
+                    found.push(keyframes);
+                }
+            }
+        }
+    }
+    for child in &node.children {
+        collect_keyframes_into(child, found);
+    }
 }
 
 /// Byte-slices `source` at an `ExprRef`'s span. Spans come from oxc's own
@@ -249,6 +279,41 @@ export function Login() {
         let output = lower(&parsed.roots[0], source);
         assert!(output.css.contains(".dowel-0:hover {"));
         assert!(output.css.contains("font-size: 20px;"));
+    }
+
+    #[test]
+    fn space_x_becomes_a_child_scoped_rule() {
+        // `space-*` is the one utility that styles the element's children
+        // rather than the element, so it can't be a declaration on the
+        // node's own rule.
+        let source = r#"
+            import { View } from '@dowel/core'
+            const el = <View className="space-x-2" />
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0], source);
+        assert!(output.css.contains(":where(.dowel-0 > :not(:last-child)) {"));
+        assert!(output.css.contains("margin-inline-end: 8px;"));
+        // Not on the element itself.
+        assert!(!output.css.contains(".dowel-0 {\n  margin-inline-end"));
+    }
+
+    #[test]
+    fn animation_emits_its_keyframes_once() {
+        let source = r#"
+            import { View, Text } from '@dowel/core'
+            const el = (
+              <View className="animate-spin">
+                <Text className="animate-spin">x</Text>
+              </View>
+            )
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0], source);
+        assert!(output.css.contains("animation: spin 1s linear infinite;"));
+        // An `animation` declaration is inert without its keyframes, and
+        // two users of the same animation must not duplicate the block.
+        assert_eq!(output.css.matches("@keyframes spin").count(), 1);
     }
 
     #[test]

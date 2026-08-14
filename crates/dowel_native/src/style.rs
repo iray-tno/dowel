@@ -260,7 +260,10 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
         | StyleProperty::GridTemplateColumns(_)
         | StyleProperty::TransitionProperty(_)
         | StyleProperty::TransitionDuration(_)
-        | StyleProperty::TransitionTimingFunction(_) => Vec::new(),
+        | StyleProperty::TransitionTimingFunction(_)
+        | StyleProperty::Animation(_)
+        | StyleProperty::SpaceX(_)
+        | StyleProperty::SpaceY(_) => Vec::new(),
         StyleProperty::TextAlign(align) => vec![(
             "textAlign",
             match align {

@@ -80,11 +80,15 @@ fn parser_diagnostics_for(
 #[napi]
 pub fn compile(source: String) -> Vec<CompiledComponent> {
     let parsed = dowel_parser::parse_tsx(&source);
+    // Candidate classes for the fallback path. Scanned once per file, and
+    // only actually emitted by `lower` when some className in that root
+    // couldn't be resolved statically.
+    let scanned = dowel_parser::scan_class_candidates(&source);
     parsed
         .roots
         .iter()
         .map(|root| {
-            let output = dowel_web::lower(root, &source);
+            let output = dowel_web::lower(root, &source, &scanned);
             let mut diagnostics = parser_diagnostics_for(&parsed, root);
             diagnostics.extend(output.diagnostics.into_iter().map(to_js_diagnostic));
             CompiledComponent {

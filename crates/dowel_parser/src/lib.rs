@@ -2,7 +2,10 @@
 
 mod dynamic_class;
 mod jsx;
+mod scan;
 mod tailwind;
+
+pub use scan::{scan_class_candidates, ScannedUtility};
 
 use dowel_ir::{Diagnostic, Node};
 use jsx::JsxCollector;

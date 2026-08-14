@@ -365,6 +365,21 @@ pub fn render_rule(class_name: &str, condition: &Condition, props: &[StyleProper
     }
 }
 
+/// Escapes a class name for use in a CSS selector. Tailwind class names
+/// contain characters that are selector syntax -- `hover:bg-blue-500`,
+/// `w-1/2`, `p-1.5` -- and must be backslash-escaped to be matched
+/// literally. Same escaping Tailwind's own output uses.
+pub fn escape_class_selector(class_name: &str) -> String {
+    let mut out = String::with_capacity(class_name.len());
+    for c in class_name.chars() {
+        if matches!(c, ':' | '/' | '.' | '[' | ']' | '%' | '!' | '#' | '(' | ')' | ',') {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
+}
+
 /// The declarations `space-x-*`/`space-y-*` put on each non-last child.
 /// Both sides are written, not just the gap-bearing one, because Tailwind
 /// does the same -- its reverse-direction support needs the zero side to

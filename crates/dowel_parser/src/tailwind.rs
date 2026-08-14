@@ -679,11 +679,21 @@ mod tests {
     fn parses_radius_scale() {
         assert_eq!(
             expand_utility("rounded-lg"),
-            (Condition::Always, vec![StyleProperty::BorderRadius(Length::Px(8.0))])
+            (Condition::Always, vec![StyleProperty::BorderRadius(Radius::Length(Length::Px(8.0)))])
         );
         assert_eq!(
             expand_utility("rounded"),
-            (Condition::Always, vec![StyleProperty::BorderRadius(Length::Px(4.0))])
+            (Condition::Always, vec![StyleProperty::BorderRadius(Radius::Length(Length::Px(4.0)))])
+        );
+    }
+
+    #[test]
+    fn rounded_full_stays_an_intent_not_a_number() {
+        // Each backend needs a different answer -- CSS can say `infinity`,
+        // RN can't -- so the choice can't be baked in at parse time.
+        assert_eq!(
+            expand_utility("rounded-full"),
+            (Condition::Always, vec![StyleProperty::BorderRadius(Radius::Full)])
         );
     }
 

@@ -195,6 +195,9 @@ pub enum StyleProperty {
     MaxWidth(Dimension),
     MaxHeight(Dimension),
     ZIndex(i32),
+    /// Column count for `grid-cols-<n>`. Web-only: React Native's layout
+    /// engine has no grid implementation at all.
+    GridTemplateColumns(u32),
     Position(Position),
     InsetTop(Length),
     InsetRight(Length),
@@ -252,7 +255,24 @@ pub enum StyleProperty {
     // Typography
     FontSize(Length),
     FontWeight(FontWeight),
-    LineHeight(Length),
+    LineHeight(LineHeight),
+    /// Letter spacing, always in `em` -- Tailwind's `tracking-*` scale is
+    /// defined relative to the element's own font size. Web-only: React
+    /// Native's `letterSpacing` is an absolute number, and the font size to
+    /// resolve against isn't known at compile time.
+    LetterSpacing(Em),
+    /// `overflow`/`text-overflow`/`white-space`, the three declarations
+    /// `truncate` expands to.
+    Overflow(Overflow),
+    TextOverflow(TextOverflow),
+    WhiteSpace(WhiteSpace),
+    /// CSS transitions, kept as already-composed values. Web-only: React
+    /// Native has no declarative transition in its StyleSheet -- animation
+    /// there is imperative (Animated/Reanimated), which is a runtime
+    /// dependency rather than a lowering.
+    TransitionProperty(String),
+    TransitionDuration(u32),
+    TransitionTimingFunction(String),
     TextAlign(TextAlign),
     TextTransform(TextTransform),
     TextColor(Color),
@@ -351,6 +371,29 @@ impl StyleProperty {
             StyleProperty::MinHeight(d) => viewport(d, "min-height"),
             StyleProperty::MaxWidth(d) => viewport(d, "max-width"),
             StyleProperty::MaxHeight(d) => viewport(d, "max-height"),
+            StyleProperty::GridTemplateColumns(_) => {
+                Some("`grid-template-columns`: React Native has no grid layout".to_string())
+            }
+            StyleProperty::LetterSpacing(_) => Some(
+                "`letter-spacing` in em: React Native's letterSpacing is absolute, and the font \
+                 size to resolve against isn't known at compile time"
+                    .to_string(),
+            ),
+            StyleProperty::LineHeight(LineHeight::Ratio(_)) => Some(
+                "a unitless `line-height`: React Native's lineHeight is absolute, and the font \
+                 size to multiply by isn't known at compile time"
+                    .to_string(),
+            ),
+            StyleProperty::TextOverflow(_) => Some(
+                "`text-overflow`: React Native truncates via the `numberOfLines` prop, not a style"
+                    .to_string(),
+            ),
+            StyleProperty::TransitionProperty(_)
+            | StyleProperty::TransitionDuration(_)
+            | StyleProperty::TransitionTimingFunction(_) => Some(
+                "CSS transitions: React Native has no declarative transition in its StyleSheet"
+                    .to_string(),
+            ),
             _ => None,
         }
     }
@@ -425,6 +468,42 @@ pub struct Angle {
     pub degrees: f32,
 }
 
+/// A length in `em` -- relative to the element's own font size, so it can't
+/// be resolved to pixels at compile time.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Em(pub f32);
+
+/// CSS allows a line height to be an absolute length or a unitless
+/// multiplier of the font size. Tailwind uses both: `leading-6` is the
+/// spacing scale, `leading-tight` is a ratio.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LineHeight {
+    Length(Length),
+    /// React Native has no unitless line height -- its `lineHeight` is an
+    /// absolute number -- and the font size to multiply by isn't known at
+    /// compile time, so this form is Web-only.
+    Ratio(f32),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Overflow {
+    Visible,
+    Hidden,
+    Scroll,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextOverflow {
+    Clip,
+    Ellipsis,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WhiteSpace {
+    Normal,
+    NoWrap,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextTransform {
     Uppercase,
@@ -467,6 +546,18 @@ pub enum Condition {
     /// needs anything synthesized; each just needs a different, still
     /// zero-extra-runtime, lowering.
     Pressed,
+    /// `dark:`. Tailwind v4's default strategy is the
+    /// `prefers-color-scheme` media query rather than a `.dark` class, and
+    /// React Native's `useColorScheme()` reports the same OS-level
+    /// preference -- so the two agree on meaning even though only Web can
+    /// express it as a style condition.
+    Dark,
+    /// `first:`. A structural position, which only the DOM can match on its
+    /// own; React Native has no selector engine. Dowel does see the whole
+    /// JSX tree, so resolving this at compile time for statically-known
+    /// children is possible -- but not for `.map()`-generated ones, and
+    /// that's not built yet.
+    FirstChild,
     /// Arbitrary structurally-dynamic condition (proposal §7): a prop,
     /// local variable, or `useState` value used as a guard.
     Expr(ConditionExpr),

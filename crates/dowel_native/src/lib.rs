@@ -178,7 +178,15 @@ fn render_node(
                 let guard = render_condition_expr(source, expr);
                 style_array_parts.push(format!("({guard}) && styles.{name}"));
             }
-            Condition::Hover | Condition::Focus | Condition::Responsive(_) => {
+            Condition::Hover
+            | Condition::Focus
+            | Condition::Responsive(_)
+            // `Dark` and `FirstChild` both have real RN counterparts in
+            // principle -- `useColorScheme()` and the child's index -- but
+            // neither is a style condition, so wiring them needs machinery
+            // this pass doesn't build.
+            | Condition::Dark
+            | Condition::FirstChild => {
                 // No RN mechanism yet (see module docs) -- computed, not merged.
             }
         }
@@ -242,6 +250,8 @@ fn condition_suffix(condition: &Condition) -> Option<String> {
         Condition::Focus => Some("focus".to_string()),
         Condition::Disabled => Some("disabled".to_string()),
         Condition::Pressed => Some("pressed".to_string()),
+        Condition::Dark => Some("dark".to_string()),
+        Condition::FirstChild => Some("first".to_string()),
         Condition::Responsive(bp) => Some(
             match bp {
                 Breakpoint::Sm => "sm",

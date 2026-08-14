@@ -20,7 +20,7 @@
 
 use dowel_ir::{
     Align, AlignSelf, BorderStyle, Color, Dimension, Display, FlexDirection, FlexShorthand, Justify,
-    Length, Position, Radius, StyleProperty, TextAlign, TextTransform,
+    Length, LineHeight, Overflow, Position, Radius, StyleProperty, TextAlign, TextTransform,
 };
 
 fn number(length: Length) -> String {
@@ -235,7 +235,32 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
         // RN's `fontWeight` type is a *string* ('100'..'900'/'normal'/
         // 'bold'), not a number -- unlike CSS's numeric font-weight.
         StyleProperty::FontWeight(w) => vec![("fontWeight", format!("'{}'", w.0))],
-        StyleProperty::LineHeight(l) => vec![("lineHeight", number(*l))],
+        StyleProperty::LineHeight(lh) => match lh {
+            LineHeight::Length(l) => vec![("lineHeight", number(*l))],
+            // Refused upstream (see `unsupported_on_native`); emitting
+            // nothing keeps the object valid if that error is ignored.
+            LineHeight::Ratio(_) => Vec::new(),
+        },
+        StyleProperty::Overflow(o) => vec![(
+            "overflow",
+            match o {
+                Overflow::Visible => "'visible'",
+                Overflow::Hidden => "'hidden'",
+                Overflow::Scroll => "'scroll'",
+            }
+            .to_string(),
+        )],
+        // RN has no white-space property, but `nowrap` is the default for
+        // Text and the wrapping/truncation knob is the `numberOfLines`
+        // prop -- so this is a no-op there rather than an error.
+        StyleProperty::WhiteSpace(_) => Vec::new(),
+        // All refused upstream by `unsupported_on_native`.
+        StyleProperty::LetterSpacing(_)
+        | StyleProperty::TextOverflow(_)
+        | StyleProperty::GridTemplateColumns(_)
+        | StyleProperty::TransitionProperty(_)
+        | StyleProperty::TransitionDuration(_)
+        | StyleProperty::TransitionTimingFunction(_) => Vec::new(),
         StyleProperty::TextAlign(align) => vec![(
             "textAlign",
             match align {

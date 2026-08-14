@@ -5,10 +5,38 @@
 //! callers decide what to do with an unmapped utility (Phase 0: drop it).
 
 use dowel_ir::{
-    Align, AlignSelf, Angle, BorderStyle, Breakpoint, Color, Condition, Dimension, Display, FlexDirection,
-    FlexShorthand, FontWeight, Justify, Length, Position, Radius, StyleProperty, TextAlign,
-    TextTransform,
+    Align, AlignSelf, Angle, BorderStyle, Breakpoint, Color, Condition, Dimension, Display, Em,
+    FlexDirection, FlexShorthand, FontWeight, Justify, Length, LineHeight, Overflow, Position,
+    Radius, StyleProperty, TextAlign, TextOverflow, TextTransform, WhiteSpace,
 };
+
+/// The property lists Tailwind's `transition`/`transition-colors` expand
+/// to, copied verbatim so the emitted CSS matches. Long, but that's what
+/// the utility means -- shortening it would change behaviour.
+const DEFAULT_TRANSITION_PROPERTIES: &str = "color, background-color, border-color, outline-color, \
+    text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to, \
+    opacity, box-shadow, transform, translate, scale, rotate, filter, -webkit-backdrop-filter, \
+    backdrop-filter, display, content-visibility, overlay, pointer-events";
+
+const COLOR_TRANSITION_PROPERTIES: &str = "color, background-color, border-color, outline-color, \
+    text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to";
+
+/// Tailwind's `--default-transition-*`, applied by every `transition-*`
+/// utility unless an explicit `duration-*`/`ease-*` overrides them.
+const DEFAULT_TRANSITION_TIMING: &str = "cubic-bezier(0.4, 0, 0.2, 1)";
+const DEFAULT_TRANSITION_DURATION_MS: u32 = 150;
+
+fn parse_transition_properties(token: &str) -> Option<&'static str> {
+    Some(match token {
+        "transition" => DEFAULT_TRANSITION_PROPERTIES,
+        "transition-colors" => COLOR_TRANSITION_PROPERTIES,
+        "transition-opacity" => "opacity",
+        "transition-transform" => "transform, translate, scale, rotate",
+        "transition-shadow" => "box-shadow",
+        "transition-none" => "none",
+        _ => return None,
+    })
+}
 
 /// Tailwind's default spacing scale: `spacing(n) = n * 0.25rem`, and the
 /// default root font size is 16px, so each spacing step is 4px.
@@ -83,6 +111,33 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
         "content-between" => return Some(StyleProperty::AlignContent(Justify::Between)),
         "content-around" => return Some(StyleProperty::AlignContent(Justify::Around)),
         "content-evenly" => return Some(StyleProperty::AlignContent(Justify::Evenly)),
+        "overflow-hidden" => return Some(StyleProperty::Overflow(Overflow::Hidden)),
+        "overflow-visible" => return Some(StyleProperty::Overflow(Overflow::Visible)),
+        "overflow-scroll" => return Some(StyleProperty::Overflow(Overflow::Scroll)),
+        "whitespace-nowrap" => return Some(StyleProperty::WhiteSpace(WhiteSpace::NoWrap)),
+        "whitespace-normal" => return Some(StyleProperty::WhiteSpace(WhiteSpace::Normal)),
+        "text-ellipsis" => return Some(StyleProperty::TextOverflow(TextOverflow::Ellipsis)),
+        "text-clip" => return Some(StyleProperty::TextOverflow(TextOverflow::Clip)),
+        // `transition-*` also carries the default timing/duration, so it's
+        // a multi-property expansion handled in `expand_base_utility`.
+        "ease-linear" => {
+            return Some(StyleProperty::TransitionTimingFunction("linear".to_string()))
+        }
+        "ease-in" => {
+            return Some(StyleProperty::TransitionTimingFunction(
+                "cubic-bezier(0.4, 0, 1, 1)".to_string(),
+            ))
+        }
+        "ease-out" => {
+            return Some(StyleProperty::TransitionTimingFunction(
+                "cubic-bezier(0, 0, 0.2, 1)".to_string(),
+            ))
+        }
+        "ease-in-out" => {
+            return Some(StyleProperty::TransitionTimingFunction(
+                "cubic-bezier(0.4, 0, 0.2, 1)".to_string(),
+            ))
+        }
         "uppercase" => return Some(StyleProperty::TextTransform(TextTransform::Uppercase)),
         "lowercase" => return Some(StyleProperty::TextTransform(TextTransform::Lowercase)),
         "capitalize" => return Some(StyleProperty::TextTransform(TextTransform::Capitalize)),
@@ -101,8 +156,27 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
     // statically -- so those fall through as unrecognized rather than being
     // converted to a wrong pixel value.
     if let Some(rest) = token.strip_prefix("leading-") {
+        // Named scale first: those are unitless ratios, not lengths.
+        if let Some(ratio) = parse_named_leading(rest) {
+            return Some(StyleProperty::LineHeight(LineHeight::Ratio(ratio)));
+        }
         if let Some(v) = parse_spacing_suffix(rest) {
-            return Some(StyleProperty::LineHeight(v));
+            return Some(StyleProperty::LineHeight(LineHeight::Length(v)));
+        }
+    }
+    if let Some(rest) = token.strip_prefix("tracking-") {
+        if let Some(em) = parse_tracking(rest) {
+            return Some(StyleProperty::LetterSpacing(Em(em)));
+        }
+    }
+    if let Some(rest) = token.strip_prefix("duration-") {
+        if let Ok(ms) = rest.parse::<u32>() {
+            return Some(StyleProperty::TransitionDuration(ms));
+        }
+    }
+    if let Some(rest) = token.strip_prefix("grid-cols-") {
+        if let Ok(n) = rest.parse::<u32>() {
+            return Some(StyleProperty::GridTemplateColumns(n));
         }
     }
     if let Some(rest) = token.strip_prefix("top-") {
@@ -233,6 +307,34 @@ fn parse_border_radius(token: &str) -> Option<Radius> {
         _ => return None,
     };
     Some(Radius::Length(Length::Px(px)))
+}
+
+/// Tailwind's named `--leading-*` scale: unitless multipliers of the
+/// element's own font size, unlike the numeric `leading-<n>` scale which is
+/// the spacing scale in pixels.
+fn parse_named_leading(suffix: &str) -> Option<f32> {
+    Some(match suffix {
+        "none" => 1.0,
+        "tight" => 1.25,
+        "snug" => 1.375,
+        "normal" => 1.5,
+        "relaxed" => 1.625,
+        "loose" => 2.0,
+        _ => return None,
+    })
+}
+
+/// Tailwind's `--tracking-*` scale, in em.
+fn parse_tracking(suffix: &str) -> Option<f32> {
+    Some(match suffix {
+        "tighter" => -0.05,
+        "tight" => -0.025,
+        "normal" => 0.0,
+        "wide" => 0.025,
+        "wider" => 0.05,
+        "widest" => 0.1,
+        _ => return None,
+    })
 }
 
 /// Margin value: the spacing scale plus `auto`, which is what makes
@@ -455,6 +557,12 @@ pub fn parse_variant_prefix(token: &str) -> (Condition, &str) {
     if let Some(rest) = token.strip_prefix("pressed:") {
         return (Condition::Pressed, rest);
     }
+    if let Some(rest) = token.strip_prefix("dark:") {
+        return (Condition::Dark, rest);
+    }
+    if let Some(rest) = token.strip_prefix("first:") {
+        return (Condition::FirstChild, rest);
+    }
     if let Some(rest) = token.strip_prefix("sm:") {
         return (Condition::Responsive(Breakpoint::Sm), rest);
     }
@@ -554,6 +662,27 @@ fn expand_base_utility(token: &str) -> Vec<StyleProperty> {
             return vec![StyleProperty::Width(d), StyleProperty::Height(d)];
         }
     }
+    // A `transition-*` utility sets the property list *and* Tailwind's
+    // default timing function and duration -- an explicit `duration-*` or
+    // `ease-*` written after it then overrides those under last-wins
+    // flattening, which is how Tailwind's own custom-property indirection
+    // behaves.
+    if let Some(properties) = parse_transition_properties(token) {
+        return vec![
+            StyleProperty::TransitionProperty(properties.to_string()),
+            StyleProperty::TransitionTimingFunction(DEFAULT_TRANSITION_TIMING.to_string()),
+            StyleProperty::TransitionDuration(DEFAULT_TRANSITION_DURATION_MS),
+        ];
+    }
+    // Three declarations, which is why it can't go through the
+    // one-property path.
+    if token == "truncate" {
+        return vec![
+            StyleProperty::Overflow(Overflow::Hidden),
+            StyleProperty::TextOverflow(TextOverflow::Ellipsis),
+            StyleProperty::WhiteSpace(WhiteSpace::NoWrap),
+        ];
+    }
     match token {
         "border-solid" => return all_sides_border_style(BorderStyle::Solid),
         "border-dashed" => return all_sides_border_style(BorderStyle::Dashed),
@@ -572,7 +701,7 @@ fn expand_base_utility(token: &str) -> Vec<StyleProperty> {
         // `--tw-leading` custom property that wins regardless of class
         // order. Writing `leading-6 text-xl` therefore differs: Tailwind
         // keeps leading-6, Dowel takes text-xl's 28px.
-        return vec![StyleProperty::FontSize(size), StyleProperty::LineHeight(line_height)];
+        return vec![StyleProperty::FontSize(size), StyleProperty::LineHeight(LineHeight::Length(line_height))];
     }
 
     parse_utility(token).into_iter().collect()
@@ -706,7 +835,7 @@ mod tests {
             expand_utility("text-xl"),
             (
                 Condition::Always,
-                vec![StyleProperty::FontSize(Length::Px(20.0)), StyleProperty::LineHeight(Length::Px(28.0))]
+                vec![StyleProperty::FontSize(Length::Px(20.0)), StyleProperty::LineHeight(LineHeight::Length(Length::Px(28.0)))]
             )
         );
         assert_eq!(
@@ -734,7 +863,7 @@ mod tests {
             expand_utility("disabled:text-xl"),
             (
                 Condition::Disabled,
-                vec![StyleProperty::FontSize(Length::Px(20.0)), StyleProperty::LineHeight(Length::Px(28.0))]
+                vec![StyleProperty::FontSize(Length::Px(20.0)), StyleProperty::LineHeight(LineHeight::Length(Length::Px(28.0)))]
             )
         );
         assert_eq!(
@@ -1027,7 +1156,7 @@ mod tests {
                     Condition::Always,
                     vec![
                         StyleProperty::FontSize(Length::Px(size)),
-                        StyleProperty::LineHeight(Length::Px(line_height)),
+                        StyleProperty::LineHeight(LineHeight::Length(Length::Px(line_height))),
                     ]
                 ),
                 "{token}"
@@ -1038,7 +1167,7 @@ mod tests {
             expand_utility("text-5xl").1,
             vec![
                 StyleProperty::FontSize(Length::Px(48.0)),
-                StyleProperty::LineHeight(Length::Px(48.0))
+                StyleProperty::LineHeight(LineHeight::Length(Length::Px(48.0)))
             ]
         );
     }
@@ -1067,20 +1196,64 @@ mod tests {
         let (_, leading_props) = expand_utility("leading-6");
         let combined: Vec<_> = text_props.into_iter().chain(leading_props).collect();
         let deduped = dowel_ir::dedupe_last_wins(combined);
-        assert!(deduped.contains(&StyleProperty::LineHeight(Length::Px(24.0))));
-        assert!(!deduped.contains(&StyleProperty::LineHeight(Length::Px(28.0))));
+        assert!(deduped.contains(&StyleProperty::LineHeight(LineHeight::Length(Length::Px(24.0)))));
+        assert!(!deduped.contains(&StyleProperty::LineHeight(LineHeight::Length(Length::Px(28.0)))));
     }
 
     #[test]
-    fn named_leading_is_not_faked_as_pixels() {
-        // Tailwind's named leading scale is a unitless ratio of the
-        // element's own font size -- not statically resolvable to px, so it
-        // stays unrecognized rather than being converted to a wrong value.
-        assert_eq!(expand_utility("leading-tight"), (Condition::Always, vec![]));
-        // The numeric scale *is* spacing-based and does resolve.
+    fn named_leading_stays_a_ratio_rather_than_being_faked_as_pixels() {
+        // The named scale is a unitless multiple of the element's own font
+        // size. It's kept as a ratio -- which CSS states directly -- rather
+        // than converted to a pixel value that would only be right for one
+        // font size. React Native can't express it, and refuses it.
+        let (_, props) = expand_utility("leading-tight");
+        assert_eq!(props, vec![StyleProperty::LineHeight(LineHeight::Ratio(1.25))]);
+        assert!(props[0].unsupported_on_native().is_some());
+
+        // The numeric scale is spacing-based and resolves to a length on
+        // both platforms.
+        let (_, props) = expand_utility("leading-6");
+        assert_eq!(props, vec![StyleProperty::LineHeight(LineHeight::Length(Length::Px(24.0)))]);
+        assert!(props[0].unsupported_on_native().is_none());
+    }
+
+    #[test]
+    fn truncate_expands_to_its_three_declarations() {
         assert_eq!(
-            expand_utility("leading-6"),
-            (Condition::Always, vec![StyleProperty::LineHeight(Length::Px(24.0))])
+            expand_utility("truncate").1,
+            vec![
+                StyleProperty::Overflow(Overflow::Hidden),
+                StyleProperty::TextOverflow(TextOverflow::Ellipsis),
+                StyleProperty::WhiteSpace(WhiteSpace::NoWrap),
+            ]
+        );
+    }
+
+    #[test]
+    fn parses_dark_and_first_variants() {
+        assert_eq!(
+            expand_utility("dark:bg-black"),
+            (Condition::Dark, vec![StyleProperty::BackgroundColor(Color::Token("black".to_string()))])
+        );
+        assert_eq!(
+            expand_utility("first:mt-0"),
+            (Condition::FirstChild, vec![StyleProperty::MarginTop(Dimension::Length(Length::Px(0.0)))])
+        );
+    }
+
+    #[test]
+    fn parses_transition_and_tracking() {
+        assert_eq!(
+            expand_utility("duration-200").1,
+            vec![StyleProperty::TransitionDuration(200)]
+        );
+        assert_eq!(
+            expand_utility("tracking-wide").1,
+            vec![StyleProperty::LetterSpacing(Em(0.025))]
+        );
+        assert_eq!(
+            expand_utility("grid-cols-3").1,
+            vec![StyleProperty::GridTemplateColumns(3)]
         );
     }
 

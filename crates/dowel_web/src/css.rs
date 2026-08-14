@@ -16,8 +16,8 @@
 
 use dowel_ir::{
     Align, AlignSelf, BorderStyle, Breakpoint, Color, Condition, ConditionExpr, Dimension, Display,
-    FlexDirection, FlexShorthand, Justify, Length, Position, Radius, StyleProperty, TextAlign,
-    TextTransform,
+    Em, FlexDirection, FlexShorthand, Justify, Length, LineHeight, Overflow, Position, Radius,
+    StyleProperty, TextAlign, TextOverflow, TextTransform, WhiteSpace,
 };
 
 fn length_px(length: Length) -> String {
@@ -149,6 +149,9 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
         StyleProperty::MaxWidth(d) => ("max-width", dimension_value(*d)),
         StyleProperty::MaxHeight(d) => ("max-height", dimension_value(*d)),
         StyleProperty::ZIndex(z) => ("z-index", format!("{z}")),
+        StyleProperty::GridTemplateColumns(n) => {
+            ("grid-template-columns", format!("repeat({n}, minmax(0, 1fr))"))
+        }
         StyleProperty::Position(pos) => (
             "position",
             match pos {
@@ -189,7 +192,42 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
         ),
         StyleProperty::FontSize(l) => ("font-size", length_px(*l)),
         StyleProperty::FontWeight(w) => ("font-weight", format!("{}", w.0)),
-        StyleProperty::LineHeight(l) => ("line-height", length_px(*l)),
+        StyleProperty::LineHeight(lh) => (
+            "line-height",
+            match lh {
+                LineHeight::Length(l) => length_px(*l),
+                LineHeight::Ratio(r) => format!("{r}"),
+            },
+        ),
+        StyleProperty::LetterSpacing(Em(v)) => ("letter-spacing", format!("{v}em")),
+        StyleProperty::Overflow(o) => (
+            "overflow",
+            match o {
+                Overflow::Visible => "visible",
+                Overflow::Hidden => "hidden",
+                Overflow::Scroll => "scroll",
+            }
+            .to_string(),
+        ),
+        StyleProperty::TextOverflow(t) => (
+            "text-overflow",
+            match t {
+                TextOverflow::Clip => "clip",
+                TextOverflow::Ellipsis => "ellipsis",
+            }
+            .to_string(),
+        ),
+        StyleProperty::WhiteSpace(w) => (
+            "white-space",
+            match w {
+                WhiteSpace::Normal => "normal",
+                WhiteSpace::NoWrap => "nowrap",
+            }
+            .to_string(),
+        ),
+        StyleProperty::TransitionProperty(p) => ("transition-property", p.clone()),
+        StyleProperty::TransitionDuration(ms) => ("transition-duration", format!("{ms}ms")),
+        StyleProperty::TransitionTimingFunction(f) => ("transition-timing-function", f.clone()),
         StyleProperty::TextAlign(align) => (
             "text-align",
             match align {
@@ -275,6 +313,10 @@ pub fn condition_shape(condition: &Condition) -> (Option<String>, String) {
         Condition::Responsive(bp) => {
             (Some(format!("(min-width: {}px)", breakpoint_min_width_px(*bp))), String::new())
         }
+        // Tailwind v4's default dark strategy, and the one whose meaning
+        // React Native's `useColorScheme()` shares.
+        Condition::Dark => (Some("(prefers-color-scheme: dark)".to_string()), String::new()),
+        Condition::FirstChild => (None, ":first-child".to_string()),
         Condition::Expr(expr) => (None, condition_expr_selector(expr)),
     }
 }

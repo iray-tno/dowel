@@ -140,6 +140,25 @@ fn render_node(
     // isn't a valid style value at all, so it must not be used there.
     let mut pressed_parts: Vec<String> = Vec::new();
 
+    // Web can at least concatenate an unresolvable `className` back on and
+    // let the browser sort it out. React Native has no className at all --
+    // there's nothing to pass it through to, and resolving class strings on
+    // device would need a Tailwind engine in the runtime, which Dowel
+    // doesn't have. Refused rather than dropped.
+    for expr_ref in &node.class_name_fallback {
+        diagnostics.push(Diagnostic {
+            code: DiagnosticCode::DynamicClassNameNotResolved,
+            severity: Severity::Error,
+            message: format!(
+                "`{}` can't be resolved at build time, and React Native has no className to pass \
+                 it through to. Use a statically analysable form (a string literal, `cn(...)`, or \
+                 `cond && 'class'`).",
+                source_text(source, *expr_ref)
+            ),
+            span: node.span,
+        });
+    }
+
     // Some CSS concepts are props on this platform rather than styles, so
     // they're absorbed before the refusal check below -- otherwise the
     // thing that *does* express them would be reported as impossible.
@@ -670,6 +689,26 @@ export function Login() {
         // And nothing is emitted for it, so a build that ignored the error
         // still can't produce an invalid RN style value.
         assert!(!output.styles.contains("display"));
+    }
+
+    #[test]
+    fn an_unresolvable_class_name_is_refused_rather_than_dropped() {
+        // Web can concatenate it back on and let the browser decide.
+        // React Native has no className to pass it through to, so there's
+        // nothing to preserve -- but it must not vanish silently either.
+        let source = r#"
+            import { View } from '@dowel/core'
+            const el = <View className={classNameFromProps} />
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0], source);
+
+        assert_eq!(output.diagnostics.len(), 1);
+        assert_eq!(
+            output.diagnostics[0].code,
+            dowel_ir::DiagnosticCode::DynamicClassNameNotResolved
+        );
+        assert_eq!(output.diagnostics[0].severity, dowel_ir::Severity::Error);
     }
 
     #[test]

@@ -58,6 +58,11 @@ pub enum DiagnosticCode {
     /// all -- so `block`, `inline-flex`, `grid` and friends can't be
     /// approximated, only refused.
     WebOnlyPropertyOnNative,
+    /// Part of a `className` couldn't be decomposed statically (proposal
+    /// §7's third tier). The expression is preserved so its classes still
+    /// reach the DOM, but Dowel generates no CSS for whatever they turn out
+    /// to be -- only for classes it could read at build time.
+    DynamicClassNameNotResolved,
 }
 
 // ---------------------------------------------------------------------------

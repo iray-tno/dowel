@@ -146,7 +146,34 @@ fn render_node(
 
     // `className`, not `class` -- Dowel's Web output is consumed as JSX
     // (the Vite plugin splices it back into React source), not raw HTML.
-    let mut attrs = format!(r#" className="{classes}""#);
+    //
+    // Anything the parser couldn't decompose statically (proposal §7's
+    // third tier) is concatenated back on at runtime rather than dropped.
+    // Note what this does *not* do: Dowel emits CSS only for classes it
+    // read at build time, so whatever these expressions evaluate to has no
+    // rule behind it unless the app also loads Tailwind's own stylesheet.
+    // Preserving them is still strictly better than discarding them, and
+    // the diagnostic says so rather than letting it look resolved.
+    let mut attrs = if node.class_name_fallback.is_empty() {
+        format!(r#" className="{classes}""#)
+    } else {
+        for expr_ref in &node.class_name_fallback {
+            diagnostics.push(dowel_ir::Diagnostic {
+                code: dowel_ir::DiagnosticCode::DynamicClassNameNotResolved,
+                severity: dowel_ir::Severity::Warning,
+                message: format!(
+                    "`{}` can't be resolved at build time, so it's passed through as-is. Dowel \
+                     generates no CSS for whatever classes it produces.",
+                    source_text(source, *expr_ref)
+                ),
+                span: node.span,
+            });
+        }
+        let parts: Vec<String> = std::iter::once(format!(r#""{classes}""#))
+            .chain(node.class_name_fallback.iter().map(|r| source_text(source, *r).to_string()))
+            .collect();
+        format!(" className={{[{}].filter(Boolean).join(' ')}}", parts.join(", "))
+    };
     for (key, value) in &extra_attrs {
         attrs.push_str(&format!(r#" {key}="{value}""#));
     }
@@ -279,6 +306,46 @@ export function Login() {
         let output = lower(&parsed.roots[0], source);
         assert!(output.css.contains(".dowel-0:hover {"));
         assert!(output.css.contains("font-size: 20px;"));
+    }
+
+    #[test]
+    fn an_unresolvable_class_name_is_preserved_not_dropped() {
+        let source = r#"
+            import { View } from '@dowel/core'
+            const el = <View className={classNameFromProps} />
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0], source);
+
+        // The expression reaches the DOM instead of vanishing...
+        assert!(output.jsx.contains("classNameFromProps"));
+        // ...and the diagnostic says Dowel generates no CSS behind it,
+        // rather than letting it look resolved.
+        assert_eq!(output.diagnostics.len(), 1);
+        assert_eq!(
+            output.diagnostics[0].code,
+            dowel_ir::DiagnosticCode::DynamicClassNameNotResolved
+        );
+    }
+
+    #[test]
+    fn only_the_unresolvable_leaf_falls_back() {
+        // proposal §7's three tiers in one className: a literal compiles
+        // away, a guarded literal becomes a conditional rule, and only the
+        // opaque call is passed through.
+        let source = r#"
+            import { View } from '@dowel/core'
+            import { cn } from 'clsx'
+            const el = <View className={cn('p-4', active && 'text-xl', getDynamic())} />
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0], source);
+
+        assert!(output.css.contains("padding-top: 16px;"));
+        assert!(output.css.contains("font-size: 20px;"));
+        assert!(output.jsx.contains("getDynamic()"));
+        // The parts that did compile aren't repeated in the fallback.
+        assert!(!output.jsx.contains("'p-4'"));
     }
 
     #[test]

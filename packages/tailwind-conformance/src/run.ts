@@ -126,7 +126,7 @@ console.log(
 const restricted = nativeAll.filter((r) => r.restrictedTo)
 if (restricted.length > 0) {
   console.log(
-    `\nRestricted (${restricted.length}) -- counted as covered, but only on some primitives;` +
+    `\nRestricted (${restricted.length}) -- counted as covered, but only where listed;` +
       `\nusing them elsewhere is a build error:`,
   )
   for (const r of restricted) {

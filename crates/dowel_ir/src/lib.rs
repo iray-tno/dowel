@@ -104,6 +104,20 @@ pub struct Node {
     /// Populated per-leaf, not per-node: a `cn(...)` call can contribute
     /// some declarations to `style` and some entries here in the same call.
     pub class_name_fallback: Vec<ExprRef>,
+    /// Whether `children` accounts for *every* JSX child this element had.
+    ///
+    /// It often doesn't: an unmodeled component, a fragment, or an
+    /// expression container (`{cond && <A/>}`, `{items.map(...)}`) isn't
+    /// turned into a `Node`, so `children` can be shorter than what
+    /// actually renders. That's harmless for lowering each child, and
+    /// wrong for anything that reasons about a child's *position* --
+    /// `<View><Custom/><Text className="first:mt-0"/></View>` would put the
+    /// Text at index 0 when it renders second.
+    ///
+    /// So position-dependent conditions may only be resolved at compile
+    /// time when this is `true`. It is not a claim that the element is
+    /// simple, only that nothing was dropped.
+    pub children_complete: bool,
     pub span: SourceSpan,
 }
 

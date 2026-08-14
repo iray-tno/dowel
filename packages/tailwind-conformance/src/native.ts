@@ -18,9 +18,9 @@ export interface NativeComparison {
   verdict: NativeVerdict
   detail?: string
   /**
-   * Set when a utility lowers on some primitives but is refused on
+   * Set when a utility lowers in some probe contexts but is refused in
    * others. Counting it as covered answers "is this usable on Native",
-   * but writing it on the wrong element still fails the build -- so the
+   * but writing it in the wrong place still fails the build -- so the
    * restriction has to be reported, not folded into the number.
    */
   restrictedTo?: string[]
@@ -33,17 +33,40 @@ export interface NativeComparison {
 /// - VARIANT_NOT_WIRED: possible, not built yet (`dark:`, breakpoints).
 const NAMED_GAPS = new Set(['WEB_ONLY_PROPERTY_ON_NATIVE', 'VARIANT_NOT_WIRED_ON_NATIVE'])
 
-/// Whether a utility works can depend on which primitive it's applied to:
-/// truncation lowers to `numberOfLines`, which only exists on `Text`. So
-/// each candidate is tried on both, and counts as covered if *either*
-/// works -- the question being asked is "can this be used on Native at
-/// all", not "does it work on a View".
-const PROBE_PRIMITIVES = ['View', 'Text'] as const
+/// Whether a utility works can depend on where it's written, so each
+/// candidate is tried in several places and counts as covered if *any* of
+/// them works -- the question is "can this be used on Native at all", not
+/// "does it work on a bare View".
+///
+/// - `View` / `Text`: truncation lowers to `numberOfLines`, which only
+///   exists on `Text`.
+/// - `first child`: `first:` is resolved from the element's position in
+///   the JSX tree, which only exists for a child. Probing it only at the
+///   root would measure the one context where `:first-child` is
+///   meaningless anyway.
+const PROBE_CONTEXTS = [
+  {
+    name: 'View',
+    render: (candidate: string) =>
+      `import { View } from '@dowel/core'\n` +
+      `const el = <View className="${candidate}">x</View>\n`,
+  },
+  {
+    name: 'Text',
+    render: (candidate: string) =>
+      `import { Text } from '@dowel/core'\n` +
+      `const el = <Text className="${candidate}">x</Text>\n`,
+  },
+  {
+    name: 'first child',
+    render: (candidate: string) =>
+      `import { View } from '@dowel/core'\n` +
+      `const el = (\n  <View>\n    <View className="${candidate}">x</View>\n  </View>\n)\n`,
+  },
+] as const
 
-function probe(candidate: string, primitive: string): NativeComparison {
-  const source =
-    `import { ${primitive} } from '@dowel/core'\n` +
-    `const el = <${primitive} className="${candidate}">x</${primitive}>\n`
+function probe(candidate: string, context: (typeof PROBE_CONTEXTS)[number]): NativeComparison {
+  const source = context.render(candidate)
   const results = compileNative(source)
   if (results.length === 0) {
     return { candidate, verdict: 'SILENT', detail: 'no component compiled' }
@@ -95,21 +118,21 @@ function probe(candidate: string, primitive: string): NativeComparison {
 }
 
 export function compareNativeCandidate(candidate: string): NativeComparison {
-  const attempts = PROBE_PRIMITIVES.map((primitive) => ({
-    primitive,
-    result: probe(candidate, primitive),
+  const attempts = PROBE_CONTEXTS.map((context) => ({
+    context: context.name,
+    result: probe(candidate, context),
   }))
 
   const working = attempts.filter((a) => a.result.verdict === 'COVERED')
   if (working.length > 0) {
     const covered = working[0].result
-    if (working.length === PROBE_PRIMITIVES.length) {
+    if (working.length === PROBE_CONTEXTS.length) {
       return covered
     }
     // Works somewhere but not everywhere. Still covered, but the report
-    // must say where -- otherwise the number quietly implies it works on
-    // any element, and using it on the wrong one is a build failure.
-    return { ...covered, restrictedTo: working.map((a) => a.primitive) }
+    // must say where -- otherwise the number quietly implies it works
+    // anywhere, and using it in the wrong place is a build failure.
+    return { ...covered, restrictedTo: working.map((a) => a.context) }
   }
   // Otherwise report the more informative verdict: a refusal names the
   // reason, silence doesn't.

@@ -28,9 +28,16 @@
 //! report themselves (`DiagnosticCode::VariantNotWiredOnNative`), split by
 //! whether dropping one renders the wrong thing:
 //!
-//! - `Responsive`/`Dark`/`FirstChild` are errors. Each has an ordinary
-//!   React Native counterpart, and a tablet layout or a dark-mode
-//!   appearance that silently doesn't apply is a real bug.
+//! - `Responsive`/`Dark` are errors. Each has an ordinary React Native
+//!   counterpart, and a tablet layout or a dark-mode appearance that
+//!   silently doesn't apply is a real bug.
+//! - `FirstChild` is *resolved*, not reported, whenever the compiler can
+//!   see the element's position among its siblings -- which is most of the
+//!   time, since it is looking straight at the JSX tree. Web asks
+//!   `:first-child` at match time; here the answer is already known, so it
+//!   costs nothing at runtime. Only an undecidable position (a component
+//!   root, or a sibling of something unmodeled -- see
+//!   `Node::children_complete`) is an error.
 //! - `Hover`/`Focus` are warnings. Also unbuilt rather than impossible --
 //!   a tablet with a trackpad or pencil reports hover, as do the
 //!   macOS/Windows/visionOS targets -- but stopping a cross-platform build
@@ -75,7 +82,16 @@ pub fn lower(root: &Node, source: &str) -> LowerOutput {
     let mut style_entries: Vec<(String, Vec<StyleProperty>)> = Vec::new();
     let mut diagnostics = Vec::new();
 
-    let jsx = render_node(root, source, &mut allocator, &mut style_entries, &mut diagnostics);
+    // The root's position is genuinely unknowable here: it's whatever the
+    // component's caller renders it into.
+    let jsx = render_node(
+        root,
+        SiblingPosition::Unknown,
+        source,
+        &mut allocator,
+        &mut style_entries,
+        &mut diagnostics,
+    );
 
     let mut styles = String::from("{\n");
     for (name, props) in &style_entries {
@@ -224,8 +240,27 @@ fn render_condition_expr(source: &str, expr: &ConditionExpr) -> String {
     }
 }
 
+/// Where a node sits among its siblings, as far as the compiler can tell.
+///
+/// This is what lets `first:` be resolved at build time instead of needing
+/// a selector engine: CSS asks the question at match time, but the compiler
+/// is looking at the JSX tree and usually already knows the answer. It's a
+/// small example of the general shape -- a condition Web resolves at
+/// runtime that Native can have for free by resolving it earlier.
+///
+/// `Unknown` is not a failure to compute; it's the honest answer whenever
+/// the position genuinely isn't decidable here (see
+/// `Node::children_complete`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SiblingPosition {
+    First,
+    NotFirst,
+    Unknown,
+}
+
 fn render_node(
     node: &Node,
+    position: SiblingPosition,
     source: &str,
     allocator: &mut NameAllocator,
     style_entries: &mut Vec<(String, Vec<StyleProperty>)>,
@@ -313,6 +348,7 @@ fn render_node(
         &base_name,
         source,
         node,
+        position,
         style_entries,
         &mut style_array_parts,
         &mut pressed_parts,
@@ -388,6 +424,7 @@ fn render_node(
                     &base_name,
                     source,
                     node,
+                    position,
                     style_entries,
                     diagnostics,
                 )
@@ -398,7 +435,21 @@ fn render_node(
         Some(TextContent::Dynamic(_)) | None => node
             .children
             .iter()
-            .map(|child| render_node(child, source, allocator, style_entries, diagnostics))
+            .enumerate()
+            .map(|(index, child)| {
+                // A child's position is only trustworthy when nothing was
+                // dropped from `children` -- an unmodeled component or an
+                // expression container renders and takes a slot without
+                // becoming a `Node`.
+                let child_position = if !node.children_complete {
+                    SiblingPosition::Unknown
+                } else if index == 0 {
+                    SiblingPosition::First
+                } else {
+                    SiblingPosition::NotFirst
+                };
+                render_node(child, child_position, source, allocator, style_entries, diagnostics)
+            })
             .collect(),
     };
 
@@ -413,6 +464,11 @@ fn wrap_in_text(
     base_name: &str,
     source: &str,
     node: &Node,
+    // The *enclosing* node's position, not the wrapper's: these
+    // declarations were written on that element, so a `first:` among them
+    // asks about it. (The wrapper is trivially its parent's only child,
+    // which is not the question.)
+    position: SiblingPosition,
     style_entries: &mut Vec<(String, Vec<StyleProperty>)>,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> String {
@@ -427,6 +483,7 @@ fn wrap_in_text(
         &format!("{base_name}_text"),
         source,
         node,
+        position,
         style_entries,
         &mut style_array_parts,
         &mut pressed_parts,
@@ -484,11 +541,25 @@ fn build_style_entries(
     base_name: &str,
     source: &str,
     node: &Node,
+    position: SiblingPosition,
     style_entries: &mut Vec<(String, Vec<StyleProperty>)>,
     style_array_parts: &mut Vec<String>,
     pressed_parts: &mut Vec<String>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
+    // A conditional style must land after every unconditional one,
+    // whatever order they were written in. On Web the cascade settles this
+    // by specificity -- `.dowel-0:disabled` (0,2,0) beats `.dowel-0`
+    // (0,1,0) no matter which rule comes first -- but a React Native style
+    // array resolves purely last-wins, so position has to stand in for
+    // specificity. Writing `disabled:p-8 p-4` used to render p-8 on Web and
+    // p-4 on device.
+    //
+    // Within each half, source order is preserved: two conditions are the
+    // same specificity on Web, so there it is source order that decides.
+    let mut base_parts: Vec<String> = Vec::new();
+    let mut conditional_parts: Vec<String> = Vec::new();
+
     for (condition, props) in dowel_ir::group_by_condition(declarations) {
         let props = dowel_ir::dedupe_last_wins(props);
         if props.is_empty() {
@@ -499,11 +570,11 @@ fn build_style_entries(
             Some(suffix) => format!("{base_name}_{suffix}"),
         };
         match &condition {
-            Condition::Always => style_array_parts.push(format!("styles.{name}")),
+            Condition::Always => base_parts.push(format!("styles.{name}")),
             Condition::Disabled => {
                 if let Some(disabled) = &node.props.disabled {
                     let guard = render_condition_expr(source, disabled);
-                    style_array_parts.push(format!("({guard}) && styles.{name}"));
+                    conditional_parts.push(format!("({guard}) && styles.{name}"));
                 } else {
                     // Nothing on this element drives the condition. On Web
                     // the same source is inert too (`:disabled` never
@@ -521,7 +592,7 @@ fn build_style_entries(
             Condition::Pressed => pressed_parts.push(format!("pressed && styles.{name}")),
             Condition::Expr(expr) => {
                 let guard = render_condition_expr(source, expr);
-                style_array_parts.push(format!("({guard}) && styles.{name}"));
+                conditional_parts.push(format!("({guard}) && styles.{name}"));
             }
             // Each of these produced a style object that the rendered JSX
             // never referenced -- computed, then dropped, with nothing
@@ -552,11 +623,24 @@ fn build_style_entries(
                  element keeps its light-mode appearance in dark mode.",
                 Severity::Error,
             )),
-            Condition::FirstChild => diagnostics.push(unwired_variant(
-                node,
-                "`first:` isn't wired on React Native yet, so this style never applies.",
-                Severity::Error,
-            )),
+            // Resolved at build time rather than needing a selector
+            // engine. Both decided answers are exact -- the same thing
+            // `:first-child` would do on Web -- so neither reports
+            // anything; only an undecidable position does.
+            Condition::FirstChild => match position {
+                SiblingPosition::First => conditional_parts.push(format!("styles.{name}")),
+                // `:first-child` wouldn't match here either, so dropping
+                // the style is the correct outcome, not a gap.
+                SiblingPosition::NotFirst => {}
+                SiblingPosition::Unknown => diagnostics.push(unwired_variant(
+                    node,
+                    "`first:` can only be resolved when the compiler can see this element's \
+                     position among its siblings, and here it can't -- it's either the root of a \
+                     component (whose position its caller decides) or a sibling of something \
+                     Dowel doesn't model, such as a custom component or a `{...}` expression.",
+                    Severity::Error,
+                )),
+            },
         }
         // No catch-all arm above, deliberately: a new `Condition` variant
         // must fail to compile here rather than quietly joining the set
@@ -564,6 +648,14 @@ fn build_style_entries(
         // variants this function now reports went unnoticed.
         style_entries.push((name, props));
     }
+
+    style_array_parts.append(&mut base_parts);
+    style_array_parts.append(&mut conditional_parts);
+    // `pressed_parts` is appended by the caller, after these, because only
+    // there is it known whether the element can carry press state at all.
+    // That puts `pressed:` last among the conditions rather than in source
+    // order relative to them -- a divergence from Web only when a
+    // `pressed:` utility and another conditional set the same property.
 }
 
 /// React Native expresses text truncation as props on `Text` --
@@ -825,6 +917,7 @@ export function Login() {
             children: Vec::new(),
             text: None,
             class_name_fallback: Vec::new(),
+            children_complete: true,
             span: dowel_ir::SourceSpan { start: 0, end: 0 },
         };
         let output = lower(&node, "");
@@ -915,6 +1008,96 @@ export function Login() {
             assert_eq!(reported.len(), 1, "{candidate}: {:?}", output.diagnostics);
             assert_eq!(reported[0].severity, *severity, "{candidate}");
         }
+    }
+
+    #[test]
+    fn a_conditional_style_outranks_the_base_whatever_order_it_was_written_in() {
+        // Web settles this by specificity: `.dowel-0:disabled` (0,2,0)
+        // beats `.dowel-0` (0,1,0) regardless of which rule comes first. A
+        // React Native style array only resolves last-wins, so position has
+        // to stand in for specificity -- otherwise `disabled:p-8 p-4`
+        // renders p-8 on Web and p-4 on device.
+        let source = r#"
+            import { Pressable } from '@dowel/core'
+            const el = (
+              <Pressable className="disabled:p-8 p-4" disabled={off}
+                accessibilityRole="button">x</Pressable>
+            )
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0], source);
+
+        let base = output.jsx.find("styles.dowel0,").expect("base style");
+        let conditional = output.jsx.find("styles.dowel0_disabled").expect("conditional style");
+        assert!(base < conditional, "{}", output.jsx);
+    }
+
+    #[test]
+    fn first_child_is_decided_at_compile_time() {
+        // Web asks `:first-child` at match time; here the compiler is
+        // looking straight at the JSX tree and already knows. Both answers
+        // are exact, so neither reports anything.
+        let source = r#"
+            import { View, Text } from '@dowel/core'
+            const el = (
+              <View>
+                <Text className="first:mt-0">a</Text>
+                <Text className="first:mt-0">b</Text>
+              </View>
+            )
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0], source);
+
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        // The first child gets it applied unconditionally...
+        assert!(output.jsx.contains("styles.dowel1_first"), "{}", output.jsx);
+        // ...and the second doesn't get one at all, which is exactly what
+        // `:first-child` would do.
+        assert!(!output.jsx.contains("styles.dowel2_first"), "{}", output.jsx);
+    }
+
+    #[test]
+    fn first_child_is_refused_when_a_sibling_is_unmodeled() {
+        // `<Avatar/>` renders and occupies the first slot, but never
+        // becomes a Node -- so the Text is index 0 in `children` and second
+        // on screen. Deciding from that index would apply the style to the
+        // wrong element, silently.
+        let source = r#"
+            import { View, Text } from '@dowel/core'
+            const el = (
+              <View>
+                <Avatar />
+                <Text className="first:mt-0">b</Text>
+              </View>
+            )
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0], source);
+
+        let reported: Vec<_> = output
+            .diagnostics
+            .iter()
+            .filter(|d| d.code == dowel_ir::DiagnosticCode::VariantNotWiredOnNative)
+            .collect();
+        assert_eq!(reported.len(), 1, "{:?}", output.diagnostics);
+        assert!(reported[0].message.contains("position"), "{}", reported[0].message);
+    }
+
+    #[test]
+    fn first_child_is_refused_on_a_component_root() {
+        // Where this element sits is its caller's decision, not something
+        // visible from here.
+        let source = r#"
+            import { View } from '@dowel/core'
+            const el = <View className="first:mt-0" />
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0], source);
+        assert!(output
+            .diagnostics
+            .iter()
+            .any(|d| d.code == dowel_ir::DiagnosticCode::VariantNotWiredOnNative));
     }
 
     #[test]

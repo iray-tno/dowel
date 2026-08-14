@@ -64,6 +64,7 @@ mod tests {
             children: Vec::new(),
             text: None,
             class_name_fallback: Vec::new(),
+            children_complete: true,
             span: empty_span(),
         };
         let mut diagnostics = Vec::new();
@@ -87,6 +88,7 @@ mod tests {
             children: Vec::new(),
             text: None,
             class_name_fallback: Vec::new(),
+            children_complete: true,
             span: empty_span(),
         };
         let mut diagnostics = Vec::new();

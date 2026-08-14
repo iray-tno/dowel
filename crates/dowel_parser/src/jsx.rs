@@ -180,26 +180,48 @@ fn build_node(
 
     let mut children: Vec<Node> = Vec::new();
     let mut text: Option<TextContent> = None;
+    // Cleared by anything that renders but doesn't become a `Node`, so a
+    // consumer can tell whether `children` is positionally faithful. See
+    // `Node::children_complete`.
+    let mut children_complete = true;
     for child in &el.children {
         match child {
             JSXChild::Element(child_el) => {
-                if let Some(child_node) = build_node(child_el, module_record, diagnostics, consumed) {
-                    children.push(child_node);
+                match build_node(child_el, module_record, diagnostics, consumed) {
+                    Some(child_node) => children.push(child_node),
+                    // A component Dowel doesn't model still renders, and
+                    // still occupies a position among its siblings.
+                    None => children_complete = false,
                 }
             }
             JSXChild::Text(t) => {
                 let trimmed = t.value.trim();
                 if !trimmed.is_empty() {
                     text = Some(TextContent::Literal(trimmed.to_string()));
+                    // Text and elements are mutually exclusive downstream
+                    // (`text` wins), and on Native the text gets its own
+                    // inserted wrapper element -- either way `children` no
+                    // longer describes what renders.
+                    children_complete = false;
                 }
             }
             // Fragments, expression containers, and spreads aren't modeled
-            // in this pass.
-            _ => {}
+            // in this pass. `{cond && <A/>}` and `{items.map(...)}` in
+            // particular can contribute any number of siblings.
+            _ => children_complete = false,
         }
     }
 
-    Some(Node { primitive, style, props, children, text, class_name_fallback, span: to_span(el.span()) })
+    Some(Node {
+        primitive,
+        style,
+        props,
+        children,
+        text,
+        class_name_fallback,
+        children_complete,
+        span: to_span(el.span()),
+    })
 }
 
 /// Collects every top-level (i.e. not nested inside another already-visited

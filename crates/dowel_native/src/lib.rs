@@ -30,7 +30,7 @@ mod style;
 
 use dowel_ir::{
     Breakpoint, Condition, ConditionExpr, Diagnostic, DiagnosticCode, ExprRef, Node, Primitive,
-    Severity, StyleProperty, TextContent, TextOverflow, WhiteSpace,
+    Severity, StyleDeclaration, StyleProperty, TextContent, TextOverflow, WhiteSpace,
 };
 
 pub struct LowerOutput {
@@ -171,46 +171,31 @@ fn render_node(
         }
     }
 
-    for (condition, props) in dowel_ir::group_by_condition(&node.style) {
-        let props = dowel_ir::dedupe_last_wins(props);
-        if props.is_empty() {
-            continue;
-        }
-        let name = match condition_suffix(&condition) {
-            None => base_name.clone(),
-            Some(suffix) => format!("{base_name}_{suffix}"),
-        };
-        match &condition {
-            Condition::Always => style_array_parts.push(format!("styles.{name}")),
-            Condition::Disabled => {
-                if let Some(disabled) = &node.props.disabled {
-                    let guard = render_condition_expr(source, disabled);
-                    style_array_parts.push(format!("({guard}) && styles.{name}"));
-                }
-                // No `disabled` prop on this node -- nothing drives this
-                // condition, so it's computed but left unmerged.
-            }
-            Condition::Pressed => pressed_parts.push(format!("pressed && styles.{name}")),
-            Condition::Expr(expr) => {
-                let guard = render_condition_expr(source, expr);
-                style_array_parts.push(format!("({guard}) && styles.{name}"));
-            }
-            Condition::Hover
-            | Condition::Focus
-            | Condition::Responsive(_)
-            // `Dark` and `FirstChild` both have real RN counterparts in
-            // principle -- `useColorScheme()` and the child's index -- but
-            // neither is a style condition, so wiring them needs machinery
-            // this pass doesn't build.
-            | Condition::Dark
-            | Condition::FirstChild => {
-                // No RN mechanism yet (see module docs) -- computed, not merged.
-            }
-        }
-        style_entries.push((name, props));
-    }
-
     let (component, extra_props) = markup::native_component(node, diagnostics);
+
+    // Only `Text` can hold text on this platform -- a raw string inside a
+    // View or Pressable is a runtime crash there ("Text strings must be
+    // rendered within a <Text> component"), while the same source is fine
+    // on Web. So one is inserted. Its styles have to move with it: React
+    // Native's Text inherits from an enclosing Text but *not* from a View,
+    // so leaving `fontSize` on the parent would silently render at the
+    // default size instead.
+    let wraps_text = component != "Text" && node.text.is_some();
+    let (text_declarations, own_declarations): (Vec<_>, Vec<_>) = if wraps_text {
+        node.style.iter().cloned().partition(|d| is_text_property(&d.property))
+    } else {
+        (Vec::new(), node.style.to_vec())
+    };
+
+    build_style_entries(
+        &own_declarations,
+        &base_name,
+        source,
+        node,
+        style_entries,
+        &mut style_array_parts,
+        &mut pressed_parts,
+    );
 
     let needs_pressed_fn = component == "Pressable" && !pressed_parts.is_empty();
     if needs_pressed_fn {
@@ -252,7 +237,14 @@ fn render_node(
     }
 
     let inner = match &node.text {
-        Some(TextContent::Literal(text)) => escape_jsx_text(text),
+        Some(TextContent::Literal(text)) => {
+            let escaped = escape_jsx_text(text);
+            if wraps_text {
+                wrap_in_text(&escaped, &text_declarations, &base_name, source, node, style_entries)
+            } else {
+                escaped
+            }
+        }
         Some(TextContent::Dynamic(_)) | None => node
             .children
             .iter()
@@ -261,6 +253,111 @@ fn render_node(
     };
 
     format!("<{component}{props_text}>{inner}</{component}>")
+}
+
+/// Builds the inserted `<Text>` that carries a non-Text node's string
+/// content, with the text-styling declarations moved onto it.
+fn wrap_in_text(
+    content: &str,
+    text_declarations: &[StyleDeclaration],
+    base_name: &str,
+    source: &str,
+    node: &Node,
+    style_entries: &mut Vec<(String, Vec<StyleProperty>)>,
+) -> String {
+    let mut style_array_parts = Vec::new();
+    // The wrapper isn't a Pressable, so a `pressed:` style has nowhere to
+    // go on it; collected and dropped rather than mis-attached.
+    let mut pressed_parts = Vec::new();
+    build_style_entries(
+        text_declarations,
+        &format!("{base_name}_text"),
+        source,
+        node,
+        style_entries,
+        &mut style_array_parts,
+        &mut pressed_parts,
+    );
+
+    let style_prop = if style_array_parts.is_empty() {
+        String::new()
+    } else if style_array_parts.len() == 1 && !style_array_parts[0].contains("&&") {
+        format!(" style={{{}}}", style_array_parts[0])
+    } else {
+        format!(" style={{[{}]}}", style_array_parts.join(", "))
+    };
+    format!("<Text{style_prop}>{content}</Text>")
+}
+
+/// Properties that style text itself. They matter separately on this
+/// platform because React Native's `Text` inherits them from an enclosing
+/// `Text` but not from a `View`, so they have to travel with the text
+/// rather than stay on its container.
+fn is_text_property(property: &StyleProperty) -> bool {
+    matches!(
+        property,
+        StyleProperty::FontSize(_)
+            | StyleProperty::FontWeight(_)
+            | StyleProperty::LineHeight(_)
+            | StyleProperty::LetterSpacing(_)
+            | StyleProperty::TextColor(_)
+            | StyleProperty::TextAlign(_)
+            | StyleProperty::TextTransform(_)
+    )
+}
+
+/// Groups `declarations` by condition, registers a named style entry for
+/// each group, and records how each should be referenced from the rendered
+/// `style` prop. Shared by a node and any `Text` wrapper inserted inside
+/// it, so both get identical condition handling.
+#[allow(clippy::too_many_arguments)]
+fn build_style_entries(
+    declarations: &[StyleDeclaration],
+    base_name: &str,
+    source: &str,
+    node: &Node,
+    style_entries: &mut Vec<(String, Vec<StyleProperty>)>,
+    style_array_parts: &mut Vec<String>,
+    pressed_parts: &mut Vec<String>,
+) {
+    for (condition, props) in dowel_ir::group_by_condition(declarations) {
+        let props = dowel_ir::dedupe_last_wins(props);
+        if props.is_empty() {
+            continue;
+        }
+        let name = match condition_suffix(&condition) {
+            None => base_name.to_string(),
+            Some(suffix) => format!("{base_name}_{suffix}"),
+        };
+        match &condition {
+            Condition::Always => style_array_parts.push(format!("styles.{name}")),
+            Condition::Disabled => {
+                if let Some(disabled) = &node.props.disabled {
+                    let guard = render_condition_expr(source, disabled);
+                    style_array_parts.push(format!("({guard}) && styles.{name}"));
+                }
+                // No `disabled` prop on this node -- nothing drives this
+                // condition, so it's computed but left unmerged.
+            }
+            Condition::Pressed => pressed_parts.push(format!("pressed && styles.{name}")),
+            Condition::Expr(expr) => {
+                let guard = render_condition_expr(source, expr);
+                style_array_parts.push(format!("({guard}) && styles.{name}"));
+            }
+            Condition::Hover
+            | Condition::Focus
+            | Condition::Responsive(_)
+            // `Dark` and `FirstChild` both have real RN counterparts in
+            // principle -- `useColorScheme()` and the child's index -- but
+            // neither is a style condition, so wiring them needs machinery
+            // this pass doesn't build.
+            | Condition::Dark
+            | Condition::FirstChild => {
+                // No RN mechanism yet (see module docs) -- computed, not merged.
+            }
+        }
+        style_entries.push((name, props));
+    }
 }
 
 /// React Native expresses text truncation as props on `Text` --
@@ -395,7 +492,11 @@ export function Login() {
 
         assert!(output.jsx.starts_with("<View style={styles.dowel0}>"));
         assert!(output.jsx.contains("<Text style={styles.dowel1}>Welcome</Text>"));
-        assert!(output.jsx.contains(r#"<Pressable style={styles.dowel2} accessibilityRole="button">Continue</Pressable>"#));
+        // The label is wrapped: React Native crashes on a raw string inside
+        // a Pressable, even though the same source is fine on Web.
+        assert!(output.jsx.contains(
+            r#"<Pressable style={styles.dowel2} accessibilityRole="button"><Text>Continue</Text></Pressable>"#
+        ));
 
         assert!(output.styles.contains("dowel0: {"));
         assert!(output.styles.contains("flex: 1,"));
@@ -569,6 +670,41 @@ export function Login() {
         // And nothing is emitted for it, so a build that ignored the error
         // still can't produce an invalid RN style value.
         assert!(!output.styles.contains("display"));
+    }
+
+    #[test]
+    fn raw_text_in_a_view_is_wrapped_and_takes_its_text_styles_with_it() {
+        // Two separate hazards, both invisible on Web: a raw string inside
+        // a View crashes React Native, and `fontSize` left on the View
+        // would do nothing there because Text doesn't inherit from View.
+        let source = r#"
+            import { View } from '@dowel/core'
+            const el = <View className="p-4 text-xl font-bold">Hello</View>
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0], source);
+
+        assert!(output.jsx.contains("<Text style={styles.dowel0_text}>Hello</Text>"));
+        // Layout stays on the View, text styling moves to the Text.
+        assert!(output.styles.contains("paddingTop: 16,"));
+        assert!(output.styles.contains("dowel0_text: {"));
+        assert!(output.styles.contains("fontSize: 20,"));
+        assert!(output.styles.contains("fontWeight: '700',"));
+        // Not left behind on the container, where RN would ignore it.
+        let container = output.styles.split("dowel0_text").next().unwrap();
+        assert!(!container.contains("fontSize"));
+    }
+
+    #[test]
+    fn a_text_node_is_not_double_wrapped() {
+        let source = r#"
+            import { Text } from '@dowel/core'
+            const el = <Text className="text-xl">Hello</Text>
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0], source);
+        assert_eq!(output.jsx.matches("<Text").count(), 1);
+        assert!(output.styles.contains("fontSize: 20,"));
     }
 
     #[test]

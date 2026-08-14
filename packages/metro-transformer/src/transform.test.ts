@@ -39,7 +39,12 @@ test('injects a StyleSheet.create declaration and rewrites the JSX span', () => 
   assert.match(output!, /const styles = StyleSheet\.create\(\{/)
   assert.match(output!, /<View style=\{styles\.dowel_r0_0\}>/)
   assert.match(output!, /<Text style=\{styles\.dowel_r0_1\}>Welcome<\/Text>/)
-  assert.match(output!, /<Pressable style=\{styles\.dowel_r0_2\}[^>]*>Continue<\/Pressable>/)
+  // The Pressable's label is wrapped: React Native crashes on a raw
+  // string inside anything but a Text.
+  assert.match(
+    output!,
+    /<Pressable style=\{styles\.dowel_r0_2\}[^>]*><Text>Continue<\/Text><\/Pressable>/,
+  )
 })
 
 test('fails the build on a Web-only utility instead of dropping it', () => {

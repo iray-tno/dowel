@@ -118,7 +118,8 @@ console.log(
     `${pct(nativeCount('COVERED'), nativeAll.length)}  (Dowel emits a style)`,
 )
 console.log(
-  `Refused:     ${nativeCount('REFUSED')}   (build-time error naming the utility)\n` +
+  `Refused:     ${nativeCount('REFUSED')}   (named at build time; error, or warning where the ` +
+    `gap is unbuilt rather than impossible)\n` +
     `Silent:      ${nativeCount('SILENT')}   (no style, no diagnostic)`,
 )
 

@@ -19,11 +19,24 @@
 //! a function isn't a valid `style` value on View/Text, so `Pressed` stays
 //! unmerged there, same treatment as Hover/Focus/Responsive below.
 //!
-//! `Hover`/`Focus`/`Responsive` still don't merge into anything: no native
-//! mobile-touch hover, and RN focus/window-dimension tracking are real but
-//! separate mechanisms this pass doesn't build. Their style objects are
-//! still computed (nothing is lost), just unused in the render -- the one
-//! remaining honest gap, not a silent one.
+//! `Hover`/`Focus`/`Responsive`/`Dark`/`FirstChild` still don't merge into
+//! anything -- and until 2026-08-15 that was a **silent** drop, not the
+//! "honest gap" an earlier version of this comment claimed. Their style
+//! objects were computed into the StyleSheet and then never referenced by
+//! the rendered JSX, with no diagnostic; the conformance suite scored all
+//! eight variant candidates as covered because the entry existed. They now
+//! report themselves (`DiagnosticCode::VariantNotWiredOnNative`), split by
+//! whether dropping one renders the wrong thing:
+//!
+//! - `Responsive`/`Dark`/`FirstChild` are errors. Each has an ordinary
+//!   React Native counterpart, and a tablet layout or a dark-mode
+//!   appearance that silently doesn't apply is a real bug.
+//! - `Hover`/`Focus` are warnings. Also unbuilt rather than impossible --
+//!   a tablet with a trackpad or pencil reports hover, as do the
+//!   macOS/Windows/visionOS targets -- but stopping a cross-platform build
+//!   over a `hover:` written for Web would be worse than the gap.
+//! - `Disabled` without a `disabled` prop, and `Pressed` on anything but a
+//!   Pressable, are errors: nothing on the element can drive them.
 
 mod markup;
 mod style;
@@ -303,6 +316,7 @@ fn render_node(
         style_entries,
         &mut style_array_parts,
         &mut pressed_parts,
+        diagnostics,
     );
 
     // After the compiled styles, so it wins the same way it would in the
@@ -316,6 +330,18 @@ fn render_node(
     let needs_pressed_fn = component == "Pressable" && !pressed_parts.is_empty();
     if needs_pressed_fn {
         style_array_parts.extend(pressed_parts);
+    } else if !pressed_parts.is_empty() {
+        // `pressed` comes from Pressable's render-prop `style` form, which
+        // only Pressable has. On a View or Text a function isn't a valid
+        // `style` value at all, so there's nowhere for these to go.
+        diagnostics.push(unwired_variant(
+            node,
+            &format!(
+                "`pressed:` needs an element that tracks press state, and `{component}` doesn't. \
+                 Move it to a Pressable or Button."
+            ),
+            Severity::Error,
+        ));
     }
 
     let mut props_text = String::new();
@@ -356,7 +382,15 @@ fn render_node(
         Some(TextContent::Literal(text)) => {
             let escaped = escape_jsx_text(text);
             if wraps_text {
-                wrap_in_text(&escaped, &text_declarations, &base_name, source, node, style_entries)
+                wrap_in_text(
+                    &escaped,
+                    &text_declarations,
+                    &base_name,
+                    source,
+                    node,
+                    style_entries,
+                    diagnostics,
+                )
             } else {
                 escaped
             }
@@ -380,10 +414,13 @@ fn wrap_in_text(
     source: &str,
     node: &Node,
     style_entries: &mut Vec<(String, Vec<StyleProperty>)>,
+    diagnostics: &mut Vec<Diagnostic>,
 ) -> String {
     let mut style_array_parts = Vec::new();
-    // The wrapper isn't a Pressable, so a `pressed:` style has nowhere to
-    // go on it; collected and dropped rather than mis-attached.
+    // The wrapper is a Text, so a `pressed:` style has nowhere to go on it.
+    // The enclosing Pressable reports it -- `build_style_entries` runs over
+    // that node's own declarations first, and a text-styling property under
+    // `pressed:` lands here only after that.
     let mut pressed_parts = Vec::new();
     build_style_entries(
         text_declarations,
@@ -393,6 +430,7 @@ fn wrap_in_text(
         style_entries,
         &mut style_array_parts,
         &mut pressed_parts,
+        diagnostics,
     );
 
     let style_prop = if style_array_parts.is_empty() {
@@ -422,10 +460,24 @@ fn is_text_property(property: &StyleProperty) -> bool {
     )
 }
 
+fn unwired_variant(node: &Node, message: &str, severity: Severity) -> Diagnostic {
+    Diagnostic {
+        code: DiagnosticCode::VariantNotWiredOnNative,
+        severity,
+        message: message.to_string(),
+        span: node.span,
+    }
+}
+
 /// Groups `declarations` by condition, registers a named style entry for
 /// each group, and records how each should be referenced from the rendered
 /// `style` prop. Shared by a node and any `Text` wrapper inserted inside
 /// it, so both get identical condition handling.
+///
+/// Every condition that can't reach the rendered `style` prop reports
+/// itself. Until 2026-08-15 they were computed into the StyleSheet and then
+/// dropped in silence -- all eight variant-prefixed utilities in the
+/// conformance suite, scored as covered because the entry existed.
 #[allow(clippy::too_many_arguments)]
 fn build_style_entries(
     declarations: &[StyleDeclaration],
@@ -435,6 +487,7 @@ fn build_style_entries(
     style_entries: &mut Vec<(String, Vec<StyleProperty>)>,
     style_array_parts: &mut Vec<String>,
     pressed_parts: &mut Vec<String>,
+    diagnostics: &mut Vec<Diagnostic>,
 ) {
     for (condition, props) in dowel_ir::group_by_condition(declarations) {
         let props = dowel_ir::dedupe_last_wins(props);
@@ -451,27 +504,64 @@ fn build_style_entries(
                 if let Some(disabled) = &node.props.disabled {
                     let guard = render_condition_expr(source, disabled);
                     style_array_parts.push(format!("({guard}) && styles.{name}"));
+                } else {
+                    // Nothing on this element drives the condition. On Web
+                    // the same source is inert too (`:disabled` never
+                    // matches a div), but there it's CSS behaving
+                    // correctly; here it's a style that was computed and
+                    // then had nowhere to go.
+                    diagnostics.push(unwired_variant(
+                        node,
+                        "`disabled:` needs a `disabled` prop on the same element to drive it, and \
+                         this one has none.",
+                        Severity::Error,
+                    ));
                 }
-                // No `disabled` prop on this node -- nothing drives this
-                // condition, so it's computed but left unmerged.
             }
             Condition::Pressed => pressed_parts.push(format!("pressed && styles.{name}")),
             Condition::Expr(expr) => {
                 let guard = render_condition_expr(source, expr);
                 style_array_parts.push(format!("({guard}) && styles.{name}"));
             }
-            Condition::Hover
-            | Condition::Focus
-            | Condition::Responsive(_)
-            // `Dark` and `FirstChild` both have real RN counterparts in
-            // principle -- `useColorScheme()` and the child's index -- but
-            // neither is a style condition, so wiring them needs machinery
-            // this pass doesn't build.
-            | Condition::Dark
-            | Condition::FirstChild => {
-                // No RN mechanism yet (see module docs) -- computed, not merged.
-            }
+            // Each of these produced a style object that the rendered JSX
+            // never referenced -- computed, then dropped, with nothing
+            // said. That silence is the bug being fixed here; the styles
+            // still don't apply, but no longer without saying so.
+            Condition::Hover => diagnostics.push(unwired_variant(
+                node,
+                "`hover:` isn't wired on React Native yet. It is a real condition there -- a \
+                 tablet with a trackpad or pencil, and the macOS/Windows/visionOS targets, all \
+                 report hover -- so this is unbuilt rather than impossible.",
+                Severity::Warning,
+            )),
+            Condition::Focus => diagnostics.push(unwired_variant(
+                node,
+                "`focus:` isn't wired on React Native yet.",
+                Severity::Warning,
+            )),
+            Condition::Responsive(_) => diagnostics.push(unwired_variant(
+                node,
+                "Breakpoint variants (`sm:`/`md:`/`lg:`/`xl:`/`2xl:`) aren't wired on React \
+                 Native yet, so this style never applies -- a tablet or landscape layout that \
+                 depends on it will be wrong.",
+                Severity::Error,
+            )),
+            Condition::Dark => diagnostics.push(unwired_variant(
+                node,
+                "`dark:` isn't wired on React Native yet, so this style never applies and the \
+                 element keeps its light-mode appearance in dark mode.",
+                Severity::Error,
+            )),
+            Condition::FirstChild => diagnostics.push(unwired_variant(
+                node,
+                "`first:` isn't wired on React Native yet, so this style never applies.",
+                Severity::Error,
+            )),
         }
+        // No catch-all arm above, deliberately: a new `Condition` variant
+        // must fail to compile here rather than quietly joining the set
+        // that gets computed and dropped. That is exactly how the eight
+        // variants this function now reports went unnoticed.
         style_entries.push((name, props));
     }
 }
@@ -786,6 +876,67 @@ export function Login() {
         // And nothing is emitted for it, so a build that ignored the error
         // still can't produce an invalid RN style value.
         assert!(!output.styles.contains("display"));
+    }
+
+    /// Every variant that can't reach the `style` prop, with the severity
+    /// it should report. Until 2026-08-15 all of these produced a
+    /// StyleSheet entry the JSX never referenced, and said nothing -- the
+    /// conformance suite scored them covered because the entry existed.
+    #[test]
+    fn no_variant_is_dropped_without_saying_so() {
+        let cases: &[(&str, dowel_ir::Severity)] = &[
+            // Real on tablets with a pointer and on the desktop targets --
+            // unbuilt, not impossible, so it warns rather than stopping a
+            // cross-platform build.
+            ("hover:bg-blue-500", dowel_ir::Severity::Warning),
+            ("focus:p-4", dowel_ir::Severity::Warning),
+            // These have plain React Native counterparts and dropping them
+            // renders the wrong thing, so they stop the build.
+            ("md:p-4", dowel_ir::Severity::Error),
+            ("dark:p-4", dowel_ir::Severity::Error),
+            ("first:mt-0", dowel_ir::Severity::Error),
+            // Nothing on a bare View drives these at all.
+            ("disabled:p-4", dowel_ir::Severity::Error),
+            ("pressed:p-4", dowel_ir::Severity::Error),
+        ];
+
+        for (candidate, severity) in cases {
+            let source = format!(
+                "import {{ View }} from '@dowel/core'\nconst el = <View className=\"{candidate}\" />\n"
+            );
+            let parsed = dowel_parser::parse_tsx(&source);
+            let output = lower(&parsed.roots[0], &source);
+
+            let reported: Vec<_> = output
+                .diagnostics
+                .iter()
+                .filter(|d| d.code == dowel_ir::DiagnosticCode::VariantNotWiredOnNative)
+                .collect();
+            assert_eq!(reported.len(), 1, "{candidate}: {:?}", output.diagnostics);
+            assert_eq!(reported[0].severity, *severity, "{candidate}");
+        }
+    }
+
+    #[test]
+    fn a_wired_variant_reports_nothing() {
+        // The two that do work must not have been swept up in the above.
+        let source = r#"
+            import { Pressable } from '@dowel/core'
+            const el = (
+              <Pressable className="pressed:p-4 disabled:opacity-50" disabled={isOff}
+                accessibilityRole="button">x</Pressable>
+            )
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0], source);
+
+        assert!(
+            output.diagnostics.is_empty(),
+            "{:?}",
+            output.diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+        );
+        assert!(output.jsx.contains("pressed && styles."), "{}", output.jsx);
+        assert!(output.jsx.contains("(isOff) && styles."), "{}", output.jsx);
     }
 
     #[test]

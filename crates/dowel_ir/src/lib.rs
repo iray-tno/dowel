@@ -63,6 +63,18 @@ pub enum DiagnosticCode {
     /// reach the DOM, but Dowel generates no CSS for whatever they turn out
     /// to be -- only for classes it could read at build time.
     DynamicClassNameNotResolved,
+    /// A variant-prefixed utility (`hover:`, `md:`, `dark:`, `first:`,
+    /// `pressed:`, `disabled:`) reached the Native backend with nothing to
+    /// drive its condition.
+    ///
+    /// Distinct from `WebOnlyPropertyOnNative`: those utilities are
+    /// impossible on this platform (Yoga has no grid), whereas these are
+    /// merely unwired. `dark:` and the breakpoints have obvious React
+    /// Native counterparts -- `useColorScheme`, window dimensions -- and
+    /// `hover:`/`focus:` are real on tablets with a pointer and on the
+    /// desktop/visionOS targets. Naming them separately keeps "not built
+    /// yet" from being mistaken for "can't be built".
+    VariantNotWiredOnNative,
 }
 
 // ---------------------------------------------------------------------------

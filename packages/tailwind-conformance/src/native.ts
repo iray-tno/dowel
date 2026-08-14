@@ -26,7 +26,12 @@ export interface NativeComparison {
   restrictedTo?: string[]
 }
 
-const WEB_ONLY = 'WEB_ONLY_PROPERTY_ON_NATIVE'
+/// Diagnostic codes that mean "Dowel knows it can't render this, and says
+/// so". Both count as REFUSED, since the distinction this report draws is
+/// named-gap vs. silent-gap, not error vs. warning:
+/// - WEB_ONLY: impossible on the platform (Yoga has no grid).
+/// - VARIANT_NOT_WIRED: possible, not built yet (`dark:`, breakpoints).
+const NAMED_GAPS = new Set(['WEB_ONLY_PROPERTY_ON_NATIVE', 'VARIANT_NOT_WIRED_ON_NATIVE'])
 
 /// Whether a utility works can depend on which primitive it's applied to:
 /// truncation lowers to `numberOfLines`, which only exists on `Text`. So
@@ -45,7 +50,7 @@ function probe(candidate: string, primitive: string): NativeComparison {
   }
 
   const [result] = results
-  const refusals = result.diagnostics.filter((d) => d.code === WEB_ONLY)
+  const refusals = result.diagnostics.filter((d) => NAMED_GAPS.has(d.code))
 
   // A refusal is checked first, and beats any partial output: it's a
   // build-stopping error, so the utility can't be used on Native at all
@@ -54,20 +59,38 @@ function probe(candidate: string, primitive: string): NativeComparison {
   // has nowhere to go, and calling it "covered" would claim a build that
   // in fact fails.
   if (refusals.length > 0) {
-    return { candidate, verdict: 'REFUSED', detail: refusals[0].message }
+    return {
+      candidate,
+      verdict: 'REFUSED',
+      detail: `[${refusals[0].severity}] ${refusals[0].message}`,
+    }
   }
   // A prop counts as coverage too: RN expresses some CSS concepts that
   // way (`numberOfLines`), and the utility is honoured either way.
   const emitsProp = /\s\w+=[{"]/.test(result.jsx.replace(/\sstyle=\{[^}]*\}+/g, ''))
-  // Style entries are `key: value,` lines inside the generated object.
-  const emitsStyle = /^\s+\w+:\s*\S/m.test(result.styles.replace(/^\s*dowel\w*:\s*\{$/gm, ''))
-  if (emitsStyle || emitsProp) {
+
+  // A style entry counts only if it has declarations in it *and* the
+  // rendered JSX references it. Both halves are load-bearing, and each was
+  // wrong on its own:
+  // - checking the StyleSheet alone (until 2026-08-15) scored every
+  //   variant-prefixed utility as covered -- `hover:bg-blue-500` does
+  //   produce a `dowel0_hover` entry, it just never reaches the element.
+  // - checking the reference alone lets `whitespace-normal` through, which
+  //   emits an empty `dowel0: {}` and a `style` prop pointing at it.
+  const entries = [...result.styles.matchAll(/^ {2}(\w+):\s*\{\n([\s\S]*?)^ {2}\},/gm)]
+  const nonEmpty = entries.filter((m) => m[2].trim() !== '').map((m) => m[1])
+  const unreferenced = nonEmpty.filter((name) => !result.jsx.includes(`styles.${name}`))
+  const rendered = nonEmpty.filter((name) => result.jsx.includes(`styles.${name}`))
+
+  if (rendered.length > 0 || emitsProp) {
     return { candidate, verdict: 'COVERED' }
   }
   return {
     candidate,
     verdict: 'SILENT',
-    detail: 'compiles to no style and raises no diagnostic',
+    detail: unreferenced.length
+      ? `compiles to a style (${unreferenced.join(', ')}) that the JSX never references, and raises no diagnostic`
+      : 'compiles to no style and raises no diagnostic',
   }
 }
 

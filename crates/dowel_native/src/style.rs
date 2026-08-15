@@ -19,7 +19,8 @@
 //!   property to defer to the way Web's `var(--dowel-color-x)` does.
 
 use dowel_ir::{
-    Align, AlignSelf, BorderStyle, Color, Dimension, Display, FlexDirection, FlexShorthand, Justify,
+    Align, AlignSelf, BorderStyle, Color, DecorationStyle, Dimension, Display, FlexDirection,
+    FlexShorthand, Justify,
     Length, LineHeight, Overflow, Position, Radius, StyleProperty, TextAlign, TextTransform,
 };
 
@@ -154,6 +155,8 @@ fn border_style_literal(style: &BorderStyle) -> String {
         BorderStyle::Solid => "'solid'",
         BorderStyle::Dashed => "'dashed'",
         BorderStyle::Dotted => "'dotted'",
+        // Refused upstream by `unsupported_on_native`; nothing valid to emit.
+        BorderStyle::Double | BorderStyle::Hidden => "",
         // RN has no 'none' border style; a zero width is how you hide one.
         BorderStyle::None => "'solid'",
     }
@@ -379,8 +382,29 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
         | StyleProperty::DivideX(_)
         | StyleProperty::DivideY(_)
         | StyleProperty::DivideColor(_)
-        | StyleProperty::DivideStyle(_) => Vec::new(),
-        // React Native has had the outline properties since 0.76.
+        | StyleProperty::DivideStyle(_)
+        // No React Native equivalent at all; each refused by name upstream.
+        | StyleProperty::Fill(_)
+        | StyleProperty::Stroke(_)
+        | StyleProperty::StrokeWidth(_)
+        | StyleProperty::AccentColor(_)
+        | StyleProperty::CaretColor(_)
+        | StyleProperty::PlaceholderColor(_)
+        | StyleProperty::TextDecorationThickness(_) => Vec::new(),
+        StyleProperty::TextDecorationColor(c) => vec![("textDecorationColor", resolve_color(c))],
+        // RN accepts solid/double/dotted/dashed; `wavy` is refused upstream
+        // by `unsupported_on_native`.
+        StyleProperty::TextDecorationStyle(s) => vec![(
+            "textDecorationStyle",
+            match s {
+                DecorationStyle::Solid => "'solid'",
+                DecorationStyle::Double => "'double'",
+                DecorationStyle::Dotted => "'dotted'",
+                DecorationStyle::Dashed => "'dashed'",
+                DecorationStyle::Wavy => "",
+            }
+            .to_string(),
+        )],
         StyleProperty::OutlineWidth(l) => vec![("outlineWidth", number(*l))],
         // RN's `outlineStyle` accepts only solid/dotted/dashed -- verified
         // against react-native-css's own parser, which warns on anything

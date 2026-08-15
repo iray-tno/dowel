@@ -15,7 +15,8 @@
 //! correct-but-unresolved, not silently wrong.
 
 use dowel_ir::{
-    Align, AlignSelf, BorderStyle, Breakpoint, Color, Condition, ConditionExpr, Dimension, Display,
+    Align, AlignSelf, BorderStyle, Breakpoint, Color, Condition, ConditionExpr, DecorationStyle,
+    Dimension, Display,
     Em, FlexDirection, FlexShorthand, Justify, Length, LineHeight, Overflow, Position, Radius,
     StyleProperty, TextAlign, TextOverflow, TextTransform, WhiteSpace,
 };
@@ -51,6 +52,8 @@ fn border_style_keyword(style: &BorderStyle) -> &'static str {
         BorderStyle::Solid => "solid",
         BorderStyle::Dashed => "dashed",
         BorderStyle::Dotted => "dotted",
+        BorderStyle::Double => "double",
+        BorderStyle::Hidden => "hidden",
         BorderStyle::None => "none",
     }
 }
@@ -182,6 +185,27 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
         StyleProperty::BackgroundColor(c) => ("background-color", color_var(c)),
         StyleProperty::Opacity(o) => ("opacity", format!("{o}")),
         StyleProperty::BorderColor(c) => ("border-color", color_var(c)),
+        StyleProperty::Fill(c) => ("fill", color_var(c)),
+        StyleProperty::Stroke(c) => ("stroke", color_var(c)),
+        // SVG stroke-width is unitless, unlike every other length here.
+        StyleProperty::StrokeWidth(n) => ("stroke-width", format!("{n}")),
+        StyleProperty::AccentColor(c) => ("accent-color", color_var(c)),
+        StyleProperty::CaretColor(c) => ("caret-color", color_var(c)),
+        StyleProperty::TextDecorationColor(c) => ("text-decoration-color", color_var(c)),
+        StyleProperty::TextDecorationStyle(s) => (
+            "text-decoration-style",
+            match s {
+                DecorationStyle::Solid => "solid",
+                DecorationStyle::Double => "double",
+                DecorationStyle::Dotted => "dotted",
+                DecorationStyle::Dashed => "dashed",
+                DecorationStyle::Wavy => "wavy",
+            }
+            .to_string(),
+        ),
+        StyleProperty::TextDecorationThickness(l) => ("text-decoration-thickness", length_px(*l)),
+        // Emitted into its own `::placeholder` rule by `render_rule`.
+        StyleProperty::PlaceholderColor(c) => ("color", color_var(c)),
         StyleProperty::OutlineWidth(l) => ("outline-width", length_px(*l)),
         StyleProperty::OutlineStyle(s) => ("outline-style", border_style_keyword(s).to_string()),
         StyleProperty::OutlineColor(c) => ("outline-color", color_var(c)),
@@ -438,20 +462,25 @@ fn box_shadow_value(props: &[&StyleProperty]) -> Option<String> {
 pub fn render_rule(class_name: &str, condition: &Condition, props: &[StyleProperty]) -> String {
     let (media, suffix) = condition_shape(condition);
 
-    // `space-*` targets the element's children rather than the element, so
-    // it becomes a second, child-scoped rule instead of a declaration here.
-    let (child_props, own_props): (Vec<_>, Vec<_>) =
-        props.iter().partition(|p| {
-            matches!(
-                p,
-                StyleProperty::SpaceX(_)
-                    | StyleProperty::SpaceY(_)
-                    | StyleProperty::DivideX(_)
-                    | StyleProperty::DivideY(_)
-                    | StyleProperty::DivideColor(_)
-                    | StyleProperty::DivideStyle(_)
-            )
-        });
+    // Some utilities target something other than the element itself, so
+    // they become their own rule with a different selector rather than a
+    // declaration here. `space-*`/`divide-*` reach the children;
+    // `placeholder-*` reaches the `::placeholder` pseudo-element.
+    let (scoped_props, own_props): (Vec<_>, Vec<_>) = props.iter().partition(|p| {
+        matches!(
+            p,
+            StyleProperty::SpaceX(_)
+                | StyleProperty::SpaceY(_)
+                | StyleProperty::DivideX(_)
+                | StyleProperty::DivideY(_)
+                | StyleProperty::DivideColor(_)
+                | StyleProperty::DivideStyle(_)
+                | StyleProperty::PlaceholderColor(_)
+        )
+    });
+    let (placeholder_props, child_props): (Vec<_>, Vec<_>) = scoped_props
+        .iter()
+        .partition(|p| matches!(p, StyleProperty::PlaceholderColor(_)));
 
     // Rings and shadows are several utilities that share one CSS property,
     // so they're composed rather than emitted one declaration each.
@@ -479,6 +508,14 @@ pub fn render_rule(class_name: &str, condition: &Condition, props: &[StyleProper
         // `:where()` keeps the specificity at zero, matching Tailwind, so
         // a child's own utilities still win over the parent's spacing.
         rules.push(format!(":where(.{class_name}{suffix} > :not(:last-child)) {{\n{body}}}"));
+    }
+    if !placeholder_props.is_empty() {
+        let mut body = String::new();
+        for prop in placeholder_props {
+            let (name, value) = property_and_value(prop);
+            body.push_str(&format!("  {name}: {value};\n"));
+        }
+        rules.push(format!(".{class_name}{suffix}::placeholder {{\n{body}}}"));
     }
 
     let rule = rules.join("\n\n");

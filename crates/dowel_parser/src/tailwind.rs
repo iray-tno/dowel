@@ -6,7 +6,7 @@
 
 use dowel_ir::{
     Align, AlignSelf, Angle, Animation, BorderStyle, Breakpoint, Color, Condition, Dimension,
-    Display, Em,
+    DecorationStyle, Display, Em,
     FlexDirection, FlexShorthand, FontWeight, Justify, Length, LineHeight, Overflow, Position,
     Radius, StyleProperty, TextAlign, TextOverflow, TextTransform, WhiteSpace,
 };
@@ -312,6 +312,60 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
     None
 }
 
+/// The colour families that are a single property with no keyword forms
+/// worth special-casing, plus the two that carry a width/style alongside.
+fn expand_paint(token: &str) -> Option<Vec<StyleProperty>> {
+    if let Some(rest) = token.strip_prefix("stroke-") {
+        // `stroke-2` is a width; SVG stroke-width is unitless.
+        if let Ok(n) = rest.parse::<f64>() {
+            return Some(vec![StyleProperty::StrokeWidth(n)]);
+        }
+        if is_paint_keyword(rest) {
+            return None;
+        }
+        return Some(vec![StyleProperty::Stroke(Color::Token(rest.to_string()))]);
+    }
+    if let Some(rest) = token.strip_prefix("decoration-") {
+        if let Ok(px) = rest.parse::<f64>() {
+            return Some(vec![StyleProperty::TextDecorationThickness(Length::Px(px))]);
+        }
+        if let Some(style) = decoration_style_keyword(rest) {
+            return Some(vec![StyleProperty::TextDecorationStyle(style)]);
+        }
+        // Thickness keywords Dowel doesn't lower. Declining leaves them
+        // unsupported; falling through would read them as colours named
+        // `auto` and `from-font`.
+        if matches!(rest, "auto" | "from-font") {
+            return None;
+        }
+        return Some(vec![StyleProperty::TextDecorationColor(Color::Token(rest.to_string()))]);
+    }
+    let (prefix, make): (&str, fn(Color) -> StyleProperty) = if token.starts_with("fill-") {
+        ("fill-", StyleProperty::Fill)
+    } else if token.starts_with("accent-") {
+        ("accent-", StyleProperty::AccentColor)
+    } else if token.starts_with("caret-") {
+        ("caret-", StyleProperty::CaretColor)
+    } else if token.starts_with("placeholder-") {
+        ("placeholder-", StyleProperty::PlaceholderColor)
+    } else {
+        return None;
+    };
+    let rest = token.strip_prefix(prefix)?;
+    if is_paint_keyword(rest) {
+        return None;
+    }
+    Some(vec![make(Color::Token(rest.to_string()))])
+}
+
+/// Suffixes in these families that are CSS keywords rather than colours:
+/// `fill-none` is the SVG "don't paint" value, `accent-auto` hands the
+/// control back to the UA. Declining keeps them honestly unsupported rather
+/// than compiling to a colour named `none`.
+fn is_paint_keyword(suffix: &str) -> bool {
+    matches!(suffix, "none" | "auto")
+}
+
 /// `outline*`: width (which also implies a style, as Tailwind does), an
 /// explicit style, a colour, or an offset.
 fn expand_outline(token: &str) -> Option<Vec<StyleProperty>> {
@@ -383,11 +437,24 @@ fn divide_width(suffix: &str) -> Option<Length> {
     }
 }
 
+fn decoration_style_keyword(suffix: &str) -> Option<DecorationStyle> {
+    Some(match suffix {
+        "solid" => DecorationStyle::Solid,
+        "double" => DecorationStyle::Double,
+        "dotted" => DecorationStyle::Dotted,
+        "dashed" => DecorationStyle::Dashed,
+        "wavy" => DecorationStyle::Wavy,
+        _ => return None,
+    })
+}
+
 fn border_style_keyword(suffix: &str) -> Option<BorderStyle> {
     Some(match suffix {
         "solid" => BorderStyle::Solid,
         "dashed" => BorderStyle::Dashed,
         "dotted" => BorderStyle::Dotted,
+        "double" => BorderStyle::Double,
+        "hidden" => BorderStyle::Hidden,
         "none" => BorderStyle::None,
         _ => return None,
     })
@@ -562,7 +629,7 @@ fn is_non_color_suffix(family: ColorFamily, suffix: &str) -> bool {
         ColorFamily::Border => {
             // Table borders, plus the two border-styles the width/style arms
             // above don't recognize.
-            if matches!(head, "collapse" | "separate" | "spacing" | "double" | "hidden") {
+            if matches!(head, "collapse" | "separate" | "spacing") {
                 return true;
             }
             // Anything still carrying a side keyword by the time it reaches
@@ -1010,6 +1077,9 @@ fn expand_base_utility(token: &str) -> Vec<StyleProperty> {
             return vec![StyleProperty::RowGap(v)];
         }
     }
+    if let Some(props) = expand_paint(token) {
+        return props;
+    }
     if let Some(props) = expand_outline(token) {
         return props;
     }
@@ -1063,6 +1133,8 @@ fn expand_base_utility(token: &str) -> Vec<StyleProperty> {
         "border-solid" => return all_sides_border_style(BorderStyle::Solid),
         "border-dashed" => return all_sides_border_style(BorderStyle::Dashed),
         "border-dotted" => return all_sides_border_style(BorderStyle::Dotted),
+        "border-double" => return all_sides_border_style(BorderStyle::Double),
+        "border-hidden" => return all_sides_border_style(BorderStyle::Hidden),
         "border-none" => return all_sides_border_style(BorderStyle::None),
         _ => {}
     }

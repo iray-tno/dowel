@@ -540,6 +540,18 @@ export function Login() {
     }
 
     #[test]
+    fn placeholder_colour_scopes_itself_to_the_pseudo_element() {
+        // The conformance suite cannot catch this: it compares
+        // declarations, and the difference between tinting the placeholder
+        // and tinting the real text lives entirely in the selector. Emitted
+        // as a plain `color` this would score a false match while doing the
+        // wrong thing.
+        let css = css_for("placeholder-red-500");
+        assert!(css.contains(".dowel-0::placeholder {"), "{css}");
+        assert!(!css.contains(".dowel-0 {"), "{css}");
+    }
+
+    #[test]
     fn divide_becomes_a_child_scoped_rule_like_space() {
         // `divide-*` styles the gaps *between* children, so like `space-*`
         // it can't be a declaration on the element itself.

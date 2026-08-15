@@ -1501,6 +1501,47 @@ export function Login() {
     }
 
     #[test]
+    fn colour_families_react_native_has_no_home_for_are_refused_by_name() {
+        // Each of these is a perfectly ordinary CSS colour that React
+        // Native either doesn't have (SVG paint, form-control accents) or
+        // keeps on a component prop rather than in a style
+        // (`placeholderTextColor`, `cursorColor`). Named, not dropped.
+        for (candidate, expected) in [
+            ("fill-red-500", "SVG"),
+            ("stroke-red-500", "SVG"),
+            ("accent-red-500", "form controls"),
+            ("caret-red-500", "TextInput"),
+            ("placeholder-red-500", "TextInput"),
+            ("decoration-wavy", "wavy"),
+        ] {
+            let source = format!(
+                "import {{ View }} from '@dowel/core'\nconst el = <View className=\"{candidate}\" />\n"
+            );
+            let parsed = dowel_parser::parse_tsx(&source);
+            let output = lower(&parsed.roots[0].node, &source);
+            let refusal = output
+                .diagnostics
+                .iter()
+                .find(|d| d.code == dowel_ir::DiagnosticCode::WebOnlyPropertyOnNative)
+                .unwrap_or_else(|| panic!("{candidate} must be refused, not dropped"));
+            assert!(refusal.message.contains(expected), "{candidate}: {}", refusal.message);
+        }
+    }
+
+    #[test]
+    fn the_decoration_colour_and_styles_react_native_does_have_still_lower() {
+        let source = r#"
+            import { Text } from '@dowel/core'
+            const el = <Text className="decoration-red-500 decoration-double">x</Text>
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source);
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert!(output.styles.contains("textDecorationColor: '#fb2c36',"), "{}", output.styles);
+        assert!(output.styles.contains("textDecorationStyle: 'double',"), "{}", output.styles);
+    }
+
+    #[test]
     fn outline_none_becomes_zero_width_not_a_solid_outline() {
         // React Native's `outlineStyle` accepts only solid/dotted/dashed,
         // so the border path's None -> 'solid' mapping would say the

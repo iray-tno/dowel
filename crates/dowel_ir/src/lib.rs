@@ -419,6 +419,24 @@ pub enum StyleProperty {
     /// and there's no way to express it as a declaration on the parent.
     /// The Web backend emits a child-scoped rule for it; React Native has
     /// no selector engine, so it's refused there.
+    /// SVG paint, plus the handful of colour properties that are neither
+    /// text nor background. All plain declarations -- the work here was
+    /// recognising the utilities, not lowering them.
+    Fill(Color),
+    Stroke(Color),
+    StrokeWidth(f64),
+    AccentColor(Color),
+    CaretColor(Color),
+    TextDecorationColor(Color),
+    TextDecorationStyle(DecorationStyle),
+    TextDecorationThickness(Length),
+    /// `placeholder-*`. Scoped to the `::placeholder` pseudo-element, not
+    /// the element itself -- so it gets its own rule, the same way
+    /// `divide-*`/`space-*` do. Emitting it as a plain `color` would tint
+    /// the real text instead, and would still *compare* equal to Tailwind,
+    /// since the difference lives in the selector rather than the
+    /// declaration.
+    PlaceholderColor(Color),
     OutlineWidth(Length),
     OutlineStyle(BorderStyle),
     OutlineColor(Color),
@@ -568,6 +586,43 @@ impl StyleProperty {
                  no selector engine"
                     .to_string(),
             ),
+            StyleProperty::Fill(_) | StyleProperty::Stroke(_) | StyleProperty::StrokeWidth(_) => {
+                Some(
+                    "SVG paint: React Native has no SVG in core -- `react-native-svg` is a \
+                     separate dependency with its own props, not a style Dowel can lower to"
+                        .to_string(),
+                )
+            }
+            StyleProperty::AccentColor(_) => Some(
+                "`accent-*`: it tints native form controls, which React Native doesn't have"
+                    .to_string(),
+            ),
+            StyleProperty::CaretColor(_) => Some(
+                "`caret-*`: React Native puts the caret colour on `TextInput` as a prop \
+                 (`cursorColor`/`selectionColor`), and Dowel doesn't model `TextInput` yet"
+                    .to_string(),
+            ),
+            StyleProperty::PlaceholderColor(_) => Some(
+                "`placeholder-*`: React Native puts this on `TextInput` as the \
+                 `placeholderTextColor` prop rather than in a style, and Dowel doesn't model \
+                 `TextInput` yet"
+                    .to_string(),
+            ),
+            StyleProperty::TextDecorationThickness(_) => Some(
+                "`decoration-<n>`: React Native has no text-decoration thickness".to_string(),
+            ),
+            StyleProperty::TextDecorationStyle(DecorationStyle::Wavy) => Some(
+                "`decoration-wavy`: React Native's textDecorationStyle has no wavy".to_string(),
+            ),
+            StyleProperty::BorderTopStyle(BorderStyle::Double | BorderStyle::Hidden)
+            | StyleProperty::BorderRightStyle(BorderStyle::Double | BorderStyle::Hidden)
+            | StyleProperty::BorderBottomStyle(BorderStyle::Double | BorderStyle::Hidden)
+            | StyleProperty::BorderLeftStyle(BorderStyle::Double | BorderStyle::Hidden)
+            | StyleProperty::OutlineStyle(BorderStyle::Double | BorderStyle::Hidden) => Some(
+                "`double`/`hidden` border styles: React Native accepts only solid, dotted and \
+                 dashed"
+                    .to_string(),
+            ),
             StyleProperty::DivideX(_)
             | StyleProperty::DivideY(_)
             | StyleProperty::DivideColor(_)
@@ -581,11 +636,29 @@ impl StyleProperty {
     }
 }
 
+/// `text-decoration-style`. Its own type rather than `BorderStyle`: the two
+/// sets only look alike. Decorations add `double` and `wavy` and have no
+/// `none` (that's `text-decoration-line`), and React Native accepts a
+/// different subset again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DecorationStyle {
+    Solid,
+    Double,
+    Dotted,
+    Dashed,
+    Wavy,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BorderStyle {
     Solid,
     Dashed,
     Dotted,
+    /// Real CSS styles React Native has no counterpart for -- its
+    /// `borderStyle` accepts solid/dotted/dashed only, so both are refused
+    /// there by `unsupported_on_native`.
+    Double,
+    Hidden,
     None,
 }
 

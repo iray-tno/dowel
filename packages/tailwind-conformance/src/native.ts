@@ -20,7 +20,7 @@ export interface NativeComparison {
   /**
    * The diagnostic code behind a REFUSED verdict. The two codes make very
    * different claims -- WEB_ONLY says the platform cannot do this at all,
-   * VARIANT_NOT_WIRED says Dowel hasn't built it yet -- and only the first
+   * NOT_WIRED says Dowel hasn't built it yet -- and only the first
    * is a claim about React Native that can be checked against React Native.
    */
   code?: string
@@ -37,8 +37,8 @@ export interface NativeComparison {
 /// so". Both count as REFUSED, since the distinction this report draws is
 /// named-gap vs. silent-gap, not error vs. warning:
 /// - WEB_ONLY: impossible on the platform (Yoga has no grid).
-/// - VARIANT_NOT_WIRED: possible, not built yet (`dark:`, breakpoints).
-const NAMED_GAPS = new Set(['WEB_ONLY_PROPERTY_ON_NATIVE', 'VARIANT_NOT_WIRED_ON_NATIVE'])
+/// - NOT_WIRED: possible, not built yet (`dark:`, `placeholder-*`).
+const NAMED_GAPS = new Set(['WEB_ONLY_PROPERTY_ON_NATIVE', 'NOT_WIRED_ON_NATIVE'])
 
 /// Whether a utility works can depend on where it's written, so each
 /// candidate is tried in several places and counts as covered if *any* of
@@ -120,7 +120,15 @@ function probe(candidate: string, context: (typeof PROBE_CONTEXTS)[number]): Nat
   const unreferenced = nonEmpty.filter((name) => !result.jsx.includes(`styles.${name}`))
   const rendered = nonEmpty.filter((name) => result.jsx.includes(`styles.${name}`))
 
-  if (rendered.length > 0 || emitsProp) {
+  // An inline style object counts too. Not everything can live in the
+  // StyleSheet: a viewport-relative size changes when the device rotates,
+  // and `StyleSheet.create` is evaluated once -- so `h-screen` compiles to
+  // `style={{ height: __dowelViewport.height }}` with no entry to find.
+  // Matches an object literal with at least one key inside a `style` prop,
+  // so a bare `style={styles.dowel0}` doesn't qualify on its own.
+  const inlineStyle = /style=\{\[?[^}]*\{\s*\w+:/.test(result.jsx)
+
+  if (rendered.length > 0 || inlineStyle || emitsProp) {
     return { candidate, verdict: 'COVERED' }
   }
   return {

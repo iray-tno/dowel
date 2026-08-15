@@ -6,7 +6,7 @@
 
 use dowel_ir::{
     Align, AlignSelf, Angle, Animation, BorderStyle, Breakpoint, Color, Condition, Dimension,
-    DecorationStyle, Display, Edge, Em, MaskSlot, MaskStop,
+    DecorationStyle, Display, Edge, Em, LetterSpacing, MaskSlot, MaskStop,
     FlexDirection, FlexShorthand, FontWeight, Justify, Length, LineHeight, Overflow, Position,
     Radius, StyleProperty, TextAlign, TextOverflow, TextTransform, WhiteSpace,
 };
@@ -172,7 +172,7 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
     }
     if let Some(rest) = token.strip_prefix("tracking-") {
         if let Some(em) = parse_tracking(rest) {
-            return Some(StyleProperty::LetterSpacing(Em(em)));
+            return Some(StyleProperty::LetterSpacing(LetterSpacing::Em(Em(em))));
         }
     }
     if let Some(rest) = token.strip_prefix("duration-") {
@@ -1792,14 +1792,15 @@ mod tests {
     }
 
     #[test]
-    fn viewport_sizes_parse_and_are_flagged_web_only() {
+    fn viewport_sizes_parse_as_a_viewport_dimension() {
+        // Kept as a viewport dimension rather than resolved here, because
+        // neither backend wants a number: Web writes `100vh` and lets the
+        // browser resolve it, and Native reads the window at render time
+        // (`dowel_native::viewport_object`). A pixel value baked in at
+        // compile time would be wrong the moment the device rotated.
         let (_, props) = expand_utility("h-screen");
         assert_eq!(props, vec![StyleProperty::Height(Dimension::ViewportHeight(100.0))]);
-        assert!(props[0].unsupported_on_native().is_some());
-        // A plain length on the same property stays portable.
-        assert!(StyleProperty::Height(Dimension::Length(Length::Px(4.0)))
-            .unsupported_on_native()
-            .is_none());
+        assert!(props[0].unsupported_on_native().is_none());
     }
 
     #[test]
@@ -2214,11 +2215,12 @@ mod tests {
     fn named_leading_stays_a_ratio_rather_than_being_faked_as_pixels() {
         // The named scale is a unitless multiple of the element's own font
         // size. It's kept as a ratio -- which CSS states directly -- rather
-        // than converted to a pixel value that would only be right for one
-        // font size. React Native can't express it, and refuses it.
+        // than converted here to a pixel value that would only be right for
+        // one font size. The Native backend resolves it against a font size
+        // on the same element (`dowel_native::fold_font_relative`), which is
+        // information this function doesn't have.
         let (_, props) = expand_utility("leading-tight");
         assert_eq!(props, vec![StyleProperty::LineHeight(LineHeight::Ratio(1.25))]);
-        assert!(props[0].unsupported_on_native().is_some());
 
         // The numeric scale is spacing-based and resolves to a length on
         // both platforms.
@@ -2259,7 +2261,7 @@ mod tests {
         );
         assert_eq!(
             expand_utility("tracking-wide").1,
-            vec![StyleProperty::LetterSpacing(Em(0.025))]
+            vec![StyleProperty::LetterSpacing(LetterSpacing::Em(Em(0.025)))]
         );
         assert_eq!(
             expand_utility("grid-cols-3").1,

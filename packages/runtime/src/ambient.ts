@@ -28,13 +28,22 @@ export interface Store<T> {
   subscribe: (listener: Listener) => () => void
 }
 
-export function createStore<T>(initial: T): Store<T> {
+/**
+ * `equals` decides what counts as a change, and defaults to `Object.is`.
+ *
+ * It exists for the snapshots that aren't primitives: `Dimensions` reports
+ * a fresh object on every event, so identity comparison would call every
+ * event a change -- and on Android those fire on keyboard show/hide, not
+ * just rotation. It also matters for `useSyncExternalStore`, which compares
+ * snapshots by identity and re-renders whenever they differ.
+ */
+export function createStore<T>(initial: T, equals: (a: T, b: T) => boolean = Object.is): Store<T> {
   const listeners = new Set<Listener>()
   let snapshot = initial
   return {
     get: () => snapshot,
     set(next: T) {
-      if (Object.is(next, snapshot)) {
+      if (equals(next, snapshot)) {
         return
       }
       snapshot = next
@@ -77,6 +86,23 @@ export function bucketFor(width: number): BreakpointName | '' {
     }
   }
   return ''
+}
+
+/**
+ * The window size, as the viewport-relative utilities (`h-screen`) read it.
+ *
+ * Only the two numbers those need: `Dimensions` also reports `scale` and
+ * `fontScale`, and including them would make a text-size change look like a
+ * resize.
+ */
+export interface Viewport {
+  width: number
+  height: number
+}
+
+/** Whether two viewports describe the same window. */
+export function sameViewport(a: Viewport, b: Viewport): boolean {
+  return a.width === b.width && a.height === b.height
 }
 
 /** Whether `bucket` is at least as wide as the `name` breakpoint. */

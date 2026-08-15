@@ -54,7 +54,8 @@ mod markup;
 mod style;
 
 use dowel_ir::{
-    Breakpoint, Condition, ConditionExpr, Diagnostic, DiagnosticCode, ExprRef, Node, Primitive,
+    Breakpoint, Condition, ConditionExpr, Diagnostic, DiagnosticCode, ExprRef, Length, Node,
+    Primitive,
     Severity, StyleDeclaration, StyleProperty, TextOverflow, WhiteSpace,
 };
 
@@ -78,6 +79,29 @@ pub struct LowerOutput {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+/// What the generated module will need from `@dowel/runtime`, accumulated
+/// as the tree is walked.
+///
+/// Hooks and components are kept apart because only hooks constrain where
+/// they may appear: a hook has to be declared once, unconditionally, in the
+/// enclosing function body (`LowerOutput::prelude`), while a component is
+/// just an element in the JSX. They share this struct only so that adding a
+/// second kind of runtime dependency didn't mean threading a second `&mut`
+/// through every rendering function.
+#[derive(Default)]
+struct RuntimeNeeds {
+    hooks: Vec<RuntimeHook>,
+    components: Vec<&'static str>,
+}
+
+impl RuntimeNeeds {
+    fn need_component(&mut self, name: &'static str) {
+        if !self.components.contains(&name) {
+            self.components.push(name);
+        }
+    }
+}
+
 struct NameAllocator {
     next: u32,
 }
@@ -97,7 +121,7 @@ pub fn lower(root: &Node, source: &str) -> LowerOutput {
     let mut allocator = NameAllocator { next: 0 };
     let mut style_entries: Vec<(String, Vec<StyleProperty>)> = Vec::new();
     let mut diagnostics = Vec::new();
-    let mut hooks: Vec<RuntimeHook> = Vec::new();
+    let mut runtime = RuntimeNeeds::default();
 
     // The root's position is genuinely unknowable here: it's whatever the
     // component's caller renders it into.
@@ -108,20 +132,20 @@ pub fn lower(root: &Node, source: &str) -> LowerOutput {
         &mut allocator,
         &mut style_entries,
         &mut diagnostics,
-        &mut hooks,
+        &mut runtime,
     );
 
     // One declaration per distinct hook, however many elements guard on
     // it: the binding is function-scoped, and calling the same hook twice
     // would both redeclare the name and change the hook order.
     let mut distinct: Vec<RuntimeHook> = Vec::new();
-    for hook in hooks {
+    for hook in runtime.hooks {
         if !distinct.contains(&hook) {
             distinct.push(hook);
         }
     }
     let prelude: Vec<String> = distinct.iter().map(RuntimeHook::declaration).collect();
-    let mut runtime_imports: Vec<&'static str> = Vec::new();
+    let mut runtime_imports: Vec<&'static str> = runtime.components;
     for hook in &distinct {
         if !runtime_imports.contains(&hook.import()) {
             runtime_imports.push(hook.import());
@@ -230,7 +254,17 @@ fn quote(text: &str) -> String {
 fn style_pairs(props: &[StyleProperty]) -> Vec<(&'static str, String)> {
     let mut emitted: Vec<(&'static str, String)> = Vec::new();
     for prop in props {
-        for (key, value) in style::property_and_value(prop) {
+        // A child-scoped property (`space-*`/`divide-*`) means something
+        // different from a property of the same name on the element itself,
+        // and only ever reaches here inside an entry built for the
+        // children, so the dispatch is on the property rather than on which
+        // entry is being built.
+        let pairs = if style::is_child_scoped(prop) {
+            style::child_property_and_value(prop)
+        } else {
+            style::property_and_value(prop)
+        };
+        for (key, value) in pairs {
             // A property refused for Native (see
             // `StyleProperty::unsupported_on_native`) yields no value;
             // writing the key anyway would emit `height: ,`, which isn't
@@ -303,7 +337,7 @@ fn render_node(
     allocator: &mut NameAllocator,
     style_entries: &mut Vec<(String, Vec<StyleProperty>)>,
     diagnostics: &mut Vec<Diagnostic>,
-    hooks: &mut Vec<RuntimeHook>,
+    runtime: &mut RuntimeNeeds,
 ) -> String {
     let base_name = allocator.alloc();
     let mut style_array_parts: Vec<String> = Vec::new();
@@ -340,7 +374,12 @@ fn render_node(
     // thing that *does* express them would be reported as impossible.
     let truncation = truncation_props(node);
 
-    for declaration in &node.style {
+    // `leading-tight`/`tracking-wide` are relative to the font size, which
+    // React Native's equivalents aren't. Resolved here, before the refusal
+    // check, so only the ones that genuinely can't be resolved are refused.
+    let style = fold_font_relative(&node.style);
+
+    for declaration in &style {
         if truncation.is_some() && is_truncation_declaration(&declaration.property) {
             continue;
         }
@@ -353,9 +392,24 @@ fn render_node(
             });
             continue;
         }
-        // Refused rather than dropped: silently ignoring a `block`/`grid`/
-        // `h-screen` would leave a layout that looks right on Web and is
-        // wrong on device with nothing pointing at the cause.
+        // Survived the fold above, so there was no font size to resolve it
+        // against. Reported as unwired rather than Web-only: the platform
+        // can hold the value, and writing a `text-*` on the same element is
+        // all it takes.
+        if let Some(reason) = font_relative_reason(&declaration.property) {
+            diagnostics.push(unwired_variant(node, &reason, Severity::Error));
+            continue;
+        }
+        // Possible on the platform, unbuilt here. Named apart from the
+        // Web-only refusals so the two don't blur together -- see
+        // `DiagnosticCode::NotWiredOnNative`.
+        if let Some(reason) = declaration.property.not_wired_on_native() {
+            diagnostics.push(unwired_variant(node, &reason, Severity::Error));
+            continue;
+        }
+        // Refused rather than dropped: silently ignoring a `block`/`grid`
+        // would leave a layout that looks right on Web and is wrong on
+        // device with nothing pointing at the cause.
         if let Some(reason) = declaration.property.unsupported_on_native() {
             diagnostics.push(Diagnostic {
                 code: DiagnosticCode::WebOnlyPropertyOnNative,
@@ -378,10 +432,18 @@ fn render_node(
     let wraps_text = component != "Text"
         && node.children.iter().any(|c| matches!(c, dowel_ir::Child::Text(_)));
     let (text_declarations, own_declarations): (Vec<_>, Vec<_>) = if wraps_text {
-        node.style.iter().cloned().partition(|d| is_text_property(&d.property))
+        style.iter().cloned().partition(|d| is_text_property(&d.property))
     } else {
-        (Vec::new(), node.style.to_vec())
+        (Vec::new(), style.clone())
     };
+
+    // `space-*`/`divide-*` belong to the children, not here. Web gives them
+    // their own rule with a child-scoped selector; the equivalent on this
+    // platform is a style handed to `DowelSpaced`, which decides at render
+    // time which children receive it -- see that component for why the
+    // decision can't be made here.
+    let (child_declarations, own_declarations): (Vec<_>, Vec<_>) =
+        own_declarations.into_iter().partition(|d| style::is_child_scoped(&d.property));
 
     build_style_entries(
         &own_declarations,
@@ -393,7 +455,7 @@ fn render_node(
         &mut style_array_parts,
         &mut pressed_parts,
         diagnostics,
-        hooks,
+        runtime,
     );
 
     // After the compiled styles, so it wins the same way it would in the
@@ -483,7 +545,7 @@ fn render_node(
                     allocator,
                     style_entries,
                     diagnostics,
-                    hooks,
+                    runtime,
                 ));
             }
             dowel_ir::Child::Text(text) => {
@@ -498,7 +560,7 @@ fn render_node(
                         position,
                         style_entries,
                         diagnostics,
-                        hooks,
+                        runtime,
                     )
                 } else {
                     escaped
@@ -514,13 +576,91 @@ fn render_node(
                     allocator,
                     style_entries,
                     diagnostics,
-                    hooks,
+                    runtime,
                 ));
             }
         }
     }
 
+    let inner = spaced_children(
+        inner,
+        &child_declarations,
+        &base_name,
+        source,
+        node,
+        position,
+        style_entries,
+        diagnostics,
+        runtime,
+    );
+
     format!("<{component}{props_text}>{inner}</{component}>")
+}
+
+/// Wraps `inner` in `DowelSpaced` when the element carries `space-*` or
+/// `divide-*`, so the style reaches the children.
+///
+/// The children are handed over as JSX children rather than as arguments,
+/// which is why this is a component and not a function call: a child may be
+/// an element, a bare string, or a carried expression like
+/// `{items.map(..)}`, and only the first of those is already an expression.
+/// Passing them as `children` means none of them has to be re-rendered into
+/// a different position.
+///
+/// `DowelSpaced` returns its children rather than an element, so no host
+/// view is added and Yoga sees the tree it would have seen anyway.
+#[allow(clippy::too_many_arguments)]
+fn spaced_children(
+    inner: String,
+    child_declarations: &[StyleDeclaration],
+    base_name: &str,
+    source: &str,
+    node: &Node,
+    position: SiblingPosition,
+    style_entries: &mut Vec<(String, Vec<StyleProperty>)>,
+    diagnostics: &mut Vec<Diagnostic>,
+    runtime: &mut RuntimeNeeds,
+) -> String {
+    if child_declarations.is_empty() {
+        return inner;
+    }
+
+    let mut parts: Vec<String> = Vec::new();
+    // `pressed:` has nowhere to go here: the render-prop `style` form it
+    // relies on belongs to Pressable, and this style is destined for the
+    // children rather than for the element that would track the press.
+    let mut pressed_parts: Vec<String> = Vec::new();
+    build_style_entries(
+        child_declarations,
+        &format!("{base_name}Children"),
+        source,
+        node,
+        position,
+        style_entries,
+        &mut parts,
+        &mut pressed_parts,
+        diagnostics,
+        runtime,
+    );
+    if !pressed_parts.is_empty() {
+        diagnostics.push(unwired_variant(
+            node,
+            "`pressed:` on a `space-*`/`divide-*` utility would have to track press state on the \
+             parent and restyle its children, which Dowel doesn't do.",
+            Severity::Error,
+        ));
+    }
+    if parts.is_empty() {
+        return inner;
+    }
+
+    runtime.need_component("DowelSpaced");
+    let style = if parts.len() == 1 && !parts[0].contains("&&") {
+        parts[0].clone()
+    } else {
+        format!("[{}]", parts.join(", "))
+    };
+    format!("<DowelSpaced style={{{style}}}>{inner}</DowelSpaced>")
 }
 
 /// Re-emits a carried expression from source, with each Dowel primitive
@@ -543,7 +683,7 @@ fn render_verbatim(
     allocator: &mut NameAllocator,
     style_entries: &mut Vec<(String, Vec<StyleProperty>)>,
     diagnostics: &mut Vec<Diagnostic>,
-    hooks: &mut Vec<RuntimeHook>,
+    runtime: &mut RuntimeNeeds,
 ) -> String {
     let mut out = String::new();
     let mut cursor = expr_ref.0.start as usize;
@@ -556,7 +696,7 @@ fn render_verbatim(
             allocator,
             style_entries,
             diagnostics,
-            hooks,
+            runtime,
         ));
         cursor = entry.span.end as usize;
     }
@@ -579,7 +719,7 @@ fn wrap_in_text(
     position: SiblingPosition,
     style_entries: &mut Vec<(String, Vec<StyleProperty>)>,
     diagnostics: &mut Vec<Diagnostic>,
-    hooks: &mut Vec<RuntimeHook>,
+    runtime: &mut RuntimeNeeds,
 ) -> String {
     let mut style_array_parts = Vec::new();
     // The wrapper is a Text, so a `pressed:` style has nowhere to go on it.
@@ -597,7 +737,7 @@ fn wrap_in_text(
         &mut style_array_parts,
         &mut pressed_parts,
         diagnostics,
-        hooks,
+        runtime,
     );
 
     let style_prop = if style_array_parts.is_empty() {
@@ -638,6 +778,15 @@ fn is_text_property(property: &StyleProperty) -> bool {
 enum RuntimeHook {
     Dark,
     Breakpoint(Breakpoint),
+    /// Window size, for the viewport-relative sizes (`h-screen`).
+    ///
+    /// Unlike the other two, this one's value is *used* rather than guarded
+    /// on, so it reports the numbers instead of a boolean -- and it
+    /// re-renders on every window change rather than only when a breakpoint
+    /// is crossed. That is the price of a size that has to track the window
+    /// exactly, and it's why the breakpoints keep their coarse snapshot
+    /// rather than being rebuilt on top of this.
+    Viewport,
 }
 
 impl RuntimeHook {
@@ -646,6 +795,7 @@ impl RuntimeHook {
         match self {
             RuntimeHook::Dark => "__dowelDark".to_string(),
             RuntimeHook::Breakpoint(bp) => format!("__dowelBp_{}", breakpoint_name(bp)),
+            RuntimeHook::Viewport => "__dowelViewport".to_string(),
         }
     }
 
@@ -653,6 +803,7 @@ impl RuntimeHook {
         match self {
             RuntimeHook::Dark => "useDowelDark",
             RuntimeHook::Breakpoint(_) => "useDowelBreakpoint",
+            RuntimeHook::Viewport => "useDowelViewport",
         }
     }
 
@@ -664,6 +815,7 @@ impl RuntimeHook {
                 self.binding(),
                 breakpoint_name(bp)
             ),
+            RuntimeHook::Viewport => format!("const {} = useDowelViewport()", self.binding()),
         }
     }
 }
@@ -683,7 +835,7 @@ fn breakpoint_name(bp: &Breakpoint) -> &'static str {
 
 fn unwired_variant(node: &Node, message: &str, severity: Severity) -> Diagnostic {
     Diagnostic {
-        code: DiagnosticCode::VariantNotWiredOnNative,
+        code: DiagnosticCode::NotWiredOnNative,
         severity,
         message: message.to_string(),
         span: node.span,
@@ -710,7 +862,7 @@ fn build_style_entries(
     style_array_parts: &mut Vec<String>,
     pressed_parts: &mut Vec<String>,
     diagnostics: &mut Vec<Diagnostic>,
-    hooks: &mut Vec<RuntimeHook>,
+    runtime: &mut RuntimeNeeds,
 ) {
     // A conditional style must land after every unconditional one,
     // whatever order they were written in. On Web the cascade settles this
@@ -730,16 +882,48 @@ fn build_style_entries(
         if props.is_empty() {
             continue;
         }
+        // A viewport-relative size can't live in the StyleSheet: its value
+        // is a number that changes when the device rotates. It becomes an
+        // inline object read from a hook instead, so it stays in the same
+        // style array -- and therefore in the same last-wins order -- as the
+        // static entry it sits beside.
+        let (viewport_props, props): (Vec<_>, Vec<_>) =
+            props.into_iter().partition(is_viewport_sized);
+        let viewport = viewport_object(&viewport_props);
+        if viewport.is_some() {
+            runtime.hooks.push(RuntimeHook::Viewport);
+        }
+        if props.is_empty() && viewport.is_none() {
+            continue;
+        }
         let name = match condition_suffix(&condition) {
             None => base_name.to_string(),
             Some(suffix) => format!("{base_name}_{suffix}"),
         };
+        // The static entry and the inline object are separate array
+        // elements rather than one combined string: a single part is emitted
+        // as `style={part}` without the brackets, and `styles.a, {…}` there
+        // would be a comma expression rather than two styles.
+        let parts: Vec<String> = props
+            .is_empty()
+            .then(Vec::new)
+            .unwrap_or_else(|| vec![format!("styles.{name}")])
+            .into_iter()
+            .chain(viewport.clone())
+            .collect();
+        // Each part carries the condition's guard. There may be two of them
+        // (a StyleSheet entry and an inline viewport object), and both have
+        // to be guarded, or `md:h-screen` would apply its height at every
+        // width.
+        let guarded = |prefix: &str| -> Vec<String> {
+            parts.iter().map(|part| format!("{prefix}{part}")).collect()
+        };
         match &condition {
-            Condition::Always => base_parts.push(format!("styles.{name}")),
+            Condition::Always => base_parts.extend(parts.clone()),
             Condition::Disabled => {
                 if let Some(disabled) = &node.props.disabled {
                     let guard = render_condition_expr(source, disabled);
-                    conditional_parts.push(format!("({guard}) && styles.{name}"));
+                    conditional_parts.extend(guarded(&format!("({guard}) && ")));
                 } else {
                     // Nothing on this element drives the condition. On Web
                     // the same source is inert too (`:disabled` never
@@ -754,10 +938,10 @@ fn build_style_entries(
                     ));
                 }
             }
-            Condition::Pressed => pressed_parts.push(format!("pressed && styles.{name}")),
+            Condition::Pressed => pressed_parts.extend(guarded("pressed && ")),
             Condition::Expr(expr) => {
                 let guard = render_condition_expr(source, expr);
-                conditional_parts.push(format!("({guard}) && styles.{name}"));
+                conditional_parts.extend(guarded(&format!("({guard}) && ")));
             }
             // Each of these produced a style object that the rendered JSX
             // never referenced -- computed, then dropped, with nothing
@@ -781,20 +965,20 @@ fn build_style_entries(
             // see `LowerOutput::prelude` for why inlining it is unsafe.
             Condition::Responsive(bp) => {
                 let hook = RuntimeHook::Breakpoint(*bp);
-                conditional_parts.push(format!("{} && styles.{name}", hook.binding()));
-                hooks.push(hook);
+                conditional_parts.extend(guarded(&format!("{} && ", hook.binding())));
+                runtime.hooks.push(hook);
             }
             Condition::Dark => {
                 let hook = RuntimeHook::Dark;
-                conditional_parts.push(format!("{} && styles.{name}", hook.binding()));
-                hooks.push(hook);
+                conditional_parts.extend(guarded(&format!("{} && ", hook.binding())));
+                runtime.hooks.push(hook);
             }
             // Resolved at build time rather than needing a selector
             // engine. Both decided answers are exact -- the same thing
             // `:first-child` would do on Web -- so neither reports
             // anything; only an undecidable position does.
             Condition::FirstChild => match position {
-                SiblingPosition::First => conditional_parts.push(format!("styles.{name}")),
+                SiblingPosition::First => conditional_parts.extend(guarded("")),
                 // `:first-child` wouldn't match here either, so dropping
                 // the style is the correct outcome, not a gap.
                 SiblingPosition::NotFirst => {}
@@ -812,7 +996,9 @@ fn build_style_entries(
         // must fail to compile here rather than quietly joining the set
         // that gets computed and dropped. That is exactly how the eight
         // variants this function now reports went unnoticed.
-        style_entries.push((name, props));
+        if !props.is_empty() {
+            style_entries.push((name, props));
+        }
     }
 
     style_array_parts.append(&mut base_parts);
@@ -822,6 +1008,133 @@ fn build_style_entries(
     // That puts `pressed:` last among the conditions rather than in source
     // order relative to them -- a divergence from Web only when a
     // `pressed:` utility and another conditional set the same property.
+}
+
+/// Rewrites the font-relative text metrics into absolute ones, against a
+/// font size set on the same element.
+///
+/// CSS lets `line-height` be a bare multiplier and `letter-spacing` be a
+/// length in `em`; React Native's `lineHeight` and `letterSpacing` are
+/// absolute numbers. The conversion needs the font size, and the useful
+/// observation is that the compiler often has it -- `text-lg leading-tight`
+/// puts both on the same element, and Tailwind's own output does the same
+/// multiplication.
+///
+/// Only a font size under the *same* condition is used, falling back to an
+/// unconditional one. Folding `leading-tight` against a `md:text-lg` would
+/// bake a size that only applies above 768px into a style that always does.
+fn fold_font_relative(declarations: &[StyleDeclaration]) -> Vec<StyleDeclaration> {
+    let font_size = |condition: &Condition| -> Option<f64> {
+        let find = |want: &Condition| {
+            declarations.iter().find_map(|d| match (&d.property, &d.condition) {
+                (StyleProperty::FontSize(Length::Px(px)), c) if c == want => Some(*px),
+                _ => None,
+            })
+        };
+        find(condition).or_else(|| find(&Condition::Always))
+    };
+
+    declarations
+        .iter()
+        .map(|declaration| {
+            let Some(size) = font_size(&declaration.condition) else {
+                return declaration.clone();
+            };
+            let property = match &declaration.property {
+                StyleProperty::LineHeight(dowel_ir::LineHeight::Ratio(ratio)) => {
+                    StyleProperty::LineHeight(dowel_ir::LineHeight::Length(Length::Px(
+                        size * ratio,
+                    )))
+                }
+                StyleProperty::LetterSpacing(dowel_ir::LetterSpacing::Em(em)) => {
+                    StyleProperty::LetterSpacing(dowel_ir::LetterSpacing::Px(Length::Px(
+                        size * em.0,
+                    )))
+                }
+                _ => return declaration.clone(),
+            };
+            StyleDeclaration { property, condition: declaration.condition.clone() }
+        })
+        .collect()
+}
+
+/// Why a font-relative metric couldn't be honoured when `fold_font_relative`
+/// found no font size to resolve it against.
+///
+/// Kept out of `StyleProperty::unsupported_on_native` because the answer
+/// depends on the node, which that method can't see -- the same reason
+/// `truncation_only_reason` lives here.
+fn font_relative_reason(property: &StyleProperty) -> Option<String> {
+    match property {
+        StyleProperty::LetterSpacing(dowel_ir::LetterSpacing::Em(_)) => Some(
+            "`tracking-*` in em: React Native's letterSpacing is absolute. Dowel resolves it \
+             against a text size on the same element, and this element sets none -- add a \
+             `text-*` utility here, or use an absolute tracking value."
+                .to_string(),
+        ),
+        StyleProperty::LineHeight(dowel_ir::LineHeight::Ratio(_)) => Some(
+            "`leading-*` as a ratio: React Native's lineHeight is absolute. Dowel resolves it \
+             against a text size on the same element, and this element sets none -- add a \
+             `text-*` utility here, or use `leading-<number>`."
+                .to_string(),
+        ),
+        _ => None,
+    }
+}
+
+/// Whether a property sizes something against the viewport (`h-screen`,
+/// `min-w-screen`), which React Native can express but not statically.
+fn is_viewport_sized(prop: &StyleProperty) -> bool {
+    viewport_dimension(prop).is_some()
+}
+
+/// The RN style key and viewport axis a property needs, if any.
+fn viewport_dimension(prop: &StyleProperty) -> Option<(&'static str, &'static str, f64)> {
+    let axis = |dim: &dowel_ir::Dimension| match dim {
+        dowel_ir::Dimension::ViewportWidth(pct) => Some(("width", *pct)),
+        dowel_ir::Dimension::ViewportHeight(pct) => Some(("height", *pct)),
+        _ => None,
+    };
+    let (key, dim) = match prop {
+        StyleProperty::Width(d) => ("width", d),
+        StyleProperty::Height(d) => ("height", d),
+        StyleProperty::MinWidth(d) => ("minWidth", d),
+        StyleProperty::MinHeight(d) => ("minHeight", d),
+        StyleProperty::MaxWidth(d) => ("maxWidth", d),
+        StyleProperty::MaxHeight(d) => ("maxHeight", d),
+        _ => return None,
+    };
+    axis(dim).map(|(axis, pct)| (key, axis, pct))
+}
+
+/// The inline style object for a group's viewport-relative sizes, if it has
+/// any.
+///
+/// These can't go in the StyleSheet: `StyleSheet.create` is evaluated once
+/// at module load, and the value changes when the device rotates. The object
+/// is rebuilt each render instead, from a hook that re-renders the component
+/// when the window changes -- so a rotation resizes the element, which is
+/// what `h-screen` means on Web.
+///
+/// Measured against the *window*, not the screen: window excludes the system
+/// UI the app can't draw under, which is the closer analogue of the Web
+/// viewport. It does not account for notches or a home indicator -- a
+/// full-bleed layout still wants a safe-area inset on top of this, exactly
+/// as it does on Web.
+fn viewport_object(props: &[StyleProperty]) -> Option<String> {
+    let mut pairs: Vec<String> = Vec::new();
+    for prop in props {
+        let Some((key, axis, pct)) = viewport_dimension(prop) else { continue };
+        let binding = RuntimeHook::Viewport.binding();
+        // The common case is a whole viewport (`h-screen`), where the
+        // multiplication is noise in the output.
+        if (pct - 100.0).abs() < f64::EPSILON {
+            pairs.push(format!("{key}: {binding}.{axis}"));
+        } else {
+            pairs.push(format!("{key}: {binding}.{axis} * {}", pct / 100.0));
+        }
+    }
+    (!pairs.is_empty()).then(|| format!("{{ {} }}", pairs.join(", ")))
 }
 
 /// React Native expresses text truncation as props on `Text` --
@@ -1164,7 +1477,7 @@ export function Login() {
             let reported: Vec<_> = output
                 .diagnostics
                 .iter()
-                .filter(|d| d.code == dowel_ir::DiagnosticCode::VariantNotWiredOnNative)
+                .filter(|d| d.code == dowel_ir::DiagnosticCode::NotWiredOnNative)
                 .collect();
             assert_eq!(reported.len(), 1, "{candidate}: {:?}", output.diagnostics);
             assert_eq!(reported[0].severity, *severity, "{candidate}");
@@ -1285,7 +1598,7 @@ export function Login() {
         let reported: Vec<_> = output
             .diagnostics
             .iter()
-            .filter(|d| d.code == dowel_ir::DiagnosticCode::VariantNotWiredOnNative)
+            .filter(|d| d.code == dowel_ir::DiagnosticCode::NotWiredOnNative)
             .collect();
         assert_eq!(reported.len(), 1, "{:?}", output.diagnostics);
         assert!(reported[0].message.contains("position"), "{}", reported[0].message);
@@ -1304,7 +1617,7 @@ export function Login() {
         assert!(output
             .diagnostics
             .iter()
-            .any(|d| d.code == dowel_ir::DiagnosticCode::VariantNotWiredOnNative));
+            .any(|d| d.code == dowel_ir::DiagnosticCode::NotWiredOnNative));
     }
 
     #[test]
@@ -1506,12 +1819,18 @@ export function Login() {
         // Native either doesn't have (SVG paint, form-control accents) or
         // keeps on a component prop rather than in a style
         // (`placeholderTextColor`, `cursorColor`). Named, not dropped.
-        for (candidate, expected) in [
-            ("fill-red-500", "SVG"),
-            ("stroke-red-500", "SVG"),
-            ("accent-red-500", "form controls"),
-            ("caret-red-500", "TextInput"),
-            ("placeholder-red-500", "TextInput"),
+        //
+        // The code each is filed under is part of the assertion. Only the
+        // first three are impossible on the platform; `placeholder-*` is a
+        // primitive Dowel hasn't built, and filing that as Web-only both
+        // says something false and hides it from the refusal audit, which
+        // only re-checks the Web-only claims.
+        for (candidate, expected, code) in [
+            ("fill-red-500", "SVG", DiagnosticCode::WebOnlyPropertyOnNative),
+            ("stroke-red-500", "SVG", DiagnosticCode::WebOnlyPropertyOnNative),
+            ("accent-red-500", "form controls", DiagnosticCode::WebOnlyPropertyOnNative),
+            ("caret-red-500", "TextInput", DiagnosticCode::WebOnlyPropertyOnNative),
+            ("placeholder-red-500", "TextInput", DiagnosticCode::NotWiredOnNative),
         ] {
             let source = format!(
                 "import {{ View }} from '@dowel/core'\nconst el = <View className=\"{candidate}\" />\n"
@@ -1521,8 +1840,8 @@ export function Login() {
             let refusal = output
                 .diagnostics
                 .iter()
-                .find(|d| d.code == dowel_ir::DiagnosticCode::WebOnlyPropertyOnNative)
-                .unwrap_or_else(|| panic!("{candidate} must be refused, not dropped"));
+                .find(|d| d.code == code)
+                .unwrap_or_else(|| panic!("{candidate} must be refused as {code:?}, not dropped"));
             assert!(refusal.message.contains(expected), "{candidate}: {}", refusal.message);
         }
     }
@@ -1580,37 +1899,210 @@ export function Login() {
     }
 
     #[test]
-    fn divide_is_refused_for_the_same_reason_space_is() {
+    fn space_and_divide_reach_the_children_through_dowel_spaced() {
+        // These were refused ("React Native has no selector engine") until
+        // the refusal audit pointed out that the CSS they produce is
+        // entirely expressible -- the selector was never the obstacle, since
+        // the styles are ordinary margins and border widths. What is
+        // genuinely unknowable at build time is *which* child is last when
+        // one of them is `{items.map(..)}`, and that is the only thing
+        // `DowelSpaced` decides.
         let source = r#"
-            import { View } from '@dowel/core'
-            const el = <View className="divide-y-4" />
+            import { View, Text } from '@dowel/core'
+            const el = (
+              <View className="divide-y-4 space-y-2">
+                <Text>a</Text>
+                <Text>b</Text>
+              </View>
+            )
             "#;
         let parsed = dowel_parser::parse_tsx(source);
         let output = lower(&parsed.roots[0].node, source);
-        let refusal = output
-            .diagnostics
-            .iter()
-            .find(|d| d.code == dowel_ir::DiagnosticCode::WebOnlyPropertyOnNative)
-            .expect("divide-* must be refused, not dropped");
-        assert!(refusal.message.contains("selector engine"), "{}", refusal.message);
+
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert!(output.jsx.contains("<DowelSpaced style={styles.dowel0Children}>"), "{}", output.jsx);
+        assert!(output.jsx.contains("</DowelSpaced>"), "{}", output.jsx);
+        assert!(output.runtime_imports.contains(&"DowelSpaced"), "{:?}", output.runtime_imports);
+
+        // The child style, not the parent's: the element itself gets no
+        // border or margin from these.
+        assert!(output.styles.contains("dowel0Children: {"), "{}", output.styles);
+        assert!(output.styles.contains("borderTopWidth: 0,"), "{}", output.styles);
+        assert!(output.styles.contains("borderBottomWidth: 4,"), "{}", output.styles);
+        assert!(output.styles.contains("marginTop: 0,"), "{}", output.styles);
+        assert!(output.styles.contains("marginBottom: 8,"), "{}", output.styles);
     }
 
     #[test]
-    fn viewport_height_is_refused_and_leaves_valid_output() {
+    fn space_x_uses_the_logical_margins_and_divide_x_the_logical_border_widths() {
+        // React Native takes the CSS logical names for margins
+        // (`marginInlineStart`) but its own for border widths
+        // (`borderStartWidth`, not `borderInlineStartWidth`). Emitting the
+        // CSS spelling for the border would be silently ignored on device.
         let source = r#"
-            import { View } from '@dowel/core'
-            const el = <View className="h-screen" />
+            import { View, Text } from '@dowel/core'
+            const el = (
+              <View className="space-x-3 divide-x-2 divide-red-500">
+                <Text>a</Text>
+              </View>
+            )
             "#;
         let parsed = dowel_parser::parse_tsx(source);
         let output = lower(&parsed.roots[0].node, source);
 
-        assert_eq!(output.diagnostics.len(), 1);
-        assert_eq!(output.diagnostics[0].code, dowel_ir::DiagnosticCode::WebOnlyPropertyOnNative);
-        assert_eq!(output.diagnostics[0].severity, dowel_ir::Severity::Error);
-        // The key must be dropped entirely, not written with an empty
-        // value -- `height: ,` isn't parseable JS.
-        assert!(!output.styles.contains("height"));
-        assert!(!output.styles.contains(": ,"));
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert!(output.styles.contains("marginInlineStart: 0,"), "{}", output.styles);
+        assert!(output.styles.contains("marginInlineEnd: 12,"), "{}", output.styles);
+        assert!(output.styles.contains("borderStartWidth: 0,"), "{}", output.styles);
+        assert!(output.styles.contains("borderEndWidth: 2,"), "{}", output.styles);
+        assert!(output.styles.contains("borderColor: '#fb2c36',"), "{}", output.styles);
+    }
+
+    #[test]
+    fn font_relative_metrics_resolve_against_a_text_size_on_the_same_element() {
+        // Refused as "the font size isn't known at compile time" until the
+        // refusal audit questioned it. Often it *is* known -- `text-lg`
+        // right there on the element -- and Tailwind's own output does the
+        // same multiplication.
+        let source = r#"
+            import { Text } from '@dowel/core'
+            const el = <Text className="text-lg leading-tight tracking-wide">x</Text>
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source);
+
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        // text-lg is 18px; leading-tight is 1.25; tracking-wide is 0.025em.
+        assert!(output.styles.contains("lineHeight: 22.5,"), "{}", output.styles);
+        assert!(output.styles.contains("letterSpacing: 0.45,"), "{}", output.styles);
+    }
+
+    #[test]
+    fn a_font_relative_metric_with_no_text_size_is_named_as_unwired_not_web_only() {
+        // The distinction is the whole point of the two codes: the platform
+        // can hold this value, so calling it Web-only would be false, and
+        // the fix is one utility away.
+        let source = r#"
+            import { Text } from '@dowel/core'
+            const el = <Text className="leading-tight">x</Text>
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source);
+
+        assert_eq!(output.diagnostics.len(), 1, "{:?}", output.diagnostics);
+        assert_eq!(output.diagnostics[0].code, DiagnosticCode::NotWiredOnNative);
+        assert!(output.diagnostics[0].message.contains("text-*"), "{}", output.diagnostics[0].message);
+        assert!(!output.styles.contains("lineHeight"), "{}", output.styles);
+    }
+
+    #[test]
+    fn a_conditional_text_size_does_not_resolve_an_unconditional_ratio() {
+        // Folding `leading-tight` against `md:text-lg` would bake a size
+        // that only applies above 768px into a style that always applies.
+        let source = r#"
+            import { Text } from '@dowel/core'
+            const el = <Text className="md:text-lg leading-tight">x</Text>
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source);
+
+        assert!(
+            output.diagnostics.iter().any(|d| d.code == DiagnosticCode::NotWiredOnNative
+                && d.message.contains("text-*")),
+            "{:?}",
+            output.diagnostics
+        );
+        // `md:text-lg` still brings its own line height into the md entry;
+        // what must not appear is the ratio folded against it.
+        assert!(!output.styles.contains("lineHeight: 22.5"), "{}", output.styles);
+    }
+
+    #[test]
+    fn an_element_without_space_or_divide_gets_no_wrapper() {
+        // The wrapper is not free -- it is a component in the tree and a
+        // runtime import -- so it must appear only where it does something.
+        let source = r#"
+            import { View, Text } from '@dowel/core'
+            const el = (
+              <View className="p-4">
+                <Text>a</Text>
+              </View>
+            )
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source);
+        assert!(!output.jsx.contains("DowelSpaced"), "{}", output.jsx);
+        assert!(output.runtime_imports.is_empty(), "{:?}", output.runtime_imports);
+    }
+
+    #[test]
+    fn viewport_sizes_become_an_inline_style_read_from_a_hook() {
+        // Refused as "React Native has no viewport unit" until the refusal
+        // audit pointed out that `height` is an ordinary style key there.
+        // The obstacle was never the unit; it was that the value changes on
+        // rotation, so it can't sit in a `StyleSheet.create` object that is
+        // evaluated once.
+        let source = r#"
+            import { View } from '@dowel/core'
+            const el = <View className="h-screen p-4" />
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source);
+
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert_eq!(output.prelude, vec!["const __dowelViewport = useDowelViewport()"]);
+        assert_eq!(output.runtime_imports, vec!["useDowelViewport"]);
+        // Two array elements, not one comma expression: the static entry
+        // and the live one.
+        assert!(
+            output.jsx.contains("style={[styles.dowel0, { height: __dowelViewport.height }]}"),
+            "{}",
+            output.jsx
+        );
+        // ...and the size stays out of the StyleSheet, where it would be
+        // frozen at whatever the window was on the first render.
+        assert!(!output.styles.contains("height"), "{}", output.styles);
+        assert!(!output.styles.contains(": ,"), "{}", output.styles);
+    }
+
+    #[test]
+    fn a_partial_viewport_size_multiplies_the_window() {
+        // Tested at this level rather than through a utility because no
+        // utility reaches it yet: `*-screen` is the only viewport size
+        // Dowel parses, and it is always 100%. `Dimension` carries a
+        // percentage because `h-dvh`/`h-lvh` and arbitrary values will land
+        // here, so the branch is written and pinned rather than left to be
+        // discovered later.
+        assert_eq!(
+            viewport_object(&[StyleProperty::Width(dowel_ir::Dimension::ViewportWidth(50.0))]),
+            Some("{ width: __dowelViewport.width * 0.5 }".to_string())
+        );
+        assert_eq!(
+            viewport_object(&[StyleProperty::MaxHeight(dowel_ir::Dimension::ViewportHeight(
+                100.0
+            ))]),
+            Some("{ maxHeight: __dowelViewport.height }".to_string())
+        );
+        assert_eq!(viewport_object(&[StyleProperty::Opacity(0.5)]), None);
+    }
+
+    #[test]
+    fn a_conditional_viewport_size_is_guarded_like_the_entry_beside_it() {
+        // Both halves of the style have to carry the guard. Guarding only
+        // the StyleSheet entry would apply the height at every width.
+        let source = r#"
+            import { View } from '@dowel/core'
+            const el = <View className="md:h-screen md:p-4" />
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source);
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert!(output.jsx.contains("__dowelBp_md && styles.dowel0_md"), "{}", output.jsx);
+        assert!(
+            output.jsx.contains("__dowelBp_md && { height: __dowelViewport.height }"),
+            "{}",
+            output.jsx
+        );
     }
 
     #[test]

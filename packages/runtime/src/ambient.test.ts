@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { bucketFor, createStore, isAtLeast } from './ambient.ts'
+import { bucketFor, createStore, isAtLeast, sameViewport } from './ambient.ts'
 
 test('a store notifies only when the value actually changes', () => {
   // The whole reason the snapshot is coarse: React bails out of a re-render
@@ -64,4 +64,32 @@ test('a breakpoint is satisfied by itself and by anything wider', () => {
   assert.equal(isAtLeast('2xl', 'sm'), true)
   assert.equal(isAtLeast('sm', 'md'), false)
   assert.equal(isAtLeast('', 'sm'), false)
+})
+
+test('a viewport store notifies on a real resize and not on a repeat', () => {
+  // `Dimensions` reports a fresh object every event, so identity comparison
+  // would call every event a change -- and on Android they fire on keyboard
+  // show/hide. `useSyncExternalStore` compares snapshots by identity too,
+  // so an unchanged size has to keep the *same object*, not merely an equal
+  // one.
+  const store = createStore({ width: 390, height: 844 }, sameViewport)
+  let notifications = 0
+  store.subscribe(() => {
+    notifications += 1
+  })
+
+  const first = store.get()
+  store.set({ width: 390, height: 844 })
+  assert.equal(notifications, 0)
+  assert.equal(store.get(), first, 'snapshot identity must survive a no-op set')
+
+  store.set({ width: 844, height: 390 })
+  assert.equal(notifications, 1)
+  assert.deepEqual(store.get(), { width: 844, height: 390 })
+})
+
+test('viewport equality ignores nothing that matters and nothing that does not', () => {
+  assert.equal(sameViewport({ width: 1, height: 2 }, { width: 1, height: 2 }), true)
+  assert.equal(sameViewport({ width: 1, height: 2 }, { width: 1, height: 3 }), false)
+  assert.equal(sameViewport({ width: 1, height: 2 }, { width: 2, height: 2 }), false)
 })

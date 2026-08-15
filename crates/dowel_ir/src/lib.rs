@@ -63,18 +63,23 @@ pub enum DiagnosticCode {
     /// reach the DOM, but Dowel generates no CSS for whatever they turn out
     /// to be -- only for classes it could read at build time.
     DynamicClassNameNotResolved,
-    /// A variant-prefixed utility (`hover:`, `md:`, `dark:`, `first:`,
-    /// `pressed:`, `disabled:`) reached the Native backend with nothing to
-    /// drive its condition.
+    /// A utility React Native could express, that Dowel doesn't lower yet.
     ///
-    /// Distinct from `WebOnlyPropertyOnNative`: those utilities are
-    /// impossible on this platform (Yoga has no grid), whereas these are
-    /// merely unwired. `dark:` and the breakpoints have obvious React
-    /// Native counterparts -- `useColorScheme`, window dimensions -- and
-    /// `hover:`/`focus:` are real on tablets with a pointer and on the
-    /// desktop/visionOS targets. Naming them separately keeps "not built
-    /// yet" from being mistaken for "can't be built".
-    VariantNotWiredOnNative,
+    /// Distinct from `WebOnlyPropertyOnNative`, and the distinction is the
+    /// point: those utilities are impossible on this platform (Yoga has no
+    /// grid), whereas these are merely unbuilt. Keeping them apart is what
+    /// stops "not built yet" from hardening into "can't be built" -- and
+    /// the refusal audit (`@dowel/tailwind-conformance`) leans on it, since
+    /// only the Web-only claims are ones React Native's types can contradict.
+    ///
+    /// Covers a variant with nothing to drive it (`hover:`/`focus:`, which
+    /// are real on tablets with a pointer and on the desktop/visionOS
+    /// targets; `disabled:` with no `disabled` prop), a metric that needs a
+    /// font size the element doesn't set (`leading-tight` alone), and a
+    /// utility whose target primitive Dowel doesn't have yet
+    /// (`placeholder-*`, which React Native carries as `TextInput`'s
+    /// `placeholderTextColor`).
+    NotWiredOnNative,
     /// A Dowel primitive sits inside something the compiler carries but
     /// doesn't read -- an expression container, or an unmodeled component's
     /// children -- so it reaches output as source rather than as compiled
@@ -403,7 +408,7 @@ pub enum StyleProperty {
     /// defined relative to the element's own font size. Web-only: React
     /// Native's `letterSpacing` is an absolute number, and the font size to
     /// resolve against isn't known at compile time.
-    LetterSpacing(Em),
+    LetterSpacing(LetterSpacing),
     /// `overflow`/`text-overflow`/`white-space`, the three declarations
     /// `truncate` expands to.
     Overflow(Overflow),
@@ -532,9 +537,10 @@ pub enum StyleProperty {
     OutlineColor(Color),
     OutlineOffset(Length),
     /// `divide-*`: like `space-*`, these style the element's *children*
-    /// through a selector rather than the element itself, so both backends
-    /// treat them the same way -- a second child-scoped rule on Web, and a
-    /// named refusal on Native, which has no selector engine.
+    /// rather than the element itself. Web emits a second rule with a
+    /// child-scoped selector; Native has no selector engine and instead
+    /// hands the style to `DowelSpaced`, which distributes it over the
+    /// children at render time. Both target every child but the last.
     DivideX(Length),
     DivideY(Length),
     DivideColor(Color),
@@ -613,16 +619,38 @@ impl StyleProperty {
     /// the Native backend can refuse it by name instead of dropping it. Kept
     /// here rather than in that backend so every such case is listed in one
     /// place as more are found.
-    pub fn unsupported_on_native(&self) -> Option<String> {
-        let viewport = |dim: &Dimension, property: &str| match dim {
-            Dimension::ViewportWidth(pct) => {
-                Some(format!("`{property}: {pct}vw`: React Native has no viewport unit"))
-            }
-            Dimension::ViewportHeight(pct) => {
-                Some(format!("`{property}: {pct}vh`: React Native has no viewport unit"))
-            }
+    /// `Some(reason)` when React Native *could* express this and Dowel
+    /// doesn't lower it yet -- `DiagnosticCode::NotWiredOnNative` rather
+    /// than `WebOnlyPropertyOnNative`.
+    ///
+    /// Checked before `unsupported_on_native`, and separate from it because
+    /// the two make different claims. Conflating them is not harmless: the
+    /// refusal audit checks the Web-only claims against React Native's own
+    /// types, and a gap filed as impossible is a gap nobody revisits.
+    ///
+    /// Only the cases decidable from the property alone live here. A gap
+    /// that depends on the rest of the element -- a `leading-*` ratio with
+    /// no font size beside it -- is decided in `dowel_native`, which can see
+    /// the node.
+    pub fn not_wired_on_native(&self) -> Option<String> {
+        match self {
+            StyleProperty::PlaceholderColor(_) => Some(
+                "`placeholder-*`: React Native carries this as `TextInput`'s \
+                 `placeholderTextColor` prop rather than as a style, and Dowel has no `TextInput` \
+                 primitive to put it on yet. Nothing about the platform prevents it."
+                    .to_string(),
+            ),
             _ => None,
-        };
+        }
+    }
+
+    pub fn unsupported_on_native(&self) -> Option<String> {
+        // Viewport-relative sizes were refused here until 2026-08-15. They
+        // are not impossible on React Native, only impossible *statically*:
+        // the value changes when the device rotates, so it can't live in a
+        // `StyleSheet.create` object. The Native backend lowers them to an
+        // inline style read from a hook -- see
+        // `dowel_native::viewport_object`.
         match self {
             StyleProperty::Display(d) if !d.is_supported_on_native() => Some(format!(
                 "`display: {}`: React Native's layout engine supports only flex, none and contents",
@@ -633,25 +661,16 @@ impl StyleProperty {
                     _ => unreachable!("guarded by is_supported_on_native"),
                 }
             )),
-            StyleProperty::Width(d) => viewport(d, "width"),
-            StyleProperty::Height(d) => viewport(d, "height"),
-            StyleProperty::MinWidth(d) => viewport(d, "min-width"),
-            StyleProperty::MinHeight(d) => viewport(d, "min-height"),
-            StyleProperty::MaxWidth(d) => viewport(d, "max-width"),
-            StyleProperty::MaxHeight(d) => viewport(d, "max-height"),
             StyleProperty::GridTemplateColumns(_) => {
                 Some("`grid-template-columns`: React Native has no grid layout".to_string())
             }
-            StyleProperty::LetterSpacing(_) => Some(
-                "`letter-spacing` in em: React Native's letterSpacing is absolute, and the font \
-                 size to resolve against isn't known at compile time"
-                    .to_string(),
-            ),
-            StyleProperty::LineHeight(LineHeight::Ratio(_)) => Some(
-                "a unitless `line-height`: React Native's lineHeight is absolute, and the font \
-                 size to multiply by isn't known at compile time"
-                    .to_string(),
-            ),
+            // `letter-spacing` in em and a unitless `line-height` are
+            // deliberately absent here even though React Native has neither
+            // form as a style. Both are relative to the font size, and when
+            // a font size is set on the same element the compiler can
+            // resolve them -- so whether they're expressible depends on the
+            // node, which this method can't see. `dowel_native`'s
+            // `font_relative_reason` answers it for the cases it can't fold.
             // `text-overflow` and `white-space: nowrap` are deliberately
             // absent here even though React Native has neither as a style.
             // Together they describe truncation, which RN expresses as
@@ -671,11 +690,6 @@ impl StyleProperty {
                  is a runtime dependency rather than a lowering"
                     .to_string(),
             ),
-            StyleProperty::SpaceX(_) | StyleProperty::SpaceY(_) => Some(
-                "`space-*`: it styles the element's children via a selector, and React Native has \
-                 no selector engine"
-                    .to_string(),
-            ),
             StyleProperty::Fill(_) | StyleProperty::Stroke(_) | StyleProperty::StrokeWidth(_) => {
                 Some(
                     "SVG paint: React Native has no SVG in core -- `react-native-svg` is a \
@@ -690,12 +704,6 @@ impl StyleProperty {
             StyleProperty::CaretColor(_) => Some(
                 "`caret-*`: React Native puts the caret colour on `TextInput` as a prop \
                  (`cursorColor`/`selectionColor`), and Dowel doesn't model `TextInput` yet"
-                    .to_string(),
-            ),
-            StyleProperty::PlaceholderColor(_) => Some(
-                "`placeholder-*`: React Native puts this on `TextInput` as the \
-                 `placeholderTextColor` prop rather than in a style, and Dowel doesn't model \
-                 `TextInput` yet"
                     .to_string(),
             ),
             StyleProperty::MaskClip(_)
@@ -755,12 +763,9 @@ impl StyleProperty {
                  dashed"
                     .to_string(),
             ),
-            StyleProperty::DivideX(_)
-            | StyleProperty::DivideY(_)
-            | StyleProperty::DivideColor(_)
-            | StyleProperty::DivideStyle(_) => Some(
-                "`divide-*`: it styles the element's children via a selector, and React Native \
-                 has no selector engine"
+            StyleProperty::DivideStyle(BorderStyle::Double | BorderStyle::Hidden) => Some(
+                "`divide-double`/`divide-hidden`: React Native's borderStyle accepts only solid, \
+                 dotted and dashed"
                     .to_string(),
             ),
             _ => None,
@@ -859,6 +864,22 @@ pub struct Angle {
 /// be resolved to pixels at compile time.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Em(pub f64);
+
+/// CSS lets a letter spacing be relative to the font size or absolute.
+/// Tailwind writes the named scale in `em` (`tracking-wide` is `0.025em`);
+/// the absolute form exists because React Native's `letterSpacing` is
+/// absolute, so the Native backend resolves the `em` against a font size on
+/// the same element and stores the result here (see
+/// `dowel_native::fold_font_relative`).
+///
+/// One variant rather than a second `StyleProperty`, so that the two forms
+/// still dedupe against each other -- `dedupe_last_wins` keys on the
+/// property's discriminant.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LetterSpacing {
+    Em(Em),
+    Px(Length),
+}
 
 /// CSS allows a line height to be an absolute length or a unitless
 /// multiplier of the font size. Tailwind uses both: `leading-6` is the

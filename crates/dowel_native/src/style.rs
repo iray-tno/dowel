@@ -20,6 +20,7 @@
 
 use dowel_ir::{
     Align, AlignSelf, BorderStyle, Color, DecorationStyle, Dimension, Display, FlexDirection,
+    LetterSpacing,
     FlexShorthand, Justify,
     Length, LineHeight, Overflow, Position, Radius, StyleProperty, TextAlign, TextTransform,
 };
@@ -172,6 +173,62 @@ fn resolve_color(color: &Color) -> String {
     match dowel_ir::resolve_color_token(token) {
         Some(resolved) => format!("'{}'", resolved.hex),
         None => format!("'dowel-unresolved:{token}'"),
+    }
+}
+
+/// Whether a property styles the element's *children* rather than the
+/// element itself. These don't belong in the element's own style entry; see
+/// `child_property_and_value`.
+pub fn is_child_scoped(prop: &StyleProperty) -> bool {
+    matches!(
+        prop,
+        StyleProperty::SpaceX(_)
+            | StyleProperty::SpaceY(_)
+            | StyleProperty::DivideX(_)
+            | StyleProperty::DivideY(_)
+            | StyleProperty::DivideColor(_)
+            | StyleProperty::DivideStyle(_)
+    )
+}
+
+/// The style `space-*`/`divide-*` put on each spaced child.
+///
+/// The Web counterpart is `dowel_web::css::space_declarations`, and the two
+/// differ in one place worth naming: Tailwind writes `border-top-style` and
+/// `border-bottom-style` as separate longhands so `divide-*-reverse` can
+/// flip which edge carries the border. React Native has no per-side border
+/// style at all -- only `borderStyle` -- so the style is written once. That
+/// is not a loss here: only one edge is given a width, so which edges the
+/// style nominally applies to makes no visible difference.
+pub fn child_property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
+    match prop {
+        // Both edges are written, zeroing the leading one, matching what
+        // Web emits -- a child with its own margin utility still overrides
+        // this, since `DowelSpaced` merges the parent's style behind the
+        // child's.
+        StyleProperty::SpaceX(l) => vec![
+            ("marginInlineStart", "0".to_string()),
+            ("marginInlineEnd", number(*l)),
+        ],
+        StyleProperty::SpaceY(l) => {
+            vec![("marginTop", "0".to_string()), ("marginBottom", number(*l))]
+        }
+        StyleProperty::DivideX(l) => vec![
+            ("borderStyle", "'solid'".to_string()),
+            // RN spells the logical border widths `borderStartWidth`/
+            // `borderEndWidth`; it has no `borderInline*Width`, unlike the
+            // margins just above, which do take the CSS logical names.
+            ("borderStartWidth", "0".to_string()),
+            ("borderEndWidth", number(*l)),
+        ],
+        StyleProperty::DivideY(l) => vec![
+            ("borderStyle", "'solid'".to_string()),
+            ("borderTopWidth", "0".to_string()),
+            ("borderBottomWidth", number(*l)),
+        ],
+        StyleProperty::DivideColor(c) => vec![("borderColor", resolve_color(c))],
+        StyleProperty::DivideStyle(s) => vec![("borderStyle", border_style_literal(s))],
+        _ => Vec::new(),
     }
 }
 
@@ -372,11 +429,17 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
         // RN's `fontWeight` type is a *string* ('100'..'900'/'normal'/
         // 'bold'), not a number -- unlike CSS's numeric font-weight.
         StyleProperty::FontWeight(w) => vec![("fontWeight", format!("'{}'", w.0))],
+        // Both of these are absolute in React Native. A font-relative form
+        // reaching here means `fold_font_relative` found no font size on the
+        // element to resolve it against, and it was refused by name there --
+        // emitting nothing keeps the object valid if that error is ignored.
         StyleProperty::LineHeight(lh) => match lh {
             LineHeight::Length(l) => vec![("lineHeight", number(*l))],
-            // Refused upstream (see `unsupported_on_native`); emitting
-            // nothing keeps the object valid if that error is ignored.
             LineHeight::Ratio(_) => Vec::new(),
+        },
+        StyleProperty::LetterSpacing(ls) => match ls {
+            LetterSpacing::Px(l) => vec![("letterSpacing", number(*l))],
+            LetterSpacing::Em(_) => Vec::new(),
         },
         StyleProperty::Overflow(o) => vec![(
             "overflow",
@@ -392,16 +455,17 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
         // `numberOfLines` prop, not a style.
         StyleProperty::WhiteSpace(_) => Vec::new(),
         // All refused upstream by `unsupported_on_native`.
-        StyleProperty::LetterSpacing(_)
         | StyleProperty::TextOverflow(_)
         | StyleProperty::GridTemplateColumns(_)
         | StyleProperty::TransitionProperty(_)
         | StyleProperty::TransitionDuration(_)
         | StyleProperty::TransitionTimingFunction(_)
         | StyleProperty::Animation(_)
+        // Child-scoped: these mean something for the element's children, not
+        // for the element, and are routed to `child_property_and_value`
+        // before they reach here. Nothing to emit on the element itself.
         | StyleProperty::SpaceX(_)
         | StyleProperty::SpaceY(_)
-        // Child-scoped, so refused upstream by `unsupported_on_native`.
         | StyleProperty::DivideX(_)
         | StyleProperty::DivideY(_)
         | StyleProperty::DivideColor(_)

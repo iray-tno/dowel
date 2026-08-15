@@ -17,7 +17,7 @@
 use dowel_ir::{
     Align, AlignSelf, BorderStyle, Breakpoint, Color, Condition, ConditionExpr, DecorationStyle,
     Dimension, Display, Edge, MaskSlot, MaskStop,
-    Em, FlexDirection, FlexShorthand, Justify, Length, LineHeight, Overflow, Position, Radius,
+    Em, FlexDirection, LetterSpacing, FlexShorthand, Justify, Length, LineHeight, Overflow, Position, Radius,
     StyleProperty, TextAlign, TextOverflow, TextTransform, WhiteSpace,
 };
 
@@ -613,7 +613,10 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
                 LineHeight::Ratio(r) => format!("{r}"),
             },
         ),
-        StyleProperty::LetterSpacing(Em(v)) => ("letter-spacing", format!("{v}em")),
+        StyleProperty::LetterSpacing(ls) => ("letter-spacing", match ls {
+            LetterSpacing::Em(Em(v)) => format!("{v}em"),
+            LetterSpacing::Px(l) => length_px(*l),
+        }),
         StyleProperty::Overflow(o) => (
             "overflow",
             match o {

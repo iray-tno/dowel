@@ -439,6 +439,28 @@ pub enum StyleProperty {
     MaskPosition(&'static str),
     MaskRepeat(&'static str),
     MaskImageNone,
+    /// The gradient half of `mask-*`.
+    ///
+    /// Tailwind builds these from a fixed list of `--tw-mask-*` registers
+    /// spliced into one `mask-image`, with every unset slot defaulting to an
+    /// opaque `linear-gradient(#fff, #fff)` that the `intersect` composite
+    /// then ignores. Dowel knows the whole set at compile time, so
+    /// `dowel_web::css::mask_declarations` resolves the list directly.
+    ///
+    /// Each utility contributes one piece, which is why these are so
+    /// granular: `mask-t-from-red-500 mask-t-to-80%` are two utilities that
+    /// must combine into one gradient.
+    MaskStopColor(MaskSlot, MaskStop, Color),
+    MaskStopPosition(MaskSlot, MaskStop, Dimension),
+    /// `mask-linear-<n>` / `mask-conic-<n>`, in degrees.
+    MaskAngle(MaskSlot, f64),
+    /// `mask-circle`/`mask-ellipse`, `mask-radial-closest-side`, and
+    /// `mask-radial-at-*`. Each paints nothing alone -- they only shape a
+    /// radial gradient some other utility supplies.
+    MaskRadialShape(&'static str),
+    MaskRadialSize(&'static str),
+    MaskRadialPosition(&'static str),
+    MaskComposite(&'static str),
     /// `scroll-m-*` / `scroll-p-*`.
     ///
     /// These carry their edge rather than getting a variant each, unlike
@@ -645,8 +667,16 @@ impl StyleProperty {
             | StyleProperty::MaskSize(_)
             | StyleProperty::MaskPosition(_)
             | StyleProperty::MaskRepeat(_)
-            | StyleProperty::MaskImageNone => Some(
-                "`mask-*`: React Native has no masking of any kind -- no mask-image, no\n                 mask-clip, nothing to approximate it with"
+            | StyleProperty::MaskImageNone
+            | StyleProperty::MaskStopColor(..)
+            | StyleProperty::MaskStopPosition(..)
+            | StyleProperty::MaskAngle(..)
+            | StyleProperty::MaskRadialShape(_)
+            | StyleProperty::MaskRadialSize(_)
+            | StyleProperty::MaskRadialPosition(_)
+            | StyleProperty::MaskComposite(_) => Some(
+                "`mask-*`: React Native has no masking of any kind -- no mask-image, no \
+                 mask-clip, nothing to approximate it with"
                     .to_string(),
             ),
             StyleProperty::ScrollMargin(..)
@@ -908,6 +938,28 @@ pub enum Condition {
     Expr(ConditionExpr),
 }
 
+/// One slot in Tailwind's `mask-image` layer list.
+///
+/// The four sides compose into the first slot as a nested list, which is
+/// why a side utility produces six layers and a shape utility three.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MaskSlot {
+    Left,
+    Right,
+    Bottom,
+    Top,
+    Linear,
+    Radial,
+    Conic,
+}
+
+/// Which end of a mask gradient a stop describes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MaskStop {
+    From,
+    To,
+}
+
 /// Which edge (or edge pair) a per-side property targets, for the families
 /// where the number of edges makes one variant each impractical.
 ///
@@ -996,17 +1048,28 @@ impl StyleProperty {
     ///
     /// The enum discriminant, almost always -- which is why nearly every
     /// per-side property here has its own variant rather than carrying a
-    /// side. The exception is the variants that *do* carry an `Edge`: for
-    /// those, the edge is part of the identity, or `scroll-mt-4
-    /// scroll-mb-8` would collapse into one.
-    fn dedupe_key(&self) -> (std::mem::Discriminant<Self>, Option<Edge>) {
-        let edge = match self {
+    /// side. The exception is the variants that carry their own target: for
+    /// those the target is part of the identity, or `scroll-mt-4
+    /// scroll-mb-8` (and `mask-t-from-4 mask-b-from-8`) would collapse into
+    /// one.
+    ///
+    /// The extra discriminator is a plain integer because it has to cover
+    /// an `Edge`, a `(MaskSlot, MaskStop)` pair, and a bare `MaskSlot`
+    /// without those needing a common type. Only the variants listed here
+    /// use it; everything else passes 0.
+    fn dedupe_key(&self) -> (std::mem::Discriminant<Self>, u32) {
+        let target = match self {
             StyleProperty::ScrollMargin(edge, _) | StyleProperty::ScrollPadding(edge, _) => {
-                Some(*edge)
+                *edge as u32
             }
-            _ => None,
+            StyleProperty::MaskStopColor(slot, stop, _)
+            | StyleProperty::MaskStopPosition(slot, stop, _) => {
+                (*slot as u32) * 2 + *stop as u32
+            }
+            StyleProperty::MaskAngle(slot, _) => *slot as u32,
+            _ => 0,
         };
-        (std::mem::discriminant(self), edge)
+        (std::mem::discriminant(self), target)
     }
 }
 

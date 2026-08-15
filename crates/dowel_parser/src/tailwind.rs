@@ -6,7 +6,7 @@
 
 use dowel_ir::{
     Align, AlignSelf, Angle, Animation, BorderStyle, Breakpoint, Color, Condition, Dimension,
-    DecorationStyle, Display, Edge, Em,
+    DecorationStyle, Display, Edge, Em, MaskSlot, MaskStop,
     FlexDirection, FlexShorthand, FontWeight, Justify, Length, LineHeight, Overflow, Position,
     Radius, StyleProperty, TextAlign, TextOverflow, TextTransform, WhiteSpace,
 };
@@ -310,6 +310,120 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
     }
 
     None
+}
+
+/// The gradient half of `mask-*`: stops, angles, and the radial shaping
+/// utilities.
+///
+/// `mask-x-*`/`mask-y-*` are the only ones that produce two properties --
+/// they set both edges of an axis, exactly as Tailwind does.
+fn expand_mask_gradient(token: &str) -> Option<Vec<StyleProperty>> {
+    let (negative, token) = match token.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, token),
+    };
+    let rest = token.strip_prefix("mask-")?;
+
+    // Radial shaping. These paint nothing on their own; they only change
+    // how a radial gradient from some other utility is drawn.
+    if let Some(position) = rest.strip_prefix("radial-at-") {
+        return radial_position(position).map(|p| vec![StyleProperty::MaskRadialPosition(p)]);
+    }
+    match rest {
+        "circle" => return Some(vec![StyleProperty::MaskRadialShape("circle")]),
+        "ellipse" => return Some(vec![StyleProperty::MaskRadialShape("ellipse")]),
+        "add" => return Some(vec![StyleProperty::MaskComposite("add")]),
+        "subtract" => return Some(vec![StyleProperty::MaskComposite("subtract")]),
+        "intersect" => return Some(vec![StyleProperty::MaskComposite("intersect")]),
+        "exclude" => return Some(vec![StyleProperty::MaskComposite("exclude")]),
+        _ => {}
+    }
+    if let Some(size) = rest.strip_prefix("radial-") {
+        if matches!(
+            size,
+            "closest-side" | "closest-corner" | "farthest-side" | "farthest-corner"
+        ) {
+            return Some(vec![StyleProperty::MaskRadialSize(leak_size(size))]);
+        }
+    }
+
+    let (axis, tail) = rest.split_once('-')?;
+    let slots = mask_slots(axis)?;
+
+    // `mask-linear-45` / `mask-conic-45`: the whole tail is an angle.
+    if let Ok(degrees) = tail.parse::<f64>() {
+        if matches!(axis, "linear" | "conic") {
+            return Some(vec![StyleProperty::MaskAngle(slots[0], signed(degrees, negative))]);
+        }
+        return None;
+    }
+
+    let (stop, value) = match tail.split_once('-') {
+        Some(("from", value)) => (MaskStop::From, value),
+        Some(("to", value)) => (MaskStop::To, value),
+        _ => return None,
+    };
+
+    // A stop is either a position on the spacing scale / a percentage, or
+    // a colour. Positions are tried first because a bare number is never a
+    // colour token.
+    let property: Box<dyn Fn(MaskSlot) -> StyleProperty> = if let Some(pct) =
+        value.strip_suffix('%').and_then(|n| n.parse::<f64>().ok())
+    {
+        Box::new(move |slot| {
+            StyleProperty::MaskStopPosition(slot, stop, Dimension::Percent(pct))
+        })
+    } else if let Some(length) = parse_spacing_suffix(value) {
+        Box::new(move |slot| {
+            StyleProperty::MaskStopPosition(slot, stop, Dimension::Length(length))
+        })
+    } else {
+        let token = value.to_string();
+        Box::new(move |slot| {
+            StyleProperty::MaskStopColor(slot, stop, Color::Token(token.clone()))
+        })
+    };
+    Some(slots.iter().map(|slot| property(*slot)).collect())
+}
+
+/// Tailwind's axis abbreviations. `x`/`y` name two slots each.
+fn mask_slots(axis: &str) -> Option<Vec<MaskSlot>> {
+    Some(match axis {
+        "t" => vec![MaskSlot::Top],
+        "r" => vec![MaskSlot::Right],
+        "b" => vec![MaskSlot::Bottom],
+        "l" => vec![MaskSlot::Left],
+        "x" => vec![MaskSlot::Left, MaskSlot::Right],
+        "y" => vec![MaskSlot::Bottom, MaskSlot::Top],
+        "linear" => vec![MaskSlot::Linear],
+        "radial" => vec![MaskSlot::Radial],
+        "conic" => vec![MaskSlot::Conic],
+        _ => return None,
+    })
+}
+
+fn radial_position(suffix: &str) -> Option<&'static str> {
+    Some(match suffix {
+        "center" => "center",
+        "top" => "top",
+        "bottom" => "bottom",
+        "left" => "left",
+        "right" => "right",
+        "top-left" => "left top",
+        "top-right" => "right top",
+        "bottom-left" => "left bottom",
+        "bottom-right" => "right bottom",
+        _ => return None,
+    })
+}
+
+fn leak_size(size: &str) -> &'static str {
+    match size {
+        "closest-side" => "closest-side",
+        "closest-corner" => "closest-corner",
+        "farthest-side" => "farthest-side",
+        _ => "farthest-corner",
+    }
 }
 
 /// The `mask-*` utilities that are one property set to one keyword.
@@ -1182,6 +1296,9 @@ fn expand_base_utility(token: &str) -> Vec<StyleProperty> {
     if let Some(prop) = expand_mask(token) {
         return vec![prop];
     }
+    if let Some(props) = expand_mask_gradient(token) {
+        return props;
+    }
     if let Some(props) = expand_scroll(token) {
         return props;
     }
@@ -1624,9 +1741,50 @@ mod tests {
             vec![StyleProperty::MaskClip("content-box")]
         );
         assert_eq!(expand_utility("mask-none").1, vec![StyleProperty::MaskImageNone]);
-        // The gradient half isn't implemented; it must stay unsupported
-        // rather than be half-read as one of the above.
-        assert!(expand_utility("mask-t-from-4").1.is_empty());
+    }
+
+    #[test]
+    fn mask_gradients_name_their_slot_and_stop() {
+        assert_eq!(
+            expand_utility("mask-t-from-4").1,
+            vec![StyleProperty::MaskStopPosition(
+                MaskSlot::Top,
+                MaskStop::From,
+                Dimension::Length(Length::Px(16.0))
+            )]
+        );
+        assert_eq!(
+            expand_utility("mask-radial-to-red-500").1,
+            vec![StyleProperty::MaskStopColor(
+                MaskSlot::Radial,
+                MaskStop::To,
+                Color::Token("red-500".to_string())
+            )]
+        );
+        // An axis names two slots, exactly as Tailwind does.
+        assert_eq!(
+            expand_utility("mask-x-from-4").1,
+            vec![
+                StyleProperty::MaskStopPosition(
+                    MaskSlot::Left,
+                    MaskStop::From,
+                    Dimension::Length(Length::Px(16.0))
+                ),
+                StyleProperty::MaskStopPosition(
+                    MaskSlot::Right,
+                    MaskStop::From,
+                    Dimension::Length(Length::Px(16.0))
+                ),
+            ]
+        );
+        assert_eq!(
+            expand_utility("-mask-linear-45").1,
+            vec![StyleProperty::MaskAngle(MaskSlot::Linear, -45.0)]
+        );
+        assert_eq!(
+            expand_utility("mask-subtract").1,
+            vec![StyleProperty::MaskComposite("subtract")]
+        );
     }
 
     #[test]

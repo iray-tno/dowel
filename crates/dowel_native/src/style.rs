@@ -401,7 +401,14 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
         | StyleProperty::MaskSize(_)
         | StyleProperty::MaskPosition(_)
         | StyleProperty::MaskRepeat(_)
-        | StyleProperty::MaskImageNone => Vec::new(),
+        | StyleProperty::MaskImageNone
+        | StyleProperty::MaskStopColor(..)
+        | StyleProperty::MaskStopPosition(..)
+        | StyleProperty::MaskAngle(..)
+        | StyleProperty::MaskRadialShape(_)
+        | StyleProperty::MaskRadialSize(_)
+        | StyleProperty::MaskRadialPosition(_)
+        | StyleProperty::MaskComposite(_) => Vec::new(),
         StyleProperty::TextDecorationColor(c) => vec![("textDecorationColor", resolve_color(c))],
         // RN accepts solid/double/dotted/dashed; `wavy` is refused upstream
         // by `unsupported_on_native`.

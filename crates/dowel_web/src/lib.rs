@@ -540,6 +540,54 @@ export function Login() {
     }
 
     #[test]
+    fn mask_utilities_compose_into_one_resolved_layer_list() {
+        // Tailwind assembles `mask-image` from `--tw-mask-*` registers, so
+        // several utilities contribute to one declaration. The conformance
+        // suite only ever compiles one at a time, so the combinations are
+        // pinned here instead.
+        let css = css_for("mask-x-from-4 mask-x-to-80%");
+        assert!(
+            css.contains(
+                "mask-image: linear-gradient(to left, black 16px, transparent 80%), \
+                 linear-gradient(to right, black 16px, transparent 80%), \
+                 linear-gradient(#fff, #fff), linear-gradient(#fff, #fff), \
+                 linear-gradient(#fff, #fff), linear-gradient(#fff, #fff);"
+            ),
+            "{css}"
+        );
+
+        // An angle and a stop land in the same gradient.
+        let css = css_for("mask-linear-45 mask-linear-from-red-500");
+        assert!(
+            css.contains(
+                "mask-image: linear-gradient(45deg, oklch(63.7% 0.237 25.331) 0%, \
+                 transparent 100%), linear-gradient(#fff, #fff), linear-gradient(#fff, #fff);"
+            ),
+            "{css}"
+        );
+
+        // The radial shaping utilities paint nothing alone but change the
+        // gradient another utility supplies.
+        let css = css_for("mask-radial-from-4 mask-circle mask-radial-at-top");
+        assert!(css.contains("radial-gradient(circle farthest-corner at top, "), "{css}");
+    }
+
+    #[test]
+    fn a_mask_composite_alone_emits_no_layer_list() {
+        // `mask-add` with nothing to composite is just the composite mode;
+        // emitting a fully-opaque `mask-image` would be a no-op declaration
+        // Tailwind doesn't write either.
+        let css = css_for("mask-add");
+        assert!(css.contains("mask-composite: add;"), "{css}");
+        assert!(!css.contains("mask-image"), "{css}");
+    }
+
+    #[test]
+    fn radial_shaping_alone_paints_nothing() {
+        assert!(!css_for("mask-circle").contains("mask-image"));
+    }
+
+    #[test]
     fn placeholder_colour_scopes_itself_to_the_pseudo_element() {
         // The conformance suite cannot catch this: it compares
         // declarations, and the difference between tinting the placeholder

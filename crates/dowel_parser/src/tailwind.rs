@@ -312,6 +312,59 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
     None
 }
 
+/// The `mask-*` utilities that are one property set to one keyword.
+///
+/// Deliberately a table rather than nested prefix matching: the family has
+/// no structure to exploit -- `mask-center` is a position, `mask-cover` a
+/// size, `mask-alpha` a mode -- so anything cleverer would just be a table
+/// in disguise with more room for the wrong arm to win.
+///
+/// The gradient half of `mask-*` (`mask-t-from-*`, `mask-linear-*`, ~5,900
+/// candidates) is not here: those compose into a slot-based `mask-image`
+/// list and are a separate piece of work.
+fn expand_mask(token: &str) -> Option<StyleProperty> {
+    Some(match token {
+        "mask-none" => StyleProperty::MaskImageNone,
+        "mask-clip-border" => StyleProperty::MaskClip("border-box"),
+        "mask-clip-content" => StyleProperty::MaskClip("content-box"),
+        "mask-clip-fill" => StyleProperty::MaskClip("fill-box"),
+        "mask-clip-padding" => StyleProperty::MaskClip("padding-box"),
+        "mask-clip-stroke" => StyleProperty::MaskClip("stroke-box"),
+        "mask-clip-view" => StyleProperty::MaskClip("view-box"),
+        "mask-no-clip" => StyleProperty::MaskClip("no-clip"),
+        "mask-origin-border" => StyleProperty::MaskOrigin("border-box"),
+        "mask-origin-content" => StyleProperty::MaskOrigin("content-box"),
+        "mask-origin-fill" => StyleProperty::MaskOrigin("fill-box"),
+        "mask-origin-padding" => StyleProperty::MaskOrigin("padding-box"),
+        "mask-origin-stroke" => StyleProperty::MaskOrigin("stroke-box"),
+        "mask-origin-view" => StyleProperty::MaskOrigin("view-box"),
+        "mask-alpha" => StyleProperty::MaskMode("alpha"),
+        "mask-luminance" => StyleProperty::MaskMode("luminance"),
+        "mask-match" => StyleProperty::MaskMode("match-source"),
+        "mask-type-alpha" => StyleProperty::MaskType("alpha"),
+        "mask-type-luminance" => StyleProperty::MaskType("luminance"),
+        "mask-auto" => StyleProperty::MaskSize("auto"),
+        "mask-contain" => StyleProperty::MaskSize("contain"),
+        "mask-cover" => StyleProperty::MaskSize("cover"),
+        "mask-center" => StyleProperty::MaskPosition("center"),
+        "mask-top" => StyleProperty::MaskPosition("top"),
+        "mask-bottom" => StyleProperty::MaskPosition("bottom"),
+        "mask-left" => StyleProperty::MaskPosition("left"),
+        "mask-right" => StyleProperty::MaskPosition("right"),
+        "mask-top-left" => StyleProperty::MaskPosition("left top"),
+        "mask-top-right" => StyleProperty::MaskPosition("right top"),
+        "mask-bottom-left" => StyleProperty::MaskPosition("left bottom"),
+        "mask-bottom-right" => StyleProperty::MaskPosition("right bottom"),
+        "mask-repeat" => StyleProperty::MaskRepeat("repeat"),
+        "mask-no-repeat" => StyleProperty::MaskRepeat("no-repeat"),
+        "mask-repeat-x" => StyleProperty::MaskRepeat("repeat-x"),
+        "mask-repeat-y" => StyleProperty::MaskRepeat("repeat-y"),
+        "mask-repeat-round" => StyleProperty::MaskRepeat("round"),
+        "mask-repeat-space" => StyleProperty::MaskRepeat("space"),
+        _ => return None,
+    })
+}
+
 /// `scroll-m*`/`scroll-p*` (optionally negated) and `scroll-smooth`.
 ///
 /// Regular enough to be one function: eleven edges, two families, and the
@@ -1126,6 +1179,9 @@ fn expand_base_utility(token: &str) -> Vec<StyleProperty> {
             return vec![StyleProperty::RowGap(v)];
         }
     }
+    if let Some(prop) = expand_mask(token) {
+        return vec![prop];
+    }
     if let Some(props) = expand_scroll(token) {
         return props;
     }
@@ -1554,6 +1610,23 @@ mod tests {
             expand_utility("left-2"),
             (Condition::Always, vec![StyleProperty::InsetLeft(Length::Px(8.0))])
         );
+    }
+
+    #[test]
+    fn mask_keyword_utilities_map_to_their_own_property() {
+        // The family gives no hint from the name which property a keyword
+        // belongs to, which is why the parser is a flat table.
+        assert_eq!(expand_utility("mask-center").1, vec![StyleProperty::MaskPosition("center")]);
+        assert_eq!(expand_utility("mask-cover").1, vec![StyleProperty::MaskSize("cover")]);
+        assert_eq!(expand_utility("mask-alpha").1, vec![StyleProperty::MaskMode("alpha")]);
+        assert_eq!(
+            expand_utility("mask-clip-content").1,
+            vec![StyleProperty::MaskClip("content-box")]
+        );
+        assert_eq!(expand_utility("mask-none").1, vec![StyleProperty::MaskImageNone]);
+        // The gradient half isn't implemented; it must stay unsupported
+        // rather than be half-read as one of the above.
+        assert!(expand_utility("mask-t-from-4").1.is_empty());
     }
 
     #[test]

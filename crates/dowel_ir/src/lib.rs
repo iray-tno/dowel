@@ -419,6 +419,26 @@ pub enum StyleProperty {
     /// and there's no way to express it as a declaration on the parent.
     /// The Web backend emits a child-scoped rule for it; React Native has
     /// no selector engine, so it's refused there.
+    /// The `mask-*` utilities that are one CSS property set to one keyword.
+    ///
+    /// These carry the CSS keyword as a string rather than getting an enum
+    /// each, which is the opposite of how the rest of this file works. The
+    /// reason is that nothing ever *reads* the value: masks don't exist in
+    /// React Native at all, so there is no second lowering to map onto and
+    /// no value transformation to perform. A typed enum here would be eight
+    /// enums whose only use is to be turned straight back into the string
+    /// they came from.
+    ///
+    /// One variant per CSS property, though, so `dedupe_last_wins` still
+    /// resolves `mask-clip-border mask-clip-content` correctly.
+    MaskClip(&'static str),
+    MaskOrigin(&'static str),
+    MaskMode(&'static str),
+    MaskType(&'static str),
+    MaskSize(&'static str),
+    MaskPosition(&'static str),
+    MaskRepeat(&'static str),
+    MaskImageNone,
     /// `scroll-m-*` / `scroll-p-*`.
     ///
     /// These carry their edge rather than getting a variant each, unlike
@@ -616,6 +636,17 @@ impl StyleProperty {
                 "`placeholder-*`: React Native puts this on `TextInput` as the \
                  `placeholderTextColor` prop rather than in a style, and Dowel doesn't model \
                  `TextInput` yet"
+                    .to_string(),
+            ),
+            StyleProperty::MaskClip(_)
+            | StyleProperty::MaskOrigin(_)
+            | StyleProperty::MaskMode(_)
+            | StyleProperty::MaskType(_)
+            | StyleProperty::MaskSize(_)
+            | StyleProperty::MaskPosition(_)
+            | StyleProperty::MaskRepeat(_)
+            | StyleProperty::MaskImageNone => Some(
+                "`mask-*`: React Native has no masking of any kind -- no mask-image, no\n                 mask-clip, nothing to approximate it with"
                     .to_string(),
             ),
             StyleProperty::ScrollMargin(..)

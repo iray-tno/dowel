@@ -6,7 +6,7 @@
 
 use dowel_ir::{
     Align, AlignSelf, Angle, Animation, BorderStyle, Breakpoint, Color, Condition, Dimension,
-    DecorationStyle, Display, Em,
+    DecorationStyle, Display, Edge, Em,
     FlexDirection, FlexShorthand, FontWeight, Justify, Length, LineHeight, Overflow, Position,
     Radius, StyleProperty, TextAlign, TextOverflow, TextTransform, WhiteSpace,
 };
@@ -310,6 +310,55 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
     }
 
     None
+}
+
+/// `scroll-m*`/`scroll-p*` (optionally negated) and `scroll-smooth`.
+///
+/// Regular enough to be one function: eleven edges, two families, and the
+/// same spacing scale everything else uses.
+fn expand_scroll(token: &str) -> Option<Vec<StyleProperty>> {
+    let (negative, token) = match token.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, token),
+    };
+    let rest = token.strip_prefix("scroll-")?;
+
+    // `scroll-auto` is the initial value, so it emits nothing meaningful on
+    // its own and is left unsupported rather than approximated.
+    if rest == "smooth" {
+        return Some(vec![StyleProperty::ScrollBehaviorSmooth]);
+    }
+
+    let family = rest.chars().next()?;
+    let (edge_part, value) = rest.get(1..)?.split_once('-')?;
+    let edge = edge_keyword(edge_part)?;
+    let Length::Px(px) = parse_spacing_suffix(value)?;
+    let length = Length::Px(signed(px, negative));
+
+    Some(match family {
+        'm' => vec![StyleProperty::ScrollMargin(edge, length)],
+        // Padding takes no negative value, in CSS or in Tailwind.
+        'p' if !negative => vec![StyleProperty::ScrollPadding(edge, length)],
+        _ => return None,
+    })
+}
+
+/// Tailwind's edge abbreviations, shared by every per-side family.
+fn edge_keyword(suffix: &str) -> Option<Edge> {
+    Some(match suffix {
+        "" => Edge::All,
+        "t" => Edge::Top,
+        "r" => Edge::Right,
+        "b" => Edge::Bottom,
+        "l" => Edge::Left,
+        "x" => Edge::Inline,
+        "y" => Edge::Block,
+        "s" => Edge::InlineStart,
+        "e" => Edge::InlineEnd,
+        "bs" => Edge::BlockStart,
+        "be" => Edge::BlockEnd,
+        _ => return None,
+    })
 }
 
 /// The colour families that are a single property with no keyword forms
@@ -1077,6 +1126,9 @@ fn expand_base_utility(token: &str) -> Vec<StyleProperty> {
             return vec![StyleProperty::RowGap(v)];
         }
     }
+    if let Some(props) = expand_scroll(token) {
+        return props;
+    }
     if let Some(props) = expand_paint(token) {
         return props;
     }
@@ -1502,6 +1554,28 @@ mod tests {
             expand_utility("left-2"),
             (Condition::Always, vec![StyleProperty::InsetLeft(Length::Px(8.0))])
         );
+    }
+
+    #[test]
+    fn scroll_margin_and_padding_cover_every_edge() {
+        assert_eq!(
+            expand_utility("scroll-mt-4").1,
+            vec![StyleProperty::ScrollMargin(Edge::Top, Length::Px(16.0))]
+        );
+        assert_eq!(
+            expand_utility("scroll-pe-2").1,
+            vec![StyleProperty::ScrollPadding(Edge::InlineEnd, Length::Px(8.0))]
+        );
+        assert_eq!(
+            expand_utility("-scroll-mx-4").1,
+            vec![StyleProperty::ScrollMargin(Edge::Inline, Length::Px(-16.0))]
+        );
+        // Padding takes no negative value, in CSS or in Tailwind.
+        assert!(expand_utility("-scroll-p-4").1.is_empty());
+        assert_eq!(expand_utility("scroll-smooth").1, vec![StyleProperty::ScrollBehaviorSmooth]);
+        // `scroll-auto` is the initial value; left unsupported rather than
+        // emitted as a no-op declaration.
+        assert!(expand_utility("scroll-auto").1.is_empty());
     }
 
     #[test]

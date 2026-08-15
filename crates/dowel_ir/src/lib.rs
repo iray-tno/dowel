@@ -419,6 +419,16 @@ pub enum StyleProperty {
     /// and there's no way to express it as a declaration on the parent.
     /// The Web backend emits a child-scoped rule for it; React Native has
     /// no selector engine, so it's refused there.
+    /// `scroll-m-*` / `scroll-p-*`.
+    ///
+    /// These carry their edge rather than getting a variant each, unlike
+    /// the per-side padding/margin/border-colour properties above: there
+    /// are eleven edges and two families, so spelling them out would be 22
+    /// variants and 66 match arms for one fairly niche corner of CSS.
+    /// `dedupe_key` is what makes that safe -- see its doc comment.
+    ScrollMargin(Edge, Length),
+    ScrollPadding(Edge, Length),
+    ScrollBehaviorSmooth,
     /// SVG paint, plus the handful of colour properties that are neither
     /// text nor background. All plain declarations -- the work here was
     /// recognising the utilities, not lowering them.
@@ -606,6 +616,12 @@ impl StyleProperty {
                 "`placeholder-*`: React Native puts this on `TextInput` as the \
                  `placeholderTextColor` prop rather than in a style, and Dowel doesn't model \
                  `TextInput` yet"
+                    .to_string(),
+            ),
+            StyleProperty::ScrollMargin(..)
+            | StyleProperty::ScrollPadding(..)
+            | StyleProperty::ScrollBehaviorSmooth => Some(
+                "`scroll-m-*`/`scroll-p-*`/`scroll-smooth`: these tune CSS scroll-snap and \n                 smooth scrolling, neither of which React Native's ScrollView exposes as a style"
                     .to_string(),
             ),
             StyleProperty::TextDecorationThickness(_) => Some(
@@ -861,6 +877,27 @@ pub enum Condition {
     Expr(ConditionExpr),
 }
 
+/// Which edge (or edge pair) a per-side property targets, for the families
+/// where the number of edges makes one variant each impractical.
+///
+/// Named to match the CSS longhand suffixes, so each backend's lookup table
+/// reads as the property list it is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Edge {
+    /// No suffix -- the shorthand that sets every edge.
+    All,
+    Top,
+    Right,
+    Bottom,
+    Left,
+    Inline,
+    Block,
+    InlineStart,
+    InlineEnd,
+    BlockStart,
+    BlockEnd,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Breakpoint {
     Sm,
@@ -914,12 +951,32 @@ pub fn dedupe_last_wins(props: Vec<StyleProperty>) -> Vec<StyleProperty> {
     let mut seen = std::collections::HashSet::new();
     let mut kept: Vec<StyleProperty> = Vec::new();
     for prop in props.into_iter().rev() {
-        if seen.insert(std::mem::discriminant(&prop)) {
+        if seen.insert(prop.dedupe_key()) {
             kept.push(prop);
         }
     }
     kept.reverse();
     kept
+}
+
+impl StyleProperty {
+    /// What makes two declarations "the same property" for last-wins
+    /// flattening.
+    ///
+    /// The enum discriminant, almost always -- which is why nearly every
+    /// per-side property here has its own variant rather than carrying a
+    /// side. The exception is the variants that *do* carry an `Edge`: for
+    /// those, the edge is part of the identity, or `scroll-mt-4
+    /// scroll-mb-8` would collapse into one.
+    fn dedupe_key(&self) -> (std::mem::Discriminant<Self>, Option<Edge>) {
+        let edge = match self {
+            StyleProperty::ScrollMargin(edge, _) | StyleProperty::ScrollPadding(edge, _) => {
+                Some(*edge)
+            }
+            _ => None,
+        };
+        (std::mem::discriminant(self), edge)
+    }
 }
 
 #[cfg(test)]
@@ -937,6 +994,28 @@ mod grouping_tests {
         assert_eq!(
             deduped,
             vec![StyleProperty::PaddingTop(Length::Px(4.0)), StyleProperty::PaddingLeft(Length::Px(16.0))]
+        );
+    }
+
+    #[test]
+    fn an_edge_is_part_of_a_property_s_identity() {
+        // `ScrollMargin` carries its edge instead of having eleven variants,
+        // so the edge has to be in the dedupe key -- otherwise these two
+        // would look like the same property and only the last would survive.
+        let props = vec![
+            StyleProperty::ScrollMargin(Edge::Top, Length::Px(16.0)),
+            StyleProperty::ScrollMargin(Edge::Bottom, Length::Px(32.0)),
+        ];
+        assert_eq!(dedupe_last_wins(props).len(), 2);
+
+        // ...while the same edge twice still resolves last-wins.
+        let props = vec![
+            StyleProperty::ScrollMargin(Edge::Top, Length::Px(16.0)),
+            StyleProperty::ScrollMargin(Edge::Top, Length::Px(32.0)),
+        ];
+        assert_eq!(
+            dedupe_last_wins(props),
+            vec![StyleProperty::ScrollMargin(Edge::Top, Length::Px(32.0))]
         );
     }
 

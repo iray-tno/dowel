@@ -16,7 +16,7 @@
 
 use dowel_ir::{
     Align, AlignSelf, BorderStyle, Breakpoint, Color, Condition, ConditionExpr, DecorationStyle,
-    Dimension, Display,
+    Dimension, Display, Edge,
     Em, FlexDirection, FlexShorthand, Justify, Length, LineHeight, Overflow, Position, Radius,
     StyleProperty, TextAlign, TextOverflow, TextTransform, WhiteSpace,
 };
@@ -64,6 +64,41 @@ fn radius_value(radius: &Radius) -> String {
         // Exactly what Tailwind emits -- CSS can state this, so there's no
         // reason to approximate it here.
         Radius::Full => "calc(infinity * 1px)".to_string(),
+    }
+}
+
+/// The CSS longhand for each edge. Spelled out rather than concatenated
+/// because `property_and_value` returns `&'static str`, and a built string
+/// would have to be leaked to satisfy that.
+fn scroll_margin_property(edge: Edge) -> &'static str {
+    match edge {
+        Edge::All => "scroll-margin",
+        Edge::Top => "scroll-margin-top",
+        Edge::Right => "scroll-margin-right",
+        Edge::Bottom => "scroll-margin-bottom",
+        Edge::Left => "scroll-margin-left",
+        Edge::Inline => "scroll-margin-inline",
+        Edge::Block => "scroll-margin-block",
+        Edge::InlineStart => "scroll-margin-inline-start",
+        Edge::InlineEnd => "scroll-margin-inline-end",
+        Edge::BlockStart => "scroll-margin-block-start",
+        Edge::BlockEnd => "scroll-margin-block-end",
+    }
+}
+
+fn scroll_padding_property(edge: Edge) -> &'static str {
+    match edge {
+        Edge::All => "scroll-padding",
+        Edge::Top => "scroll-padding-top",
+        Edge::Right => "scroll-padding-right",
+        Edge::Bottom => "scroll-padding-bottom",
+        Edge::Left => "scroll-padding-left",
+        Edge::Inline => "scroll-padding-inline",
+        Edge::Block => "scroll-padding-block",
+        Edge::InlineStart => "scroll-padding-inline-start",
+        Edge::InlineEnd => "scroll-padding-inline-end",
+        Edge::BlockStart => "scroll-padding-block-start",
+        Edge::BlockEnd => "scroll-padding-block-end",
     }
 }
 
@@ -185,6 +220,9 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
         StyleProperty::BackgroundColor(c) => ("background-color", color_var(c)),
         StyleProperty::Opacity(o) => ("opacity", format!("{o}")),
         StyleProperty::BorderColor(c) => ("border-color", color_var(c)),
+        StyleProperty::ScrollMargin(edge, l) => (scroll_margin_property(*edge), length_px(*l)),
+        StyleProperty::ScrollPadding(edge, l) => (scroll_padding_property(*edge), length_px(*l)),
+        StyleProperty::ScrollBehaviorSmooth => ("scroll-behavior", "smooth".to_string()),
         StyleProperty::Fill(c) => ("fill", color_var(c)),
         StyleProperty::Stroke(c) => ("stroke", color_var(c)),
         // SVG stroke-width is unitless, unlike every other length here.

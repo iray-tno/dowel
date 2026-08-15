@@ -390,7 +390,10 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
         | StyleProperty::AccentColor(_)
         | StyleProperty::CaretColor(_)
         | StyleProperty::PlaceholderColor(_)
-        | StyleProperty::TextDecorationThickness(_) => Vec::new(),
+        | StyleProperty::TextDecorationThickness(_)
+        | StyleProperty::ScrollMargin(..)
+        | StyleProperty::ScrollPadding(..)
+        | StyleProperty::ScrollBehaviorSmooth => Vec::new(),
         StyleProperty::TextDecorationColor(c) => vec![("textDecorationColor", resolve_color(c))],
         // RN accepts solid/double/dotted/dashed; `wavy` is refused upstream
         // by `unsupported_on_native`.

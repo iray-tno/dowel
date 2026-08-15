@@ -41,7 +41,7 @@ fn parse_transition_properties(token: &str) -> Option<&'static str> {
 
 /// Tailwind's default spacing scale: `spacing(n) = n * 0.25rem`, and the
 /// default root font size is 16px, so each spacing step is 4px.
-fn spacing_to_px(n: f32) -> Length {
+fn spacing_to_px(n: f64) -> Length {
     Length::Px(n * 4.0)
 }
 
@@ -49,7 +49,7 @@ fn parse_spacing_suffix(suffix: &str) -> Option<Length> {
     if suffix == "px" {
         return Some(Length::Px(1.0));
     }
-    suffix.parse::<f32>().ok().map(spacing_to_px)
+    suffix.parse::<f64>().ok().map(spacing_to_px)
 }
 
 pub fn parse_utility(token: &str) -> Option<StyleProperty> {
@@ -281,7 +281,7 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
         // Tailwind's opacity scale is 0-100 (in practice steps of 5),
         // meaning percent -- StyleProperty::Opacity wants the 0.0-1.0
         // fraction CSS/RN both expect.
-        return rest.parse::<f32>().ok().map(|pct| StyleProperty::Opacity(pct / 100.0));
+        return rest.parse::<f64>().ok().map(|pct| StyleProperty::Opacity(pct / 100.0));
     }
     if let Some(color) = token.strip_prefix("bg-") {
         return Some(StyleProperty::BackgroundColor(Color::Token(color.to_string())));
@@ -328,7 +328,7 @@ fn parse_border_radius(token: &str) -> Option<Radius> {
 /// Tailwind's named `--leading-*` scale: unitless multipliers of the
 /// element's own font size, unlike the numeric `leading-<n>` scale which is
 /// the spacing scale in pixels.
-fn parse_named_leading(suffix: &str) -> Option<f32> {
+fn parse_named_leading(suffix: &str) -> Option<f64> {
     Some(match suffix {
         "none" => 1.0,
         "tight" => 1.25,
@@ -341,7 +341,7 @@ fn parse_named_leading(suffix: &str) -> Option<f32> {
 }
 
 /// Tailwind's `--tracking-*` scale, in em.
-fn parse_tracking(suffix: &str) -> Option<f32> {
+fn parse_tracking(suffix: &str) -> Option<f64> {
     Some(match suffix {
         "tighter" => -0.05,
         "tight" => -0.025,
@@ -402,7 +402,7 @@ fn parse_shadow(token: &str) -> Option<&'static str> {
     })
 }
 
-fn parse_blur(token: &str) -> Option<f32> {
+fn parse_blur(token: &str) -> Option<f64> {
     Some(match token {
         "blur-xs" => 4.0,
         "blur-sm" | "blur" => 8.0,
@@ -422,26 +422,39 @@ fn parse_transform(token: &str) -> Option<StyleProperty> {
         Some(rest) => (true, rest),
         None => (false, token),
     };
-    let sign = if negative { -1.0 } else { 1.0 };
-
     if let Some(rest) = token.strip_prefix("rotate-") {
-        let degrees: f32 = rest.parse().ok()?;
-        return Some(StyleProperty::Rotate(Angle { degrees: degrees * sign }));
+        let degrees: f64 = rest.parse().ok()?;
+        return Some(StyleProperty::Rotate(Angle { degrees: signed(degrees, negative) }));
     }
     if let Some(rest) = token.strip_prefix("scale-") {
-        let pct: f32 = rest.parse().ok()?;
-        // Tailwind's scale scale is a percentage; the IR holds the ratio.
-        return Some(StyleProperty::Scale(pct / 100.0 * sign));
+        let pct: f64 = rest.parse().ok()?;
+        // Kept as the authored percentage -- see `StyleProperty::Scale`.
+        return Some(StyleProperty::Scale(signed(pct, negative)));
     }
     if let Some(rest) = token.strip_prefix("translate-x-") {
         let Length::Px(v) = parse_spacing_suffix(rest)?;
-        return Some(StyleProperty::TranslateX(Length::Px(v * sign)));
+        return Some(StyleProperty::TranslateX(Length::Px(signed(v, negative))));
     }
     if let Some(rest) = token.strip_prefix("translate-y-") {
         let Length::Px(v) = parse_spacing_suffix(rest)?;
-        return Some(StyleProperty::TranslateY(Length::Px(v * sign)));
+        return Some(StyleProperty::TranslateY(Length::Px(signed(v, negative))));
     }
     None
+}
+
+/// Applies a `-` prefix, keeping zero unsigned.
+///
+/// IEEE negation of `0.0` gives `-0.0`, which Rust prints as `-0` -- so
+/// `-scale-0` emitted `scale: -0% -0%` where Tailwind emits `0 0`. The
+/// values behave identically in CSS; the strings don't, and a differential
+/// test compares strings.
+fn signed(value: f64, negative: bool) -> f64 {
+    let result = if negative { -value } else { value };
+    if result == 0.0 {
+        0.0
+    } else {
+        result
+    }
 }
 
 /// `max-w-*`/`max-h-*` additionally accept Tailwind's named container
@@ -471,8 +484,8 @@ fn parse_max_size_suffix(suffix: &str) -> Option<Dimension> {
 /// `w-full`/`w-auto` keywords (the latter handled by the exact-match table).
 fn parse_dimension_suffix(suffix: &str) -> Option<Dimension> {
     if let Some((num, denom)) = suffix.split_once('/') {
-        let num: f32 = num.parse().ok()?;
-        let denom: f32 = denom.parse().ok()?;
+        let num: f64 = num.parse().ok()?;
+        let denom: f64 = denom.parse().ok()?;
         if denom == 0.0 {
             return None;
         }
@@ -684,6 +697,12 @@ fn expand_base_utility(token: &str) -> Vec<StyleProperty> {
     // flattening, which is how Tailwind's own custom-property indirection
     // behaves.
     if let Some(properties) = parse_transition_properties(token) {
+        // ...except `transition-none`, which turns transitions off. Tailwind
+        // emits the property alone there; a timing function and duration
+        // would be inert but would still be two declarations it didn't write.
+        if token == "transition-none" {
+            return vec![StyleProperty::TransitionProperty(properties.to_string())];
+        }
         return vec![
             StyleProperty::TransitionProperty(properties.to_string()),
             StyleProperty::TransitionTimingFunction(DEFAULT_TRANSITION_TIMING.to_string()),
@@ -803,7 +822,7 @@ fn all_sides_border_style(style: BorderStyle) -> Vec<StyleProperty> {
 /// Border widths are plain pixel counts, not multiples of the spacing
 /// scale -- `border-2` is 2px, not 8px.
 fn parse_border_width_px(suffix: &str) -> Option<Length> {
-    suffix.parse::<f32>().ok().map(Length::Px)
+    suffix.parse::<f64>().ok().map(Length::Px)
 }
 
 #[cfg(test)]
@@ -1024,7 +1043,7 @@ mod tests {
         // Tailwind's scale scale is a percentage; the IR keeps the ratio.
         assert_eq!(
             expand_utility("scale-95"),
-            (Condition::Always, vec![StyleProperty::Scale(0.95)])
+            (Condition::Always, vec![StyleProperty::Scale(95.0)])
         );
         assert_eq!(
             expand_utility("translate-x-2"),

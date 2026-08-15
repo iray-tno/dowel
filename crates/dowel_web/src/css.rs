@@ -248,10 +248,7 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
         // Tailwind writes both axes explicitly for scale/translate, so
         // these do the same rather than relying on one-value expansion.
         StyleProperty::Rotate(a) => ("rotate", format!("{}deg", a.degrees)),
-        StyleProperty::Scale(s) => {
-            let pct = s * 100.0;
-            ("scale", format!("{pct}% {pct}%"))
-        }
+        StyleProperty::Scale(pct) => ("scale", format!("{pct}% {pct}%")),
         StyleProperty::TranslateX(l) => ("translate", format!("{} 0", length_px(*l))),
         StyleProperty::TranslateY(l) => ("translate", format!("0 {}", length_px(*l))),
         StyleProperty::BoxShadow(s) => ("box-shadow", s.clone()),

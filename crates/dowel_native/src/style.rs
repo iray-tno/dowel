@@ -63,7 +63,7 @@ pub fn transform_entry(props: &[StyleProperty]) -> Option<(&'static str, String)
     }
     for prop in props {
         if let StyleProperty::Scale(s) = prop {
-            parts.push(format!("{{ scale: {s} }}"));
+            parts.push(format!("{{ scale: {} }}", s / 100.0));
         }
     }
     if parts.is_empty() {

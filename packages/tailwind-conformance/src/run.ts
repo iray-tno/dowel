@@ -211,7 +211,7 @@ for (const candidate of catalog) {
 const catalogComparable = catalog.length - notEmittedByTailwind
 console.log(
   `Catalogue:   ${catalog.length} entries; ${notEmittedByTailwind} produce no standalone CSS ` +
-    `even from Tailwind, leaving ${comparable}.\n`,
+    `even from Tailwind, leaving ${catalogComparable}.\n`,
 )
 console.log(
   `Match:       ${catalogCounts.MATCH}/${catalogComparable} = ${pct(catalogCounts.MATCH, catalogComparable)}\n` +

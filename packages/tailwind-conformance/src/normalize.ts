@@ -294,9 +294,22 @@ function expandFlex(value: string): Array<[string, string]> {
     ]
   }
   const parts = v.split(/\s+/)
-  // A single number means `<n> 1 0%`.
-  const [grow, shrink, basis] =
-    parts.length === 1 ? [parts[0], '1', '0%'] : parts.length === 2 ? [parts[0], parts[1], '0%'] : parts
+  const isNumber = (part: string) => /^[+-]?(\d+\.?\d*|\.\d+)$/.test(part)
+
+  // The two-value form is ambiguous and the spec resolves it by type: a
+  // number is the shrink factor, anything else is the basis. Reading it
+  // positionally made Tailwind's `flex: 0 auto` (which is exactly
+  // `flex: 0 1 auto`) look like a mismatch against Dowel's longhand.
+  const grow = parts[0]
+  let shrink = '1'
+  let basis = '0%'
+  if (parts.length === 2) {
+    if (isNumber(parts[1])) shrink = parts[1]
+    else basis = parts[1]
+  } else if (parts.length >= 3) {
+    shrink = parts[1]
+    basis = parts[2]
+  }
   return [
     ['flex-grow', grow],
     ['flex-shrink', shrink],

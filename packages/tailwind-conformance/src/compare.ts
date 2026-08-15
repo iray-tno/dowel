@@ -30,7 +30,16 @@ export interface Comparison {
  * the radius as an intent (`Radius::Full`) so Web emits Tailwind's exact
  * `calc(infinity * 1px)` and only Native falls back to a finite value.
  */
-const ACCEPTED_DIFFERENCES: Record<string, { property: string; reason: string }> = {}
+const ACCEPTED_DIFFERENCES: Record<string, { property: string; reason: string }> = {
+  'shadow-none': {
+    property: 'box-shadow',
+    reason:
+      'Dowel emits `none`; Tailwind clears its own `--tw-shadow` register and leaves the ' +
+      'ring/inset chain in place, which resolves to fully transparent layers. Both render no ' +
+      'shadow. Not equivalent forever: once `ring-*` is supported, `shadow-none ring-2` would ' +
+      "need Tailwind's form, since `none` clobbers the ring too. Revisit with `ring-*`.",
+  },
+}
 
 /** Runs a single utility through Dowel and returns its declaration block. */
 function dowelDeclarations(candidate: string): string {

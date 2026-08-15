@@ -282,7 +282,7 @@ pub enum StyleProperty {
 
     // Visual
     BackgroundColor(Color),
-    Opacity(f32),
+    Opacity(f64),
     BorderColor(Color),
     // Per-side, for the same reason margin/padding are (see above):
     // `border-t-2` and `border-b-4` set disjoint sides and must compose.
@@ -316,7 +316,14 @@ pub enum StyleProperty {
     /// defined application order (translate, then rotate, then scale).
     Rotate(Angle),
     /// A ratio: `scale-95` is 0.95, not 95.
-    Scale(f32),
+    /// As a *percentage*, the way Tailwind writes it (`scale-110` -> 110).
+    ///
+    /// Held in the authored unit rather than as a ratio so the Web
+    /// lowering is exact: converting to a ratio at parse and back at emit
+    /// made `scale-110` come out as `110.00000000000001%`. React Native
+    /// wants the ratio and divides once, where the same rounding is
+    /// invisible -- it takes a number, not a string.
+    Scale(f64),
     TranslateX(Length),
     TranslateY(Length),
     /// Kept as the already-composed CSS value rather than a structured
@@ -378,7 +385,7 @@ pub enum FlexShorthand {
     Initial,
     Auto,
     None,
-    Grow(f32),
+    Grow(f64),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -522,13 +529,13 @@ pub enum Radius {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Length {
-    Px(f32),
+    Px(f64),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Dimension {
     Length(Length),
-    Percent(f32),
+    Percent(f64),
     Auto,
     /// A percentage of the viewport (`h-screen` is `ViewportHeight(100.0)`).
     /// React Native has no viewport unit -- screen size there is a runtime
@@ -536,8 +543,8 @@ pub enum Dimension {
     /// can't hold -- so these are Web-only and the Native backend refuses
     /// them rather than freezing a launch-time size that would go stale on
     /// rotation.
-    ViewportWidth(f32),
-    ViewportHeight(f32),
+    ViewportWidth(f64),
+    ViewportHeight(f64),
 }
 
 impl Dimension {
@@ -566,13 +573,13 @@ pub enum TextAlign {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Angle {
-    pub degrees: f32,
+    pub degrees: f64,
 }
 
 /// A length in `em` -- relative to the element's own font size, so it can't
 /// be resolved to pixels at compile time.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Em(pub f32);
+pub struct Em(pub f64);
 
 /// CSS allows a line height to be an absolute length or a unitless
 /// multiplier of the font size. Tailwind uses both: `leading-6` is the
@@ -583,7 +590,7 @@ pub enum LineHeight {
     /// React Native has no unitless line height -- its `lineHeight` is an
     /// absolute number -- and the font size to multiply by isn't known at
     /// compile time, so this form is Web-only.
-    Ratio(f32),
+    Ratio(f64),
 }
 
 /// Tailwind's built-in animations. Named rather than stored as shorthand

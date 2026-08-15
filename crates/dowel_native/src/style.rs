@@ -408,7 +408,11 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
         | StyleProperty::MaskRadialShape(_)
         | StyleProperty::MaskRadialSize(_)
         | StyleProperty::MaskRadialPosition(_)
-        | StyleProperty::MaskComposite(_) => Vec::new(),
+        | StyleProperty::MaskComposite(_)
+        | StyleProperty::ScrollbarWidth(_)
+        | StyleProperty::ScrollbarGutter(_)
+        | StyleProperty::ScrollbarThumbColor(_)
+        | StyleProperty::ScrollbarTrackColor(_) => Vec::new(),
         StyleProperty::TextDecorationColor(c) => vec![("textDecorationColor", resolve_color(c))],
         // RN accepts solid/double/dotted/dashed; `wavy` is refused upstream
         // by `unsupported_on_native`.

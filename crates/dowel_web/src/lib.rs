@@ -540,6 +540,25 @@ export function Login() {
     }
 
     #[test]
+    fn scrollbar_thumb_and_track_share_one_declaration() {
+        // `scrollbar-color` takes both halves at once, so writing only one
+        // still has to name the other -- Tailwind's registers default to
+        // transparent, not to the UA's own colours.
+        assert!(css_for("scrollbar-thumb-red-500")
+            .contains("scrollbar-color: oklch(63.7% 0.237 25.331) #0000;"));
+        assert!(css_for("scrollbar-track-blue-500")
+            .contains("scrollbar-color: #0000 oklch(62.3% 0.214 259.815);"));
+
+        let css = css_for("scrollbar-thumb-red-500 scrollbar-track-blue-500");
+        assert!(
+            css.contains(
+                "scrollbar-color: oklch(63.7% 0.237 25.331) oklch(62.3% 0.214 259.815);"
+            ),
+            "{css}"
+        );
+    }
+
+    #[test]
     fn mask_utilities_compose_into_one_resolved_layer_list() {
         // Tailwind assembles `mask-image` from `--tw-mask-*` registers, so
         // several utilities contribute to one declaration. The conformance

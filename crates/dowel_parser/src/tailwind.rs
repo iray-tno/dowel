@@ -312,6 +312,25 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
     None
 }
 
+fn expand_scrollbar(token: &str) -> Option<StyleProperty> {
+    let rest = token.strip_prefix("scrollbar-")?;
+    if let Some(colour) = rest.strip_prefix("thumb-") {
+        return Some(StyleProperty::ScrollbarThumbColor(Color::Token(colour.to_string())));
+    }
+    if let Some(colour) = rest.strip_prefix("track-") {
+        return Some(StyleProperty::ScrollbarTrackColor(Color::Token(colour.to_string())));
+    }
+    Some(match rest {
+        "auto" => StyleProperty::ScrollbarWidth("auto"),
+        "none" => StyleProperty::ScrollbarWidth("none"),
+        "thin" => StyleProperty::ScrollbarWidth("thin"),
+        "gutter-auto" => StyleProperty::ScrollbarGutter("auto"),
+        "gutter-stable" => StyleProperty::ScrollbarGutter("stable"),
+        "gutter-both" => StyleProperty::ScrollbarGutter("stable both-edges"),
+        _ => return None,
+    })
+}
+
 /// The gradient half of `mask-*`: stops, angles, and the radial shaping
 /// utilities.
 ///
@@ -1292,6 +1311,9 @@ fn expand_base_utility(token: &str) -> Vec<StyleProperty> {
         if let Some(v) = parse_spacing_suffix(rest) {
             return vec![StyleProperty::RowGap(v)];
         }
+    }
+    if let Some(prop) = expand_scrollbar(token) {
+        return vec![prop];
     }
     if let Some(prop) = expand_mask(token) {
         return vec![prop];

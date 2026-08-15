@@ -461,6 +461,14 @@ pub enum StyleProperty {
     MaskRadialSize(&'static str),
     MaskRadialPosition(&'static str),
     MaskComposite(&'static str),
+    ScrollbarWidth(&'static str),
+    ScrollbarGutter(&'static str),
+    /// `scrollbar-thumb-*` / `scrollbar-track-*`. Two utilities that write
+    /// one `scrollbar-color: <thumb> <track>`, so they compose in the
+    /// backend the way ring and mask layers do. An unset half is
+    /// transparent, matching Tailwind's register default.
+    ScrollbarThumbColor(Color),
+    ScrollbarTrackColor(Color),
     /// `scroll-m-*` / `scroll-p-*`.
     ///
     /// These carry their edge rather than getting a variant each, unlike
@@ -679,10 +687,19 @@ impl StyleProperty {
                  mask-clip, nothing to approximate it with"
                     .to_string(),
             ),
+            StyleProperty::ScrollbarWidth(_)
+            | StyleProperty::ScrollbarGutter(_)
+            | StyleProperty::ScrollbarThumbColor(_)
+            | StyleProperty::ScrollbarTrackColor(_) => Some(
+                "`scrollbar-*`: React Native's scroll indicators are configured with props on \
+                 ScrollView (`indicatorStyle`, `showsVerticalScrollIndicator`), not styled"
+                    .to_string(),
+            ),
             StyleProperty::ScrollMargin(..)
             | StyleProperty::ScrollPadding(..)
             | StyleProperty::ScrollBehaviorSmooth => Some(
-                "`scroll-m-*`/`scroll-p-*`/`scroll-smooth`: these tune CSS scroll-snap and \n                 smooth scrolling, neither of which React Native's ScrollView exposes as a style"
+                "`scroll-m-*`/`scroll-p-*`/`scroll-smooth`: these tune CSS scroll-snap and \
+                 smooth scrolling, neither of which React Native's ScrollView exposes as a style"
                     .to_string(),
             ),
             StyleProperty::TextDecorationThickness(_) => Some(

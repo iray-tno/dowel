@@ -289,6 +289,37 @@ fn mask_declarations(props: &[&StyleProperty]) -> Vec<(&'static str, String)> {
     ]
 }
 
+fn is_scrollbar_color(prop: &StyleProperty) -> bool {
+    matches!(
+        prop,
+        StyleProperty::ScrollbarThumbColor(_) | StyleProperty::ScrollbarTrackColor(_)
+    )
+}
+
+/// `scrollbar-color` takes both halves at once, so `scrollbar-thumb-*` and
+/// `scrollbar-track-*` compose into one declaration. Tailwind's registers
+/// default to `#0000`, so an unset half is transparent rather than the UA
+/// default -- which is why writing only one still names both.
+fn scrollbar_color_value(props: &[&StyleProperty]) -> Option<String> {
+    let find = |f: fn(&StyleProperty) -> Option<&Color>| {
+        props.iter().find_map(|p| f(p)).map(color_var).unwrap_or_else(|| "#0000".to_string())
+    };
+    if props.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "{} {}",
+        find(|p| match p {
+            StyleProperty::ScrollbarThumbColor(c) => Some(c),
+            _ => None,
+        }),
+        find(|p| match p {
+            StyleProperty::ScrollbarTrackColor(c) => Some(c),
+            _ => None,
+        }),
+    ))
+}
+
 fn side_keyword(slot: MaskSlot) -> &'static str {
     match slot {
         MaskSlot::Left => "left",
@@ -428,6 +459,12 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
         StyleProperty::MaskPosition(v) => ("mask-position", v.to_string()),
         StyleProperty::MaskRepeat(v) => ("mask-repeat", v.to_string()),
         StyleProperty::MaskImageNone => ("mask-image", "none".to_string()),
+        StyleProperty::ScrollbarWidth(v) => ("scrollbar-width", v.to_string()),
+        StyleProperty::ScrollbarGutter(v) => ("scrollbar-gutter", v.to_string()),
+        // Composed by `scrollbar_color_value`; partitioned out above.
+        StyleProperty::ScrollbarThumbColor(_) | StyleProperty::ScrollbarTrackColor(_) => {
+            ("scrollbar-color", String::new())
+        }
         // Composed by `mask_declarations`; `render_rule` partitions these
         // out before this runs.
         StyleProperty::MaskStopColor(..)
@@ -738,11 +775,17 @@ pub fn render_rule(class_name: &str, condition: &Condition, props: &[StyleProper
     // so they're composed rather than emitted one declaration each.
     let (shadow_props, rest): (Vec<&StyleProperty>, Vec<&StyleProperty>) =
         own_props.into_iter().partition(|p| is_shadow_layer(p));
-    let (mask_props, own_props): (Vec<&StyleProperty>, Vec<&StyleProperty>) =
+    let (mask_props, rest): (Vec<&StyleProperty>, Vec<&StyleProperty>) =
         rest.into_iter().partition(|p| is_mask_gradient(p));
+    let (scrollbar_props, own_props): (Vec<&StyleProperty>, Vec<&StyleProperty>) =
+        rest.into_iter().partition(|p| is_scrollbar_color(p));
 
     let mut rules: Vec<String> = Vec::new();
-    if !own_props.is_empty() || !shadow_props.is_empty() || !mask_props.is_empty() {
+    if !own_props.is_empty()
+        || !shadow_props.is_empty()
+        || !mask_props.is_empty()
+        || !scrollbar_props.is_empty()
+    {
         let mut body = String::new();
         for prop in own_props {
             let (name, value) = property_and_value(prop);
@@ -753,6 +796,9 @@ pub fn render_rule(class_name: &str, condition: &Condition, props: &[StyleProper
         }
         for (name, value) in mask_declarations(&mask_props) {
             body.push_str(&format!("  {name}: {value};\n"));
+        }
+        if let Some(value) = scrollbar_color_value(&scrollbar_props) {
+            body.push_str(&format!("  scrollbar-color: {value};\n"));
         }
         rules.push(format!(".{class_name}{suffix} {{\n{body}}}"));
     }

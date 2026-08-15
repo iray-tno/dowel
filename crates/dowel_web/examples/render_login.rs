@@ -24,7 +24,7 @@ export function Login() {
 
 fn main() {
     let parsed = dowel_parser::parse_tsx(LOGIN_EXAMPLE);
-    let output = dowel_web::lower(&parsed.roots[0], LOGIN_EXAMPLE);
+    let output = dowel_web::lower(&parsed.roots[0].node, LOGIN_EXAMPLE);
     // dowel_web emits `className` (its real consumer is JSX/React); this
     // demo renders a plain standalone HTML page instead, so swap it back
     // to the attribute a browser actually matches CSS selectors against.

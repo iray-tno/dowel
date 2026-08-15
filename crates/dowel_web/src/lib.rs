@@ -306,7 +306,7 @@ export function Login() {
     #[test]
     fn lowers_the_login_example_to_html_and_css() {
         let parsed = dowel_parser::parse_tsx(LOGIN_EXAMPLE);
-        let root = &parsed.roots[0];
+        let root = &parsed.roots[0].node;
         let output = lower(root, LOGIN_EXAMPLE);
 
         assert!(output.jsx.starts_with(r#"<div className="dowel-view dowel-0">"#));
@@ -335,7 +335,7 @@ export function Login() {
             const el = <View className="hover:text-xl" />
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
         assert!(output.css.contains(".dowel-0:hover {"));
         assert!(output.css.contains("font-size: 20px;"));
     }
@@ -347,7 +347,7 @@ export function Login() {
             const el = <View className={classNameFromProps} />
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
 
         // The expression reaches the DOM instead of vanishing...
         assert!(output.jsx.contains("classNameFromProps"));
@@ -384,7 +384,7 @@ export function Login() {
             const el = <View className={cn('p-4', getDynamic())} />
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
         assert!(output.css.contains(".dowel-0 {"), "{}", output.css);
         assert!(!output.css.contains(".p-4 {"), "{}", output.css);
     }
@@ -417,7 +417,7 @@ export function Login() {
             const el = <View className={cn('p-4', active && 'text-xl', getDynamic())} />
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
 
         assert!(output.css.contains("padding-top: 16px;"));
         assert!(output.css.contains("font-size: 20px;"));
@@ -436,7 +436,7 @@ export function Login() {
             const el = <View className="space-x-2" />
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
         assert!(output.css.contains(":where(.dowel-0 > :not(:last-child)) {"));
         assert!(output.css.contains("margin-inline-end: 8px;"));
         // Not on the element itself.
@@ -454,7 +454,7 @@ export function Login() {
             )
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
         assert!(output.css.contains("animation: spin 1s linear infinite;"));
         // An `animation` declaration is inert without its keyframes, and
         // two users of the same animation must not duplicate the block.
@@ -468,7 +468,7 @@ export function Login() {
             const el = <View className="p-4" {...rest} onLayout={onLayout} testID="row" />
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
         assert!(output.jsx.contains("{...rest}"));
         assert!(output.jsx.contains("onLayout={onLayout}"));
         assert!(output.jsx.contains(r#"testID="row""#));
@@ -481,7 +481,7 @@ export function Login() {
             const el = <Button className="pressed:opacity-50">Save</Button>
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
         assert!(output.css.contains(".dowel-0:active {"));
         assert!(output.css.contains("opacity: 0.5;"));
     }
@@ -497,7 +497,7 @@ export function Login() {
             const el = <Pressable onPress={handleTap}>Tap</Pressable>
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
         assert_eq!(output.diagnostics.len(), 1);
         assert_eq!(output.diagnostics[0].code, dowel_ir::DiagnosticCode::A11yInteractiveWithoutRole);
         assert!(!output.jsx.contains("role="));
@@ -514,7 +514,7 @@ export function Login() {
             )
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
         assert!(output.diagnostics.is_empty());
         assert!(output.jsx.contains(r#"role="button""#));
     }
@@ -526,7 +526,7 @@ export function Login() {
             const el = <Button disabled={isLoading}>Save</Button>
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
         assert!(output.jsx.contains("disabled={isLoading}"));
         assert!(!output.jsx.contains("aria-disabled"));
     }
@@ -540,7 +540,7 @@ export function Login() {
             const el = <Pressable disabled={isLoading} accessibilityRole="button">Save</Pressable>
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
         assert!(output.jsx.contains("aria-disabled={isLoading}"));
     }
 
@@ -552,7 +552,7 @@ export function Login() {
             const el = <View className={cn('p-4', active && 'text-xl')} />
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
 
         // The guard is re-emitted verbatim, wired to toggle attribute
         // *presence* (not a literal "true"/"false" string, which would

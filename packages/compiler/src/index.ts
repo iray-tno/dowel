@@ -27,6 +27,17 @@ export interface CompiledComponent {
 export interface CompiledNativeComponent {
   jsx: string
   styles: string
+  /// Statements to splice at `hookSlot` for `jsx` to work. Empty unless a
+  /// condition needed a React hook (`dark:`, breakpoints).
+  prelude: string[]
+  /// Named imports `prelude` needs from `@dowel/runtime`.
+  runtimeImports: string[]
+  /// Byte offset just inside the enclosing function's `{` -- the only safe
+  /// place for `prelude`, since a hook must be called unconditionally and
+  /// in the same order every render. Absent (`null`/`undefined` -- napi
+  /// marshals a Rust `None` as `undefined`) when this JSX isn't inside a
+  /// function body a statement can go in: module scope, or a concise arrow.
+  hookSlot: number | null | undefined
   diagnostics: CompileDiagnostic[]
   spanStart: number
   spanEnd: number

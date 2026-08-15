@@ -44,24 +44,31 @@ const NAMED_GAPS = new Set(['WEB_ONLY_PROPERTY_ON_NATIVE', 'VARIANT_NOT_WIRED_ON
 ///   the JSX tree, which only exists for a child. Probing it only at the
 ///   root would measure the one context where `:first-child` is
 ///   meaningless anyway.
+///
+/// Every context wraps the JSX in a function component, because some
+/// utilities only work there: `dark:` and the breakpoints compile to a
+/// React hook, and a hook needs a statement position inside a component.
+/// Probing at module scope would score them covered while a real build of
+/// that same source refuses them.
 const PROBE_CONTEXTS = [
   {
     name: 'View',
     render: (candidate: string) =>
       `import { View } from '@dowel/core'\n` +
-      `const el = <View className="${candidate}">x</View>\n`,
+      `export function C() {\n  return <View className="${candidate}">x</View>\n}\n`,
   },
   {
     name: 'Text',
     render: (candidate: string) =>
       `import { Text } from '@dowel/core'\n` +
-      `const el = <Text className="${candidate}">x</Text>\n`,
+      `export function C() {\n  return <Text className="${candidate}">x</Text>\n}\n`,
   },
   {
     name: 'first child',
     render: (candidate: string) =>
       `import { View } from '@dowel/core'\n` +
-      `const el = (\n  <View>\n    <View className="${candidate}">x</View>\n  </View>\n)\n`,
+      `export function C() {\n  return (\n    <View>\n` +
+      `      <View className="${candidate}">x</View>\n    </View>\n  )\n}\n`,
   },
 ] as const
 

@@ -11,10 +11,12 @@ use dowel_ir::{
     Primitive, PropSet, Severity, SourceSpan, StyleDeclaration, TextContent,
 };
 use oxc_ast::ast::{
-    JSXAttributeItem, JSXAttributeName, JSXAttributeValue, JSXChild, JSXElement, JSXElementName,
-    JSXExpression,
+    ArrowFunctionExpression, Function, JSXAttributeItem, JSXAttributeName, JSXAttributeValue,
+    JSXChild, JSXElement, JSXElementName, JSXExpression,
 };
+use oxc_ast_visit::walk::{walk_arrow_function_expression, walk_function};
 use oxc_ast_visit::Visit;
+use oxc_syntax::scope::ScopeFlags;
 use oxc_span::{GetSpan, Span};
 use oxc_syntax::module_record::ModuleRecord;
 
@@ -226,20 +228,58 @@ fn build_node(
 
 /// Collects every top-level (i.e. not nested inside another already-visited
 /// JSX element) `Node` tree found while walking a `Program`.
+/// A top-level JSX element, plus where a hook declaration for it could go.
+pub struct Root {
+    pub node: Node,
+    /// Byte offset just inside the enclosing function's opening `{`, where
+    /// a generated `const x = useSomething()` can be spliced.
+    ///
+    /// `None` when there is nowhere to put one -- JSX at module scope, or
+    /// inside a concise arrow body. Conditions that need a hook must be
+    /// refused there rather than compiled into something invalid.
+    ///
+    /// A statement is the only safe position for these. Calling a hook
+    /// inline in the JSX (`style={[a, useDark() && b]}`) looks tempting and
+    /// breaks the rules of hooks as soon as the element itself sits behind
+    /// a conditional -- the call order then changes between renders, which
+    /// React treats as a hard error.
+    pub hook_slot: Option<u32>,
+}
+
 pub struct JsxCollector<'r, 'a> {
-    pub roots: Vec<Node>,
+    pub roots: Vec<Root>,
     /// Source-level diagnostics (things true of the written JSX itself,
     /// independent of which backend it later lowers to) -- as opposed to
     /// the lowering-level ones each backend raises during `lower()`.
     pub diagnostics: Vec<Diagnostic>,
     /// See `dynamic_class::Decomposed::consumed`.
     pub consumed: Vec<SourceSpan>,
+    /// The innermost enclosing function body's insertion point, maintained
+    /// as the walk descends. See `Root::hook_slot`.
+    hook_slot: Option<u32>,
     module_record: &'r ModuleRecord<'a>,
 }
 
 impl<'r, 'a> JsxCollector<'r, 'a> {
     pub fn new(module_record: &'r ModuleRecord<'a>) -> Self {
-        Self { roots: Vec::new(), diagnostics: Vec::new(), consumed: Vec::new(), module_record }
+        Self {
+            roots: Vec::new(),
+            diagnostics: Vec::new(),
+            consumed: Vec::new(),
+            hook_slot: None,
+            module_record,
+        }
+    }
+
+    /// Runs `body` with `slot` as the current innermost function body,
+    /// restoring the previous one afterwards. Nested functions therefore
+    /// shadow their parent, which is what a hook needs: it belongs to the
+    /// function that actually renders the JSX.
+    fn within_function<F: FnOnce(&mut Self)>(&mut self, slot: Option<u32>, body: F) {
+        let outer = self.hook_slot;
+        self.hook_slot = slot;
+        body(self);
+        self.hook_slot = outer;
     }
 }
 
@@ -250,8 +290,24 @@ impl<'r, 'a> Visit<'a> for JsxCollector<'r, 'a> {
         // generic walker here would visit (and re-collect) nested elements
         // a second time.
         if let Some(node) = build_node(it, self.module_record, &mut self.diagnostics, &mut self.consumed) {
-            self.roots.push(node);
+            self.roots.push(Root { node, hook_slot: self.hook_slot });
         }
+    }
+
+    fn visit_function(&mut self, it: &Function<'a>, flags: ScopeFlags) {
+        let slot = it.body.as_ref().map(|body| body.span.start + 1);
+        self.within_function(slot, |this| walk_function(this, it, flags));
+    }
+
+    fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
+        // A concise body (`() => <View/>`) is an expression, not a block,
+        // so there is no statement position to splice into. Reported as
+        // "no slot" rather than silently producing invalid code.
+        let slot = match &it.body {
+            oxc_ast::ast::ArrowFunctionBody::FunctionBody(body) => Some(body.span.start + 1),
+            _ => None,
+        };
+        self.within_function(slot, |this| walk_arrow_function_expression(this, it));
     }
 }
 
@@ -276,7 +332,7 @@ mod tests {
             const el = <View {...rest} className="p-4" onLayout={onLayout} testID="row" />
             "#;
         let output = crate::parse_tsx(source);
-        let root = &output.roots[0];
+        let root = &output.roots[0].node;
         assert_eq!(
             passthrough_texts(source, root),
             vec!["{...rest}", "onLayout={onLayout}", r#"testID="row""#]
@@ -296,7 +352,7 @@ mod tests {
         assert_eq!(output.diagnostics.len(), 1);
         assert_eq!(output.diagnostics[0].code, DiagnosticCode::UnsafePropSpreadAfterStyle);
         // Still emitted despite the warning -- dropping it would be worse.
-        assert_eq!(output.roots[0].props.passthrough.len(), 1);
+        assert_eq!(output.roots[0].node.props.passthrough.len(), 1);
     }
 
     #[test]
@@ -310,7 +366,7 @@ mod tests {
             "#,
         );
         assert!(output.diagnostics.is_empty());
-        assert_eq!(output.roots[0].props.passthrough.len(), 1);
+        assert_eq!(output.roots[0].node.props.passthrough.len(), 1);
     }
 
     #[test]
@@ -322,7 +378,7 @@ mod tests {
             const el = <Button disabled>Save</Button>
             "#;
         let output = crate::parse_tsx(source);
-        let root = &output.roots[0];
+        let root = &output.roots[0].node;
         assert!(root.props.disabled.is_none());
         assert_eq!(passthrough_texts(source, root), vec!["disabled"]);
     }
@@ -334,7 +390,7 @@ mod tests {
             const el = <Pressable accessibilityRole={computedRole}>Go</Pressable>
             "#;
         let output = crate::parse_tsx(source);
-        let root = &output.roots[0];
+        let root = &output.roots[0].node;
         assert_eq!(root.props.accessibility_role, None);
         assert_eq!(passthrough_texts(source, root), vec!["accessibilityRole={computedRole}"]);
     }
@@ -351,7 +407,7 @@ mod tests {
             )
             "#,
         );
-        let root = &output.roots[0];
+        let root = &output.roots[0].node;
         assert!(root.props.on_press.is_some());
         assert_eq!(root.props.accessibility_role, Some(AccessibilityRole::Button));
     }
@@ -364,7 +420,7 @@ mod tests {
             const el = <Button disabled={isLoading}>Save</Button>
             "#,
         );
-        let root = &output.roots[0];
+        let root = &output.roots[0].node;
         assert!(matches!(root.props.disabled, Some(ConditionExpr::Ref(_))));
     }
 
@@ -376,7 +432,7 @@ mod tests {
             const el = <Pressable accessibilityRole="link">Home</Pressable>
             "#,
         );
-        assert_eq!(output.roots[0].props.accessibility_role, Some(AccessibilityRole::Link));
+        assert_eq!(output.roots[0].node.props.accessibility_role, Some(AccessibilityRole::Link));
     }
 
     #[test]
@@ -391,6 +447,6 @@ mod tests {
             const el = <Pressable accessibilityRole={computedRole}>Go</Pressable>
             "#,
         );
-        assert_eq!(output.roots[0].props.accessibility_role, None);
+        assert_eq!(output.roots[0].node.props.accessibility_role, None);
     }
 }

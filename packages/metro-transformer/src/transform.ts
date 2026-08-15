@@ -84,15 +84,60 @@ export function transformDowelSource(
     }
   })
 
+  // Every rewrite as an offset-keyed edit, applied back-to-front so
+  // earlier offsets stay valid. Two kinds share the list: replacing a
+  // component's JSX, and inserting its hook declarations at the top of the
+  // enclosing function.
+  const edits: { start: number; end: number; text: string }[] = []
+  const runtimeImports = new Set<string>()
+  // Two components can live in one function, and both may need the same
+  // hook. The binding is function-scoped, so a second `const` would be a
+  // redeclaration -- and a second call would change the hook order.
+  const declaredPerSlot = new Map<number, Set<string>>()
+
+  components.forEach((component: CompiledNativeComponent, index: number) => {
+    edits.push({
+      start: component.spanStart,
+      end: component.spanEnd,
+      text: namespaceDowelIdentifiers(component.jsx, index),
+    })
+
+    if (component.prelude.length === 0) {
+      return
+    }
+    if (component.hookSlot === null || component.hookSlot === undefined) {
+      // A hook needs a statement position. There isn't one at module
+      // scope or in a concise arrow body, and inlining the call into the
+      // JSX would break the rules of hooks the moment the element sits
+      // behind a conditional.
+      throw new Error(
+        `[dowel] ${filename}: \`dark:\` and breakpoint variants need a React hook, which can ` +
+          `only go inside a component function. Move this JSX into a function component with a ` +
+          `block body (\`function C() { return <View .../> }\`).`,
+      )
+    }
+
+    const already = declaredPerSlot.get(component.hookSlot) ?? new Set<string>()
+    const fresh = component.prelude.filter((line) => !already.has(line))
+    for (const line of fresh) {
+      already.add(line)
+    }
+    declaredPerSlot.set(component.hookSlot, already)
+    for (const name of component.runtimeImports) {
+      runtimeImports.add(name)
+    }
+    if (fresh.length > 0) {
+      edits.push({
+        start: component.hookSlot,
+        end: component.hookSlot,
+        text: `\n  ${fresh.join('\n  ')}`,
+      })
+    }
+  })
+
   let next = code
-  // Splice from the last span to the first so earlier offsets stay valid
-  // as later (in the string, not array order) edits are applied.
-  const bySpanDescending = components
-    .map((component: CompiledNativeComponent, index: number) => ({ component, index }))
-    .sort((a, b) => b.component.spanStart - a.component.spanStart)
-  for (const { component, index } of bySpanDescending) {
-    const jsx = namespaceDowelIdentifiers(component.jsx, index)
-    next = next.slice(0, component.spanStart) + jsx + next.slice(component.spanEnd)
+  for (const edit of [...edits].sort((a, b) => b.start - a.start)) {
+    next = next.slice(0, edit.start) + edit.text + next.slice(edit.end)
   }
 
   next = next.replace(DOWEL_CORE_IMPORT_RE, '')
@@ -100,6 +145,9 @@ export function transformDowelSource(
   const rnImports = [...usedTags, 'StyleSheet'].join(', ')
   const mergedStyles = mergeStyleObjects(styleBlocks)
   next = `import { ${rnImports} } from 'react-native'\nconst styles = StyleSheet.create(${mergedStyles})\n${next}`
+  if (runtimeImports.size > 0) {
+    next = `import { ${[...runtimeImports].join(', ')} } from '@dowel/runtime'\n${next}`
+  }
 
   // Only when something actually calls it. The candidate module is
   // generated at config time (see `./project.ts`); a file with no

@@ -85,15 +85,15 @@ pub fn compile(source: String) -> Vec<CompiledComponent> {
         .roots
         .iter()
         .map(|root| {
-            let output = dowel_web::lower(root, &source);
-            let mut diagnostics = parser_diagnostics_for(&parsed, root);
+            let output = dowel_web::lower(&root.node, &source);
+            let mut diagnostics = parser_diagnostics_for(&parsed, &root.node);
             diagnostics.extend(output.diagnostics.into_iter().map(to_js_diagnostic));
             CompiledComponent {
                 jsx: output.jsx,
                 css: output.css,
                 diagnostics,
-                span_start: root.span.start,
-                span_end: root.span.end,
+                span_start: root.node.span.start,
+                span_end: root.node.span.end,
             }
         })
         .collect()
@@ -195,6 +195,15 @@ pub struct CompiledNativeComponent {
     /// `StyleSheet.create({ ... })`-ready object literal text (without the
     /// wrapper -- see `dowel_native::LowerOutput`).
     pub styles: String,
+    /// Statements to splice at `hook_slot` for `jsx` to work. Empty unless
+    /// a condition needed a React hook.
+    pub prelude: Vec<String>,
+    /// Named imports `prelude` needs from `@dowel/runtime`.
+    pub runtime_imports: Vec<String>,
+    /// Byte offset just inside the enclosing function's `{`, the only safe
+    /// place for `prelude`. `None` when this JSX isn't inside a function
+    /// body a statement can go in -- module scope, or a concise arrow.
+    pub hook_slot: Option<u32>,
     pub diagnostics: Vec<CompileDiagnostic>,
     pub span_start: u32,
     pub span_end: u32,
@@ -211,15 +220,22 @@ pub fn compile_native(source: String) -> Vec<CompiledNativeComponent> {
         .roots
         .iter()
         .map(|root| {
-            let output = dowel_native::lower(root, &source);
-            let mut diagnostics = parser_diagnostics_for(&parsed, root);
+            let output = dowel_native::lower(&root.node, &source);
+            let mut diagnostics = parser_diagnostics_for(&parsed, &root.node);
             diagnostics.extend(output.diagnostics.into_iter().map(to_js_diagnostic));
             CompiledNativeComponent {
                 jsx: output.jsx,
                 styles: output.styles,
+                prelude: output.prelude,
+                runtime_imports: output
+                    .runtime_imports
+                    .into_iter()
+                    .map(str::to_string)
+                    .collect(),
+                hook_slot: root.hook_slot,
                 diagnostics,
-                span_start: root.span.start,
-                span_end: root.span.end,
+                span_start: root.node.span.start,
+                span_end: root.node.span.end,
             }
         })
         .collect()

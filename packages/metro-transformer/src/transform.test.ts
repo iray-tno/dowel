@@ -110,3 +110,39 @@ test('says what is missing when the candidate module was never generated', () =>
     /generateCandidateModule/,
   )
 })
+
+test('splices hook declarations at the top of the component function', () => {
+  // `dark:` and the breakpoints compile to a React hook. It has to be a
+  // statement inside the component: a hook call inlined into the JSX
+  // (`style={[a, useDowelDark() && b]}`) breaks the rules of hooks the
+  // moment the element sits behind a conditional.
+  const source = `import { View, Text } from '@dowel/core'
+
+export function Card() {
+  return (
+    <View className="p-4 dark:bg-black md:flex-row">
+      <Text className="dark:text-white">a</Text>
+    </View>
+  )
+}
+`
+  const output = transformDowelSource(source, '/app/src/Card.tsx', '/app')
+  assert.ok(output)
+  assert.match(output!, /import \{[^}]*useDowelDark[^}]*\} from '@dowel\/runtime'/)
+  assert.match(output!, /export function Card\(\) \{\n  const __dowelDark = useDowelDark\(\)/)
+  assert.match(output!, /const __dowelBp_md = useDowelBreakpoint\('md'\)/)
+  // One declaration, though two elements guard on it -- a second `const`
+  // would redeclare the binding and change the hook order.
+  assert.equal(output!.match(/const __dowelDark =/g)?.length, 1)
+  assert.match(output!, /__dowelDark && styles\.dowel_r0_0_dark/)
+})
+
+test('refuses a hook where no statement can go', () => {
+  const source = `import { View } from '@dowel/core'
+const el = <View className="dark:bg-black" />
+`
+  assert.throws(
+    () => transformDowelSource(source, '/app/src/x.tsx', '/app'),
+    /need a React hook, which can only go inside a component function/,
+  )
+})

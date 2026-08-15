@@ -32,7 +32,22 @@ It runs at config load rather than inside the transformer because Metro transfor
 
 **Limitation:** the module is generated once, at config load. A class that only becomes a candidate *after* Metro started — a new string literal in a helper module — needs a Metro restart to appear. (`react-native-css` documents the same restriction for its transformer.)
 
-**Limitation:** only unconditional utilities survive this path. A style object can't express `hover:`, `md:`, or `pressed:`, and making it able to would mean per-component state tracking — a runtime CSS engine, which Dowel deliberately doesn't ship. Those classes are recorded with the reason and warned about *when they're actually used*, not at build time: appearing in the scan doesn't prove any expression ever produces one. Write them as a static `className` and they compile to a real style variant with no runtime involved.
+**Limitation:** only unconditional utilities survive *this* path (the runtime-resolved one). A style object can't express `hover:`, `md:`, or `pressed:`, and making it able to would mean per-component state tracking — a runtime CSS engine, which Dowel deliberately doesn't ship. Those classes are recorded with the reason and warned about *when they're actually used*, not at build time: appearing in the scan doesn't prove any expression ever produces one. Write them as a static `className` and they compile to a real style variant with no runtime involved.
+
+## `dark:` and breakpoints need a component function
+
+Written as a static `className`, `dark:` and `sm:`/`md:`/`lg:`/`xl:`/`2xl:` compile to a React hook from `@dowel/runtime`, spliced as a statement at the top of the enclosing component:
+
+```jsx
+export function Card() {
+  const __dowelDark = useDowelDark()
+  return <View style={[styles.dowel_r0_0, __dowelDark && styles.dowel_r0_0_dark]} />
+}
+```
+
+The hook has to be a statement. Inlining the call into the JSX (`style={[a, useDowelDark() && b]}`) breaks the rules of hooks as soon as the element sits behind a conditional, so JSX at module scope or in a concise arrow body (`() => <View className="dark:..." />`) is a build error naming the fix.
+
+`@dowel/runtime` keeps **one** subscription per app, not one per component, and its snapshot is a coarse value — the breakpoint's name rather than the raw width. A resize that doesn't cross a breakpoint therefore re-renders nothing, and Android's keyboard-driven dimension events never reach it at all, since only width is an input.
 
 ## Errors vs. warnings
 

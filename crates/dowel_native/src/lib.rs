@@ -19,18 +19,23 @@
 //! a function isn't a valid `style` value on View/Text, so `Pressed` stays
 //! unmerged there, same treatment as Hover/Focus/Responsive below.
 //!
-//! `Hover`/`Focus`/`Responsive`/`Dark`/`FirstChild` still don't merge into
-//! anything -- and until 2026-08-15 that was a **silent** drop, not the
-//! "honest gap" an earlier version of this comment claimed. Their style
-//! objects were computed into the StyleSheet and then never referenced by
-//! the rendered JSX, with no diagnostic; the conformance suite scored all
-//! eight variant candidates as covered because the entry existed. They now
-//! report themselves (`DiagnosticCode::VariantNotWiredOnNative`), split by
-//! whether dropping one renders the wrong thing:
+//! `Hover` and `Focus` still don't merge into anything, and until
+//! 2026-08-15 neither did `Responsive`/`Dark`/`FirstChild`. That was a
+//! **silent** drop, not the "honest gap" an earlier version of this
+//! comment claimed: their style objects were computed into the StyleSheet
+//! and then never referenced by the rendered JSX, with no diagnostic, and
+//! the conformance suite scored all eight variant candidates as covered
+//! because the entry existed. Each is now handled explicitly:
 //!
-//! - `Responsive`/`Dark` are errors. Each has an ordinary React Native
-//!   counterpart, and a tablet layout or a dark-mode appearance that
-//!   silently doesn't apply is a real bug.
+//! - `Responsive`/`Dark` are *wired*, through a React hook. They are
+//!   ambient -- one value for the whole app at any moment -- so
+//!   `@dowel/runtime` keeps a single subscription and the hook exists only
+//!   to re-render this component. The declaration is returned in
+//!   `LowerOutput::prelude` for the caller to splice at
+//!   `dowel_parser::Root::hook_slot`, never inlined into the JSX: a hook
+//!   must be called unconditionally and in the same order every render,
+//!   and `style={[a, useDowelDark() && b]}` stops being either as soon as
+//!   the element sits behind a conditional.
 //! - `FirstChild` is *resolved*, not reported, whenever the compiler can
 //!   see the element's position among its siblings -- which is most of the
 //!   time, since it is looking straight at the JSX tree. Web asks
@@ -59,6 +64,17 @@ pub struct LowerOutput {
     /// `StyleSheet.create(` wrapper -- left to the caller, since whether/how
     /// to wrap and import `StyleSheet` is a codegen-site decision).
     pub styles: String,
+    /// Statements the caller must splice at the top of the enclosing
+    /// function body (`dowel_parser::Root::hook_slot`) for `jsx` to work.
+    /// Empty unless a condition needed a React hook.
+    ///
+    /// Returned rather than inlined into the JSX because a hook has to be
+    /// called unconditionally, in the same order, on every render.
+    /// `style={[a, useDowelDark() && b]}` reads fine and breaks the moment
+    /// the element itself sits behind a conditional.
+    pub prelude: Vec<String>,
+    /// Named imports `prelude` needs from `@dowel/runtime`.
+    pub runtime_imports: Vec<&'static str>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -81,6 +97,7 @@ pub fn lower(root: &Node, source: &str) -> LowerOutput {
     let mut allocator = NameAllocator { next: 0 };
     let mut style_entries: Vec<(String, Vec<StyleProperty>)> = Vec::new();
     let mut diagnostics = Vec::new();
+    let mut hooks: Vec<RuntimeHook> = Vec::new();
 
     // The root's position is genuinely unknowable here: it's whatever the
     // component's caller renders it into.
@@ -91,7 +108,25 @@ pub fn lower(root: &Node, source: &str) -> LowerOutput {
         &mut allocator,
         &mut style_entries,
         &mut diagnostics,
+        &mut hooks,
     );
+
+    // One declaration per distinct hook, however many elements guard on
+    // it: the binding is function-scoped, and calling the same hook twice
+    // would both redeclare the name and change the hook order.
+    let mut distinct: Vec<RuntimeHook> = Vec::new();
+    for hook in hooks {
+        if !distinct.contains(&hook) {
+            distinct.push(hook);
+        }
+    }
+    let prelude: Vec<String> = distinct.iter().map(RuntimeHook::declaration).collect();
+    let mut runtime_imports: Vec<&'static str> = Vec::new();
+    for hook in &distinct {
+        if !runtime_imports.contains(&hook.import()) {
+            runtime_imports.push(hook.import());
+        }
+    }
 
     let mut styles = String::from("{\n");
     for (name, props) in &style_entries {
@@ -103,7 +138,7 @@ pub fn lower(root: &Node, source: &str) -> LowerOutput {
     }
     styles.push('}');
 
-    LowerOutput { jsx, styles, diagnostics }
+    LowerOutput { jsx, styles, prelude, runtime_imports, diagnostics }
 }
 
 /// The Native counterpart of `dowel_web::render_candidate_stylesheet`:
@@ -265,6 +300,7 @@ fn render_node(
     allocator: &mut NameAllocator,
     style_entries: &mut Vec<(String, Vec<StyleProperty>)>,
     diagnostics: &mut Vec<Diagnostic>,
+    hooks: &mut Vec<RuntimeHook>,
 ) -> String {
     let base_name = allocator.alloc();
     let mut style_array_parts: Vec<String> = Vec::new();
@@ -353,6 +389,7 @@ fn render_node(
         &mut style_array_parts,
         &mut pressed_parts,
         diagnostics,
+        hooks,
     );
 
     // After the compiled styles, so it wins the same way it would in the
@@ -427,6 +464,7 @@ fn render_node(
                     position,
                     style_entries,
                     diagnostics,
+                    hooks,
                 )
             } else {
                 escaped
@@ -448,7 +486,7 @@ fn render_node(
                 } else {
                     SiblingPosition::NotFirst
                 };
-                render_node(child, child_position, source, allocator, style_entries, diagnostics)
+                render_node(child, child_position, source, allocator, style_entries, diagnostics, hooks)
             })
             .collect(),
     };
@@ -471,6 +509,7 @@ fn wrap_in_text(
     position: SiblingPosition,
     style_entries: &mut Vec<(String, Vec<StyleProperty>)>,
     diagnostics: &mut Vec<Diagnostic>,
+    hooks: &mut Vec<RuntimeHook>,
 ) -> String {
     let mut style_array_parts = Vec::new();
     // The wrapper is a Text, so a `pressed:` style has nowhere to go on it.
@@ -488,6 +527,7 @@ fn wrap_in_text(
         &mut style_array_parts,
         &mut pressed_parts,
         diagnostics,
+        hooks,
     );
 
     let style_prop = if style_array_parts.is_empty() {
@@ -515,6 +555,60 @@ fn is_text_property(property: &StyleProperty) -> bool {
             | StyleProperty::TextAlign(_)
             | StyleProperty::TextTransform(_)
     )
+}
+
+/// A React hook the generated component needs in order to observe an
+/// ambient condition -- one whose value is the same app-wide at any moment.
+///
+/// These are why `dark:` and `md:` work on Native without the reactive
+/// engine Dowel doesn't ship: the value isn't per-element, so
+/// `@dowel/runtime` keeps one subscription for the whole app and the hook
+/// only exists to re-render *this* component when it changes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RuntimeHook {
+    Dark,
+    Breakpoint(Breakpoint),
+}
+
+impl RuntimeHook {
+    /// The local binding the rendered JSX guards on.
+    fn binding(&self) -> String {
+        match self {
+            RuntimeHook::Dark => "__dowelDark".to_string(),
+            RuntimeHook::Breakpoint(bp) => format!("__dowelBp_{}", breakpoint_name(bp)),
+        }
+    }
+
+    fn import(&self) -> &'static str {
+        match self {
+            RuntimeHook::Dark => "useDowelDark",
+            RuntimeHook::Breakpoint(_) => "useDowelBreakpoint",
+        }
+    }
+
+    fn declaration(&self) -> String {
+        match self {
+            RuntimeHook::Dark => format!("const {} = useDowelDark()", self.binding()),
+            RuntimeHook::Breakpoint(bp) => format!(
+                "const {} = useDowelBreakpoint('{}')",
+                self.binding(),
+                breakpoint_name(bp)
+            ),
+        }
+    }
+}
+
+/// Tailwind's own names, which `@dowel/runtime`'s breakpoint table also
+/// uses. Distinct from `condition_suffix`, which needs an identifier-safe
+/// form (`xl2`) for the generated style key.
+fn breakpoint_name(bp: &Breakpoint) -> &'static str {
+    match bp {
+        Breakpoint::Sm => "sm",
+        Breakpoint::Md => "md",
+        Breakpoint::Lg => "lg",
+        Breakpoint::Xl => "xl",
+        Breakpoint::Xl2 => "2xl",
+    }
 }
 
 fn unwired_variant(node: &Node, message: &str, severity: Severity) -> Diagnostic {
@@ -546,6 +640,7 @@ fn build_style_entries(
     style_array_parts: &mut Vec<String>,
     pressed_parts: &mut Vec<String>,
     diagnostics: &mut Vec<Diagnostic>,
+    hooks: &mut Vec<RuntimeHook>,
 ) {
     // A conditional style must land after every unconditional one,
     // whatever order they were written in. On Web the cascade settles this
@@ -610,19 +705,20 @@ fn build_style_entries(
                 "`focus:` isn't wired on React Native yet.",
                 Severity::Warning,
             )),
-            Condition::Responsive(_) => diagnostics.push(unwired_variant(
-                node,
-                "Breakpoint variants (`sm:`/`md:`/`lg:`/`xl:`/`2xl:`) aren't wired on React \
-                 Native yet, so this style never applies -- a tablet or landscape layout that \
-                 depends on it will be wrong.",
-                Severity::Error,
-            )),
-            Condition::Dark => diagnostics.push(unwired_variant(
-                node,
-                "`dark:` isn't wired on React Native yet, so this style never applies and the \
-                 element keeps its light-mode appearance in dark mode.",
-                Severity::Error,
-            )),
+            // Ambient conditions: one app-wide value, observed through a
+            // hook so this component re-renders when it changes. The hook
+            // declaration goes to the caller rather than into the JSX --
+            // see `LowerOutput::prelude` for why inlining it is unsafe.
+            Condition::Responsive(bp) => {
+                let hook = RuntimeHook::Breakpoint(*bp);
+                conditional_parts.push(format!("{} && styles.{name}", hook.binding()));
+                hooks.push(hook);
+            }
+            Condition::Dark => {
+                let hook = RuntimeHook::Dark;
+                conditional_parts.push(format!("{} && styles.{name}", hook.binding()));
+                hooks.push(hook);
+            }
             // Resolved at build time rather than needing a selector
             // engine. Both decided answers are exact -- the same thing
             // `:first-child` would do on Web -- so neither reports
@@ -785,7 +881,7 @@ export function Login() {
     #[test]
     fn lowers_the_login_example_to_rn_jsx_and_styles() {
         let parsed = dowel_parser::parse_tsx(LOGIN_EXAMPLE);
-        let root = &parsed.roots[0];
+        let root = &parsed.roots[0].node;
         let output = lower(root, LOGIN_EXAMPLE);
 
         assert!(output.jsx.starts_with("<View style={styles.dowel0}>"));
@@ -820,7 +916,7 @@ export function Login() {
             const el = <Button disabled={isLoading} className="p-2 disabled:opacity-50">Save</Button>
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
 
         assert!(output.styles.contains("dowel0_disabled: {"));
         assert!(output.styles.contains("opacity: 0.5,"));
@@ -835,7 +931,7 @@ export function Login() {
             const el = <View className="p-4" {...rest} onLayout={onLayout} testID="row" />
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
         assert!(output.jsx.contains("{...rest}"));
         assert!(output.jsx.contains("onLayout={onLayout}"));
         assert!(output.jsx.contains(r#"testID="row""#));
@@ -848,7 +944,7 @@ export function Login() {
             const el = <Button className="p-2 pressed:opacity-50">Save</Button>
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
 
         assert!(output.styles.contains("dowel0_pressed: {"));
         assert!(output.styles.contains("opacity: 0.5,"));
@@ -862,7 +958,7 @@ export function Login() {
             const el = <View className="p-2 pressed:opacity-50" />
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
 
         assert!(output.styles.contains("dowel0_pressed: {"));
         assert!(output.jsx.contains("style={styles.dowel0}"));
@@ -880,7 +976,7 @@ export function Login() {
             const el = <View className="disabled:opacity-50" />
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
         assert!(output.styles.contains("dowel0_disabled: {"));
         assert!(!output.jsx.contains("dowel0_disabled"));
     }
@@ -893,7 +989,7 @@ export function Login() {
             const el = <View className={cn('p-4', active && 'text-xl')} />
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
         assert!(output.jsx.contains("style={[styles.dowel0, (active) && styles.dowel0_cond_"));
     }
 
@@ -936,7 +1032,7 @@ export function Login() {
             const el = <View className="scale-95 rotate-45 translate-x-2" />
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
         assert!(output.styles.contains(
             "transform: [{ translateX: 8 }, { rotate: '45deg' }, { scale: 0.95 }],"
         ));
@@ -949,7 +1045,7 @@ export function Login() {
             const el = <View className="shadow-lg blur-sm" />
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
         assert!(output.styles.contains("boxShadow: '0 10px 15px -3px"));
         assert!(output.styles.contains("filter: 'blur(8px)',"));
     }
@@ -961,7 +1057,7 @@ export function Login() {
             const el = <View className="block" />
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
 
         assert_eq!(output.diagnostics.len(), 1);
         assert_eq!(output.diagnostics[0].code, dowel_ir::DiagnosticCode::WebOnlyPropertyOnNative);
@@ -983,10 +1079,7 @@ export function Login() {
             // cross-platform build.
             ("hover:bg-blue-500", dowel_ir::Severity::Warning),
             ("focus:p-4", dowel_ir::Severity::Warning),
-            // These have plain React Native counterparts and dropping them
-            // renders the wrong thing, so they stop the build.
-            ("md:p-4", dowel_ir::Severity::Error),
-            ("dark:p-4", dowel_ir::Severity::Error),
+            // Undecidable position, so nothing can resolve it here.
             ("first:mt-0", dowel_ir::Severity::Error),
             // Nothing on a bare View drives these at all.
             ("disabled:p-4", dowel_ir::Severity::Error),
@@ -998,7 +1091,7 @@ export function Login() {
                 "import {{ View }} from '@dowel/core'\nconst el = <View className=\"{candidate}\" />\n"
             );
             let parsed = dowel_parser::parse_tsx(&source);
-            let output = lower(&parsed.roots[0], &source);
+            let output = lower(&parsed.roots[0].node, &source);
 
             let reported: Vec<_> = output
                 .diagnostics
@@ -1008,6 +1101,52 @@ export function Login() {
             assert_eq!(reported.len(), 1, "{candidate}: {:?}", output.diagnostics);
             assert_eq!(reported[0].severity, *severity, "{candidate}");
         }
+    }
+
+    #[test]
+    fn ambient_conditions_compile_to_a_hook_the_caller_must_splice() {
+        // `dark:` and the breakpoints are the same value app-wide at any
+        // moment, so `@dowel/runtime` keeps one subscription for the whole
+        // app; the hook exists only to re-render *this* component when it
+        // changes. The declaration is returned rather than inlined into
+        // the JSX -- a hook inside `style={[a, useDowelDark() && b]}`
+        // breaks the rules of hooks as soon as the element sits behind a
+        // conditional.
+        let source = r#"
+            import { View } from '@dowel/core'
+            const el = <View className="p-4 dark:bg-black md:flex-row" />
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source);
+
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert_eq!(
+            output.prelude,
+            vec![
+                "const __dowelDark = useDowelDark()",
+                "const __dowelBp_md = useDowelBreakpoint('md')",
+            ]
+        );
+        assert_eq!(output.runtime_imports, vec!["useDowelDark", "useDowelBreakpoint"]);
+        assert!(output.jsx.contains("__dowelDark && styles.dowel0_dark"), "{}", output.jsx);
+        assert!(output.jsx.contains("__dowelBp_md && styles.dowel0_md"), "{}", output.jsx);
+    }
+
+    #[test]
+    fn one_hook_declaration_however_many_elements_guard_on_it() {
+        // Two calls would redeclare the binding and change the hook order
+        // between renders.
+        let source = r#"
+            import { View, Text } from '@dowel/core'
+            const el = (
+              <View className="dark:bg-black">
+                <Text className="dark:text-white">a</Text>
+              </View>
+            )
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source);
+        assert_eq!(output.prelude, vec!["const __dowelDark = useDowelDark()"]);
     }
 
     #[test]
@@ -1025,7 +1164,7 @@ export function Login() {
             )
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
 
         let base = output.jsx.find("styles.dowel0,").expect("base style");
         let conditional = output.jsx.find("styles.dowel0_disabled").expect("conditional style");
@@ -1047,7 +1186,7 @@ export function Login() {
             )
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
 
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         // The first child gets it applied unconditionally...
@@ -1073,7 +1212,7 @@ export function Login() {
             )
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
 
         let reported: Vec<_> = output
             .diagnostics
@@ -1093,7 +1232,7 @@ export function Login() {
             const el = <View className="first:mt-0" />
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
         assert!(output
             .diagnostics
             .iter()
@@ -1111,7 +1250,7 @@ export function Login() {
             )
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
 
         assert!(
             output.diagnostics.is_empty(),
@@ -1133,7 +1272,7 @@ export function Login() {
             const el = <View className={classNameFromProps} />
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
 
         assert_eq!(output.diagnostics.len(), 1);
         assert_eq!(
@@ -1155,7 +1294,7 @@ export function Login() {
             const el = <View className={cn('p-4', getDynamic())} />
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
 
         let compiled = output.jsx.find("styles.dowel0").expect("compiled styles");
         let dynamic = output.jsx.find("dowelClasses(").expect("resolver call");
@@ -1207,7 +1346,7 @@ export function Login() {
             const el = <View className="p-4 text-xl font-bold">Hello</View>
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
 
         assert!(output.jsx.contains("<Text style={styles.dowel0_text}>Hello</Text>"));
         // Layout stays on the View, text styling moves to the Text.
@@ -1227,7 +1366,7 @@ export function Login() {
             const el = <Text className="text-xl">Hello</Text>
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
         assert_eq!(output.jsx.matches("<Text").count(), 1);
         assert!(output.styles.contains("fontSize: 20,"));
     }
@@ -1242,7 +1381,7 @@ export function Login() {
             const el = <Text className="truncate">x</Text>
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
         assert!(output.diagnostics.is_empty());
         assert!(output.jsx.contains("numberOfLines={1}"));
         assert!(!output.jsx.contains("ellipsizeMode"));
@@ -1258,7 +1397,7 @@ export function Login() {
             const el = <Text className="whitespace-nowrap">x</Text>
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
         assert!(output.diagnostics.is_empty());
         assert!(output.jsx.contains("numberOfLines={1}"));
         // Nothing asked for an ellipsis, and RN's default would add one.
@@ -1275,7 +1414,7 @@ export function Login() {
             const el = <View className="truncate" />
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
         assert!(!output.diagnostics.is_empty());
         assert_eq!(output.diagnostics[0].severity, dowel_ir::Severity::Error);
     }
@@ -1288,7 +1427,7 @@ export function Login() {
             const el = <Text className="whitespace-normal">x</Text>
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
         assert!(output.diagnostics.is_empty());
         assert!(!output.jsx.contains("numberOfLines"));
     }
@@ -1300,7 +1439,7 @@ export function Login() {
             const el = <View className="h-screen" />
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
 
         assert_eq!(output.diagnostics.len(), 1);
         assert_eq!(output.diagnostics[0].code, dowel_ir::DiagnosticCode::WebOnlyPropertyOnNative);
@@ -1318,7 +1457,7 @@ export function Login() {
             const el = <View className="hidden" />
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
         assert!(output.diagnostics.is_empty());
         assert!(output.styles.contains("display: 'none',"));
     }
@@ -1333,7 +1472,7 @@ export function Login() {
             const el = <Pressable onPress={handleTap}>Tap</Pressable>
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0], source);
+        let output = lower(&parsed.roots[0].node, source);
         assert_eq!(output.diagnostics.len(), 1);
         assert_eq!(output.diagnostics[0].code, dowel_ir::DiagnosticCode::A11yInteractiveWithoutRole);
         assert!(output.jsx.contains("onPress={handleTap}"));
@@ -1345,7 +1484,7 @@ export function Login() {
             )
             "#;
         let parsed_with_role = dowel_parser::parse_tsx(source_with_role);
-        let output_with_role = lower(&parsed_with_role.roots[0], source_with_role);
+        let output_with_role = lower(&parsed_with_role.roots[0].node, source_with_role);
         assert!(output_with_role.diagnostics.is_empty());
         assert!(output_with_role.jsx.contains(r#"accessibilityRole="button""#));
     }

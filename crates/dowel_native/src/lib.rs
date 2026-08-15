@@ -1512,7 +1512,6 @@ export function Login() {
             ("accent-red-500", "form controls"),
             ("caret-red-500", "TextInput"),
             ("placeholder-red-500", "TextInput"),
-            ("decoration-wavy", "wavy"),
         ] {
             let source = format!(
                 "import {{ View }} from '@dowel/core'\nconst el = <View className=\"{candidate}\" />\n"
@@ -1529,7 +1528,11 @@ export function Login() {
     }
 
     #[test]
-    fn the_decoration_colour_and_styles_react_native_does_have_still_lower() {
+    fn every_text_decoration_style_lowers_including_wavy() {
+        // React Native's `textDecorationStyle` takes the same five values
+        // CSS does. `decoration-wavy` was refused here until the refusal
+        // audit checked that claim against RN's own types and found it
+        // false; this test is what stops it coming back.
         let source = r#"
             import { Text } from '@dowel/core'
             const el = <Text className="decoration-red-500 decoration-double">x</Text>
@@ -1539,6 +1542,26 @@ export function Login() {
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert!(output.styles.contains("textDecorationColor: '#fb2c36',"), "{}", output.styles);
         assert!(output.styles.contains("textDecorationStyle: 'double',"), "{}", output.styles);
+
+        for (candidate, expected) in [
+            ("decoration-solid", "'solid'"),
+            ("decoration-double", "'double'"),
+            ("decoration-dotted", "'dotted'"),
+            ("decoration-dashed", "'dashed'"),
+            ("decoration-wavy", "'wavy'"),
+        ] {
+            let source = format!(
+                "import {{ Text }} from '@dowel/core'\nconst el = <Text className=\"{candidate}\">x</Text>\n"
+            );
+            let parsed = dowel_parser::parse_tsx(&source);
+            let output = lower(&parsed.roots[0].node, &source);
+            assert!(output.diagnostics.is_empty(), "{candidate}: {:?}", output.diagnostics);
+            assert!(
+                output.styles.contains(&format!("textDecorationStyle: {expected},")),
+                "{candidate}: {}",
+                output.styles
+            );
+        }
     }
 
     #[test]

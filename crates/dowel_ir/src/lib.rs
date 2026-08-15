@@ -746,9 +746,6 @@ impl StyleProperty {
             StyleProperty::TextDecorationThickness(_) => Some(
                 "`decoration-<n>`: React Native has no text-decoration thickness".to_string(),
             ),
-            StyleProperty::TextDecorationStyle(DecorationStyle::Wavy) => Some(
-                "`decoration-wavy`: React Native's textDecorationStyle has no wavy".to_string(),
-            ),
             StyleProperty::BorderTopStyle(BorderStyle::Double | BorderStyle::Hidden)
             | StyleProperty::BorderRightStyle(BorderStyle::Double | BorderStyle::Hidden)
             | StyleProperty::BorderBottomStyle(BorderStyle::Double | BorderStyle::Hidden)

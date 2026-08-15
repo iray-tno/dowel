@@ -12,5 +12,8 @@
   "dependencies": {
     "@dowel/compiler": "workspace:*",
     "tailwindcss": "^4.3.3"
+  },
+  "devDependencies": {
+    "react-native": "^0.87.0"
   }
 }

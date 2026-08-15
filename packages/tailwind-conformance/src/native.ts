@@ -18,6 +18,13 @@ export interface NativeComparison {
   verdict: NativeVerdict
   detail?: string
   /**
+   * The diagnostic code behind a REFUSED verdict. The two codes make very
+   * different claims -- WEB_ONLY says the platform cannot do this at all,
+   * VARIANT_NOT_WIRED says Dowel hasn't built it yet -- and only the first
+   * is a claim about React Native that can be checked against React Native.
+   */
+  code?: string
+  /**
    * Set when a utility lowers in some probe contexts but is refused in
    * others. Counting it as covered answers "is this usable on Native",
    * but writing it in the wrong place still fails the build -- so the
@@ -92,6 +99,7 @@ function probe(candidate: string, context: (typeof PROBE_CONTEXTS)[number]): Nat
     return {
       candidate,
       verdict: 'REFUSED',
+      code: refusals[0].code,
       detail: `[${refusals[0].severity}] ${refusals[0].message}`,
     }
   }

@@ -1,8 +1,10 @@
 // Prints the conformance report: per-group coverage and fidelity, plus
 // every individual mismatch. `pnpm --filter @dowel/tailwind-conformance report`
 
+import { auditRefusal, type RefusalAudit, type RefusalVerdict } from './audit.ts'
 import { CANDIDATE_GROUPS, ALL_CANDIDATES, stripVariant } from './candidates.ts'
 import { loadFullCatalog, namespaceOf } from './catalog.ts'
+import { reactNativeCssProperties, reactNativeVersion } from './native-surface.ts'
 import { compareCandidate, type Comparison, type Verdict } from './compare.ts'
 import { compareNativeCandidate, type NativeComparison, type NativeVerdict } from './native.ts'
 import { buildOracle } from './oracle.ts'
@@ -252,3 +254,72 @@ console.log(
     `${nsRows.filter(([, r]) => r.match === r.total).length} fully matching, ` +
     `${untouched.length} with nothing matching.`,
 )
+
+// ---------------------------------------------------------------------------
+// Refusal audit
+// ---------------------------------------------------------------------------
+//
+// The Native coverage number above is a ratio whose denominator Dowel picks:
+// a utility Dowel refuses leaves the numerator and the denominator together,
+// so a wrong refusal never moves the percentage and nothing points at it.
+// This section takes the refusals apart against React Native's own types --
+// the same "ask the other tool to enumerate itself" move the full catalogue
+// made for the Web side.
+
+console.log('\n\n== Refusal audit (React Native enumerates its own surface) ==')
+console.log(
+  `Checked against react-native ${reactNativeVersion()}'s StyleSheet types` +
+    `${reactNativeCssProperties() ? ', cross-read with react-native-css' : ''}.\n` +
+    'SUSPECT does not mean wrong -- the types are a necessary condition, not a\n' +
+    'sufficient one. It means the refusal is a claim the types no longer support.\n',
+)
+
+const audits = new Map<string, RefusalAudit[]>()
+let nativeRefusals = 0
+for (const candidate of catalog) {
+  const native = compareNativeCandidate(candidate)
+  if (native.verdict !== 'REFUSED') continue
+  nativeRefusals += 1
+  // Only WEB_ONLY refusals assert anything about React Native.
+  // VARIANT_NOT_WIRED already says "Dowel hasn't built this", which is not a
+  // claim the types can contradict.
+  if (native.code !== 'WEB_ONLY_PROPERTY_ON_NATIVE') continue
+  const audit = auditRefusal(candidate, fullOracle.rules.get(candidate), fullVars)
+  audits.set(audit.verdict, [...(audits.get(audit.verdict) ?? []), audit])
+}
+
+const auditCount = (v: RefusalVerdict) => audits.get(v)?.length ?? 0
+const checked = auditCount('CONFIRMED') + auditCount('PARTIAL') + auditCount('SUSPECT')
+console.log(
+  `Refusals:    ${nativeRefusals} on the catalogue, ${checked} checkable against the types\n` +
+    `Confirmed:   ${auditCount('CONFIRMED')}   (React Native has no way to hold this)\n` +
+    `Partial:     ${auditCount('PARTIAL')}   (some of what it sets is expressible, some isn't)\n` +
+    `Suspect:     ${auditCount('SUSPECT')}   (every property it sets is expressible -- re-read these)\n` +
+    `Uncheckable: ${auditCount('UNCHECKABLE')}   (Tailwind's own output resolves to no plain declaration)`,
+)
+
+// Grouped by the CSS the utilities set, because the suspects come in
+// families: one wrong refusal is usually hundreds of candidates, and the
+// fix is one code path.
+const suspectFamilies = new Map<string, string[]>()
+for (const audit of audits.get('SUSPECT') ?? []) {
+  const key = audit.expressible.join(', ')
+  suspectFamilies.set(key, [...(suspectFamilies.get(key) ?? []), audit.candidate])
+}
+if (suspectFamilies.size > 0) {
+  console.log('\nSuspect refusals, grouped by the CSS they set:')
+  for (const [properties, list] of [...suspectFamilies].sort((a, b) => b[1].length - a[1].length)) {
+    const shown = list.slice(0, 6).join(' ')
+    console.log(
+      `  ${properties}  (${list.length})\n    ${shown}${list.length > 6 ? ` ... +${list.length - 6}` : ''}`,
+    )
+  }
+}
+
+const partials = audits.get('PARTIAL') ?? []
+if (partials.length > 0) {
+  console.log('\nPartial -- refusing the whole utility is defensible, but note what is reachable:')
+  for (const audit of partials) {
+    console.log(`  ${audit.candidate}: can hold ${audit.expressible.join(', ')}; cannot hold ${audit.inexpressible.join(', ')}`)
+  }
+}

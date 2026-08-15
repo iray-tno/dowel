@@ -437,8 +437,12 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
         | StyleProperty::ScrollbarThumbColor(_)
         | StyleProperty::ScrollbarTrackColor(_) => Vec::new(),
         StyleProperty::TextDecorationColor(c) => vec![("textDecorationColor", resolve_color(c))],
-        // RN accepts solid/double/dotted/dashed; `wavy` is refused upstream
-        // by `unsupported_on_native`.
+        // React Native's `textDecorationStyle` takes the same five values CSS
+        // does. `wavy` was refused here until the refusal audit checked the
+        // claim against RN's own types and found it false -- the whole union
+        // is accepted, and the platform caveat (these render on iOS and are
+        // ignored on Android) applies equally to `dotted` and `dashed`, which
+        // were never refused.
         StyleProperty::TextDecorationStyle(s) => vec![(
             "textDecorationStyle",
             match s {
@@ -446,7 +450,7 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
                 DecorationStyle::Double => "'double'",
                 DecorationStyle::Dotted => "'dotted'",
                 DecorationStyle::Dashed => "'dashed'",
-                DecorationStyle::Wavy => "",
+                DecorationStyle::Wavy => "'wavy'",
             }
             .to_string(),
         )],

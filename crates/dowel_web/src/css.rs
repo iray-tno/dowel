@@ -182,6 +182,16 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
         StyleProperty::BackgroundColor(c) => ("background-color", color_var(c)),
         StyleProperty::Opacity(o) => ("opacity", format!("{o}")),
         StyleProperty::BorderColor(c) => ("border-color", color_var(c)),
+        StyleProperty::OutlineWidth(l) => ("outline-width", length_px(*l)),
+        StyleProperty::OutlineStyle(s) => ("outline-style", border_style_keyword(s).to_string()),
+        StyleProperty::OutlineColor(c) => ("outline-color", color_var(c)),
+        StyleProperty::OutlineOffset(l) => ("outline-offset", length_px(*l)),
+        // Child-scoped; `render_rule` partitions these into their own rule
+        // before this runs (see `space_declarations`).
+        StyleProperty::DivideX(_)
+        | StyleProperty::DivideY(_)
+        | StyleProperty::DivideColor(_)
+        | StyleProperty::DivideStyle(_) => ("border-color", String::new()),
         // One CSS longhand each, including the two axis shorthands, which
         // is exactly what Tailwind emits.
         StyleProperty::BorderTopColor(c) => ("border-top-color", color_var(c)),
@@ -431,7 +441,17 @@ pub fn render_rule(class_name: &str, condition: &Condition, props: &[StyleProper
     // `space-*` targets the element's children rather than the element, so
     // it becomes a second, child-scoped rule instead of a declaration here.
     let (child_props, own_props): (Vec<_>, Vec<_>) =
-        props.iter().partition(|p| matches!(p, StyleProperty::SpaceX(_) | StyleProperty::SpaceY(_)));
+        props.iter().partition(|p| {
+            matches!(
+                p,
+                StyleProperty::SpaceX(_)
+                    | StyleProperty::SpaceY(_)
+                    | StyleProperty::DivideX(_)
+                    | StyleProperty::DivideY(_)
+                    | StyleProperty::DivideColor(_)
+                    | StyleProperty::DivideStyle(_)
+            )
+        });
 
     // Rings and shadows are several utilities that share one CSS property,
     // so they're composed rather than emitted one declaration each.
@@ -495,6 +515,30 @@ fn space_declarations(prop: &StyleProperty) -> Vec<(&'static str, String)> {
         ],
         StyleProperty::SpaceY(l) => {
             vec![("margin-top", "0".to_string()), ("margin-bottom", length_px(*l))]
+        }
+        // Tailwind writes both edges, zeroing the leading one, so that
+        // `divide-x-reverse` can flip which edge carries the border without
+        // a different rule. Matching that shape keeps the output identical.
+        StyleProperty::DivideX(l) => vec![
+            ("border-inline-style", "solid".to_string()),
+            ("border-inline-start-width", "0".to_string()),
+            ("border-inline-end-width", length_px(*l)),
+        ],
+        StyleProperty::DivideY(l) => vec![
+            ("border-bottom-style", "solid".to_string()),
+            ("border-top-style", "solid".to_string()),
+            ("border-top-width", "0".to_string()),
+            ("border-bottom-width", length_px(*l)),
+        ],
+        StyleProperty::DivideColor(c) => vec![("border-color", color_var(c))],
+        StyleProperty::DivideStyle(s) => {
+            let keyword = border_style_keyword(s).to_string();
+            vec![
+                ("border-top-style", keyword.clone()),
+                ("border-right-style", keyword.clone()),
+                ("border-bottom-style", keyword.clone()),
+                ("border-left-style", keyword),
+            ]
         }
         _ => Vec::new(),
     }

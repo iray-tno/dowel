@@ -312,6 +312,87 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
     None
 }
 
+/// `outline*`: width (which also implies a style, as Tailwind does), an
+/// explicit style, a colour, or an offset.
+fn expand_outline(token: &str) -> Option<Vec<StyleProperty>> {
+    let rest = token.strip_prefix("outline")?;
+    if rest.is_empty() {
+        // Bare `outline` is 1px solid.
+        return Some(vec![
+            StyleProperty::OutlineStyle(BorderStyle::Solid),
+            StyleProperty::OutlineWidth(Length::Px(1.0)),
+        ]);
+    }
+    let suffix = rest.strip_prefix('-')?;
+
+    if let Some(offset) = suffix.strip_prefix("offset-") {
+        return offset
+            .parse::<f64>()
+            .ok()
+            .map(|px| vec![StyleProperty::OutlineOffset(Length::Px(px))]);
+    }
+    if let Some(style) = border_style_keyword(suffix) {
+        return Some(vec![StyleProperty::OutlineStyle(style)]);
+    }
+    if let Ok(px) = suffix.parse::<f64>() {
+        return Some(vec![
+            StyleProperty::OutlineStyle(BorderStyle::Solid),
+            StyleProperty::OutlineWidth(Length::Px(px)),
+        ]);
+    }
+    // `outline-hidden` is Tailwind's accessible "no visible outline, but
+    // keep one for forced-colors mode"; it emits nothing standalone, so
+    // it's left unsupported rather than approximated as `none`.
+    if suffix == "hidden" {
+        return None;
+    }
+    Some(vec![StyleProperty::OutlineColor(Color::Token(suffix.to_string()))])
+}
+
+/// `divide-*`: the border between an element's children. Shares the
+/// child-scoped rule mechanism with `space-*`.
+fn expand_divide(token: &str) -> Option<Vec<StyleProperty>> {
+    let suffix = token.strip_prefix("divide-")?;
+
+    if let Some(width) = suffix.strip_prefix("x") {
+        if let Some(length) = divide_width(width) {
+            return Some(vec![StyleProperty::DivideX(length)]);
+        }
+    }
+    if let Some(width) = suffix.strip_prefix("y") {
+        if let Some(length) = divide_width(width) {
+            return Some(vec![StyleProperty::DivideY(length)]);
+        }
+    }
+    if let Some(style) = border_style_keyword(suffix) {
+        return Some(vec![StyleProperty::DivideStyle(style)]);
+    }
+    // `divide-x-reverse` only flips which edge the border sits on, through
+    // a custom property Dowel doesn't emit; it paints nothing standalone.
+    if suffix.ends_with("-reverse") {
+        return None;
+    }
+    Some(vec![StyleProperty::DivideColor(Color::Token(suffix.to_string()))])
+}
+
+/// The width half of `divide-x*`/`divide-y*`: empty means 1px.
+fn divide_width(suffix: &str) -> Option<Length> {
+    match suffix {
+        "" => Some(Length::Px(1.0)),
+        rest => rest.strip_prefix('-')?.parse::<f64>().ok().map(Length::Px),
+    }
+}
+
+fn border_style_keyword(suffix: &str) -> Option<BorderStyle> {
+    Some(match suffix {
+        "solid" => BorderStyle::Solid,
+        "dashed" => BorderStyle::Dashed,
+        "dotted" => BorderStyle::Dotted,
+        "none" => BorderStyle::None,
+        _ => return None,
+    })
+}
+
 /// `ring*` / `inset-ring*`: a width, or the colour that width renders in.
 ///
 /// A colour on its own emits nothing, which is correct rather than a gap --
@@ -928,6 +1009,12 @@ fn expand_base_utility(token: &str) -> Vec<StyleProperty> {
         if let Some(v) = parse_spacing_suffix(rest) {
             return vec![StyleProperty::RowGap(v)];
         }
+    }
+    if let Some(props) = expand_outline(token) {
+        return props;
+    }
+    if let Some(props) = expand_divide(token) {
+        return props;
     }
     // Before `expand_inset`, which would otherwise read `inset-ring-2` as
     // an inset of "ring-2".

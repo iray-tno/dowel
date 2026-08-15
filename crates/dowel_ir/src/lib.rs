@@ -419,6 +419,18 @@ pub enum StyleProperty {
     /// and there's no way to express it as a declaration on the parent.
     /// The Web backend emits a child-scoped rule for it; React Native has
     /// no selector engine, so it's refused there.
+    OutlineWidth(Length),
+    OutlineStyle(BorderStyle),
+    OutlineColor(Color),
+    OutlineOffset(Length),
+    /// `divide-*`: like `space-*`, these style the element's *children*
+    /// through a selector rather than the element itself, so both backends
+    /// treat them the same way -- a second child-scoped rule on Web, and a
+    /// named refusal on Native, which has no selector engine.
+    DivideX(Length),
+    DivideY(Length),
+    DivideColor(Color),
+    DivideStyle(BorderStyle),
     SpaceX(Length),
     SpaceY(Length),
     TextAlign(TextAlign),
@@ -554,6 +566,14 @@ impl StyleProperty {
             StyleProperty::SpaceX(_) | StyleProperty::SpaceY(_) => Some(
                 "`space-*`: it styles the element's children via a selector, and React Native has \
                  no selector engine"
+                    .to_string(),
+            ),
+            StyleProperty::DivideX(_)
+            | StyleProperty::DivideY(_)
+            | StyleProperty::DivideColor(_)
+            | StyleProperty::DivideStyle(_) => Some(
+                "`divide-*`: it styles the element's children via a selector, and React Native \
+                 has no selector engine"
                     .to_string(),
             ),
             _ => None,

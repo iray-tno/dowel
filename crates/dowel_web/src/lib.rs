@@ -540,6 +540,28 @@ export function Login() {
     }
 
     #[test]
+    fn divide_becomes_a_child_scoped_rule_like_space() {
+        // `divide-*` styles the gaps *between* children, so like `space-*`
+        // it can't be a declaration on the element itself.
+        let css = css_for("divide-y-4");
+        assert!(css.contains(":where(.dowel-0 > :not(:last-child)) {"), "{css}");
+        // Tailwind writes both edges, zeroing the leading one, so
+        // `divide-*-reverse` can flip which edge carries the border without
+        // a different rule -- matched here so the output stays identical.
+        assert!(css.contains("border-top-width: 0;"), "{css}");
+        assert!(css.contains("border-bottom-width: 4px;"), "{css}");
+    }
+
+    #[test]
+    fn outline_width_carries_a_style_so_it_actually_renders() {
+        // Same reason border widths do: CSS defaults `outline-style` to
+        // `none`, so a width alone shows nothing.
+        let css = css_for("outline-2");
+        assert!(css.contains("outline-style: solid;"), "{css}");
+        assert!(css.contains("outline-width: 2px;"), "{css}");
+    }
+
+    #[test]
     fn ring_and_shadow_compose_into_one_box_shadow() {
         // The whole point of keeping these as separate IR properties. A
         // single `BoxShadow` would make the later utility win under

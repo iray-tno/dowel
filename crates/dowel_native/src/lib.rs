@@ -1501,6 +1501,37 @@ export function Login() {
     }
 
     #[test]
+    fn outline_none_becomes_zero_width_not_a_solid_outline() {
+        // React Native's `outlineStyle` accepts only solid/dotted/dashed,
+        // so the border path's None -> 'solid' mapping would say the
+        // opposite of what was asked. Zero width is how you hide one.
+        let source = r#"
+            import { View } from '@dowel/core'
+            const el = <View className="outline-none" />
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source);
+        assert!(output.styles.contains("outlineWidth: 0,"), "{}", output.styles);
+        assert!(!output.styles.contains("outlineStyle"), "{}", output.styles);
+    }
+
+    #[test]
+    fn divide_is_refused_for_the_same_reason_space_is() {
+        let source = r#"
+            import { View } from '@dowel/core'
+            const el = <View className="divide-y-4" />
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source);
+        let refusal = output
+            .diagnostics
+            .iter()
+            .find(|d| d.code == dowel_ir::DiagnosticCode::WebOnlyPropertyOnNative)
+            .expect("divide-* must be refused, not dropped");
+        assert!(refusal.message.contains("selector engine"), "{}", refusal.message);
+    }
+
+    #[test]
     fn viewport_height_is_refused_and_leaves_valid_output() {
         let source = r#"
             import { View } from '@dowel/core'

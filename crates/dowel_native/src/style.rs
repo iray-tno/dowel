@@ -374,7 +374,25 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
         | StyleProperty::TransitionTimingFunction(_)
         | StyleProperty::Animation(_)
         | StyleProperty::SpaceX(_)
-        | StyleProperty::SpaceY(_) => Vec::new(),
+        | StyleProperty::SpaceY(_)
+        // Child-scoped, so refused upstream by `unsupported_on_native`.
+        | StyleProperty::DivideX(_)
+        | StyleProperty::DivideY(_)
+        | StyleProperty::DivideColor(_)
+        | StyleProperty::DivideStyle(_) => Vec::new(),
+        // React Native has had the outline properties since 0.76.
+        StyleProperty::OutlineWidth(l) => vec![("outlineWidth", number(*l))],
+        // RN's `outlineStyle` accepts only solid/dotted/dashed -- verified
+        // against react-native-css's own parser, which warns on anything
+        // else. So `outline-none` is expressed the way a border is hidden:
+        // zero width. Reusing `border_style_literal` here would emit
+        // `'solid'`, which is the opposite of what was asked for.
+        StyleProperty::OutlineStyle(BorderStyle::None) => {
+            vec![("outlineWidth", "0".to_string())]
+        }
+        StyleProperty::OutlineStyle(s) => vec![("outlineStyle", border_style_literal(s))],
+        StyleProperty::OutlineColor(c) => vec![("outlineColor", resolve_color(c))],
+        StyleProperty::OutlineOffset(l) => vec![("outlineOffset", number(*l))],
         StyleProperty::TextAlign(align) => vec![(
             "textAlign",
             match align {

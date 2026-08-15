@@ -68,9 +68,7 @@ mod tests {
             style: Vec::new(),
             props: PropSet::default(),
             children: Vec::new(),
-            text: None,
             class_name_fallback: Vec::new(),
-            children_complete: true,
             span: empty_span(),
         };
         let mut diagnostics = Vec::new();
@@ -92,9 +90,7 @@ mod tests {
                 passthrough: Vec::new(),
             },
             children: Vec::new(),
-            text: None,
             class_name_fallback: Vec::new(),
-            children_complete: true,
             span: empty_span(),
         };
         let mut diagnostics = Vec::new();
@@ -117,9 +113,7 @@ mod tests {
                 passthrough: Vec::new(),
             },
             children: Vec::new(),
-            text: None,
             class_name_fallback: Vec::new(),
-            children_complete: true,
             span: empty_span(),
         };
         let mut diagnostics = Vec::new();

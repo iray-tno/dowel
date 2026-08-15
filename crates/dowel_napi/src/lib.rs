@@ -28,6 +28,7 @@ fn diagnostic_code_str(code: DiagnosticCode) -> &'static str {
         DiagnosticCode::WebOnlyPropertyOnNative => "WEB_ONLY_PROPERTY_ON_NATIVE",
         DiagnosticCode::DynamicClassNameNotResolved => "DYNAMIC_CLASS_NAME_NOT_RESOLVED",
         DiagnosticCode::VariantNotWiredOnNative => "VARIANT_NOT_WIRED_ON_NATIVE",
+        DiagnosticCode::PrimitiveNotLowered => "PRIMITIVE_NOT_LOWERED",
     }
 }
 

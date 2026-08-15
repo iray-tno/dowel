@@ -2,13 +2,17 @@
 //!
 //! Phase 0 scope: static and dynamic `className` (see
 //! `crate::dynamic_class`), `View`/`Text`/`Pressable`/`Button` primitives,
-//! plain text children, and `onPress`/`disabled`/`accessibilityRole`
-//! props. Everything else is silently dropped for now rather than routed
-//! to `PropSet::passthrough`.
+//! text and element children, and `onPress`/`disabled`/`accessibilityRole`
+//! props.
+//!
+//! Everything outside that scope is *carried*, not dropped: unmodeled
+//! attributes go to `PropSet::passthrough`, and unmodeled children become
+//! `Child::Verbatim` to be re-emitted from source. Not understanding
+//! something is a reason to leave it alone, not a reason to delete it.
 
 use dowel_ir::{
-    AccessibilityRole, ConditionExpr, Diagnostic, DiagnosticCode, ExprRef, Node, PassthroughProp,
-    Primitive, PropSet, Severity, SourceSpan, StyleDeclaration, TextContent,
+    AccessibilityRole, Child, ConditionExpr, Diagnostic, DiagnosticCode, ExprRef, NestedNode, Node,
+    PassthroughProp, Primitive, PropSet, Severity, SourceSpan, StyleDeclaration,
 };
 use oxc_ast::ast::{
     ArrowFunctionExpression, Function, JSXAttributeItem, JSXAttributeName, JSXAttributeValue,
@@ -52,6 +56,130 @@ fn accessibility_role_from_value(value: &Option<JSXAttributeValue>) -> Option<Ac
         Some("link") => Some(AccessibilityRole::Link),
         _ => None,
     }
+}
+
+/// Finds and lowers Dowel primitives nested inside something the compiler
+/// is only carrying, not reading -- an expression container, or an
+/// unmodeled component's children.
+///
+/// The compiler can read these perfectly well; what it can't read is the
+/// expression *around* them. So `show &&` is carried untouched while the
+/// `<Text>` beside it compiles exactly as a top-level one would.
+///
+/// Lowers on the spot rather than collecting references to come back to:
+/// the borrow the walk hands out doesn't outlive it, and threading the
+/// build through the visitor is simpler than any way of extending it.
+struct PrimitiveFinder<'r, 'a, 'd> {
+    module_record: &'r ModuleRecord<'a>,
+    diagnostics: &'d mut Vec<Diagnostic>,
+    consumed: &'d mut Vec<SourceSpan>,
+    nested: Vec<NestedNode>,
+}
+
+impl<'r, 'a, 'd> Visit<'a> for PrimitiveFinder<'r, 'a, 'd> {
+    fn visit_jsx_element(&mut self, it: &JSXElement<'a>) {
+        if let JSXElementName::IdentifierReference(ident) = &it.opening_element.name {
+            if let Some(name) = primitive_name(ident.name.as_str()) {
+                match build_node(it, self.module_record, self.diagnostics, self.consumed) {
+                    Some(node) => {
+                        self.nested.push(NestedNode { span: to_span(it.span()), node })
+                    }
+                    // Unreachable through this finder, which only matches
+                    // the four identifier names `build_node` accepts --
+                    // kept so a future widening of one and not the other
+                    // degrades to a named gap rather than a silently
+                    // uncompiled element.
+                    None => self.diagnostics.push(Diagnostic {
+                        code: DiagnosticCode::PrimitiveNotLowered,
+                        severity: Severity::Warning,
+                        message: format!(
+                            "This `<{name}>` is inside an expression the compiler doesn't read \
+                             and couldn't be compiled in place. It falls back to the runtime \
+                             component and gets its CSS from the project-wide candidate \
+                             stylesheet instead of a scoped class."
+                        ),
+                        span: to_span(it.span()),
+                    }),
+                }
+                // The outermost primitive on this branch. `build_node`
+                // recurses into its children itself, so descending further
+                // would compile them a second time.
+                return;
+            }
+        }
+        // Keeps descending otherwise: `<Avatar><Text/></Avatar>` and
+        // `{rows.map(() => <Text/>)}` both hide one further down.
+        oxc_ast_visit::walk::walk_jsx_element(self, it);
+    }
+}
+
+/// Applies JSX's whitespace rules to a text child, matching what Babel and
+/// TypeScript do so Dowel's output says what the source said.
+///
+/// The rules are not "trim". Whitespace *containing a newline* at either
+/// end is dropped, which is what makes indented markup work; whitespace
+/// within a line is significant, which is what makes `Hello {name}` keep
+/// its space. Trimming instead -- as this did until 2026-08-15 -- silently
+/// glued that pair together.
+fn clean_jsx_text(raw: &str) -> String {
+    let lines: Vec<&str> = raw.split(['\r', '\n']).collect();
+    let last_non_empty = lines
+        .iter()
+        .rposition(|line| line.contains(|c: char| c != ' ' && c != '\t'))
+        .unwrap_or(0);
+
+    let mut out = String::new();
+    for (index, line) in lines.iter().enumerate() {
+        let mut trimmed = line.replace('\t', " ");
+        if index != 0 {
+            trimmed = trimmed.trim_start_matches(' ').to_string();
+        }
+        if index != lines.len() - 1 {
+            trimmed = trimmed.trim_end_matches(' ').to_string();
+        }
+        if trimmed.is_empty() {
+            continue;
+        }
+        out.push_str(&trimmed);
+        // Lines that ran together in the source are joined by one space,
+        // except after the last one that had content.
+        if index != last_non_empty {
+            out.push(' ');
+        }
+    }
+    out
+}
+
+fn primitive_name(name: &str) -> Option<&'static str> {
+    match name {
+        "View" => Some("View"),
+        "Text" => Some("Text"),
+        "Pressable" => Some("Pressable"),
+        "Button" => Some("Button"),
+        _ => None,
+    }
+}
+
+/// Builds a `Child::Verbatim` for a child the compiler carries rather than
+/// reads, lowering any Dowel primitives nested inside it.
+///
+/// The expression is opaque; the primitives in it are not. So `show &&` is
+/// left alone while the `<Text>` beside it compiles normally.
+fn carry_verbatim(
+    child: &JSXChild,
+    span: Span,
+    module_record: &ModuleRecord,
+    diagnostics: &mut Vec<Diagnostic>,
+    consumed: &mut Vec<SourceSpan>,
+) -> Child {
+    let mut finder = PrimitiveFinder {
+        module_record,
+        diagnostics,
+        consumed,
+        nested: Vec::new(),
+    };
+    finder.visit_jsx_child(child);
+    Child::Verbatim { source: to_expr_ref(span), nested: finder.nested }
 }
 
 fn primitive_for_name(name: &str) -> Option<Primitive> {
@@ -180,37 +308,40 @@ fn build_node(
         }
     }
 
-    let mut children: Vec<Node> = Vec::new();
-    let mut text: Option<TextContent> = None;
-    // Cleared by anything that renders but doesn't become a `Node`, so a
-    // consumer can tell whether `children` is positionally faithful. See
-    // `Node::children_complete`.
-    let mut children_complete = true;
+    // Every child, in source order. Anything the compiler doesn't model
+    // becomes `Child::Verbatim` and is re-emitted from source rather than
+    // dropped -- an unmodeled component, an expression container, a
+    // fragment, a child spread.
+    let mut children: Vec<Child> = Vec::new();
     for child in &el.children {
         match child {
             JSXChild::Element(child_el) => {
                 match build_node(child_el, module_record, diagnostics, consumed) {
-                    Some(child_node) => children.push(child_node),
+                    Some(child_node) => children.push(Child::Node(child_node)),
                     // A component Dowel doesn't model still renders, and
                     // still occupies a position among its siblings.
-                    None => children_complete = false,
+                    None => children.push(carry_verbatim(
+                        child,
+                        child_el.span(),
+                        module_record,
+                        diagnostics,
+                        consumed,
+                    )),
                 }
             }
             JSXChild::Text(t) => {
-                let trimmed = t.value.trim();
-                if !trimmed.is_empty() {
-                    text = Some(TextContent::Literal(trimmed.to_string()));
-                    // Text and elements are mutually exclusive downstream
-                    // (`text` wins), and on Native the text gets its own
-                    // inserted wrapper element -- either way `children` no
-                    // longer describes what renders.
-                    children_complete = false;
+                let cleaned = clean_jsx_text(t.value.as_str());
+                if !cleaned.is_empty() {
+                    children.push(Child::Text(cleaned));
                 }
             }
-            // Fragments, expression containers, and spreads aren't modeled
-            // in this pass. `{cond && <A/>}` and `{items.map(...)}` in
-            // particular can contribute any number of siblings.
-            _ => children_complete = false,
+            other => children.push(carry_verbatim(
+                other,
+                other.span(),
+                module_record,
+                diagnostics,
+                consumed,
+            )),
         }
     }
 
@@ -219,9 +350,7 @@ fn build_node(
         style,
         props,
         children,
-        text,
         class_name_fallback,
-        children_complete,
         span: to_span(el.span()),
     })
 }

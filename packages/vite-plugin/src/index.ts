@@ -25,6 +25,35 @@ import { importSpecifier, scanProject, scannableFile } from '@dowel/compiler/pro
 
 const DOWEL_CORE_IMPORT_RE = /import\s*\{[^}]*\}\s*from\s*['"]@dowel\/core['"]\s*\n?/
 
+/// The names `@dowel/core` exports. A lowered element never mentions these
+/// (it becomes `div`/`span`/`button`), so one surviving in the output came
+/// through `Child::Verbatim` -- something the compiler carried rather than
+/// understood.
+const DOWEL_PRIMITIVES = ['View', 'Text', 'Pressable', 'Button'] as const
+
+/**
+ * Whether any Dowel primitive name is still mentioned after lowering.
+ *
+ * This decides whether the `@dowel/core` import may be removed. Stripping
+ * it unconditionally -- which this plugin did until 2026-08-15 -- was safe
+ * only while unmodeled children were being *deleted*. Now that they're
+ * carried, anything the compiler couldn't lower in place survives to the
+ * output, and the import is what makes it resolve.
+ *
+ * Deliberately a word match rather than a `<Tag` match, and deliberately
+ * biased toward keeping the import. A primitive can be referenced without
+ * ever appearing as a tag (`const Label = Text` then `<Label/>`), and the
+ * two failure modes are not symmetric: an unnecessary import is dead weight
+ * a bundler drops, while a missing one breaks at runtime. On Web it doesn't
+ * even break cleanly -- `Text` is a DOM global (the text-node interface),
+ * so React is handed a DOM class where a component belongs and throws
+ * something unrelated to the cause. `View` at least gives an honest
+ * ReferenceError.
+ */
+function referencesDowelPrimitive(code: string): boolean {
+  return DOWEL_PRIMITIVES.some((name) => new RegExp(`\\b${name}\\b`).test(code))
+}
+
 /// Renames this component's `dowel-N` class names to be unique across every
 /// component in the file -- `compile()` starts counting from `dowel-0`
 /// independently per root, so two components in the same source file would
@@ -127,10 +156,16 @@ export function dowel(): Plugin {
         }
       }
 
-      // Phase 0 scope: dowel_parser only recognizes View/Text/Pressable/
-      // Button, and every recognized usage above just got fully lowered,
-      // so nothing from '@dowel/core' is referenced in `next` anymore.
-      next = next.replace(DOWEL_CORE_IMPORT_RE, '')
+      // Only when nothing needs it. A primitive that survived lowering
+      // (carried through `Child::Verbatim`) still has to resolve, and
+      // `@dowel/core` exports real working React components for exactly
+      // this -- proposal §2.3's "fall back gracefully". Such an element
+      // renders with its raw class string instead of a compiled scoped
+      // class, which the project-wide candidate stylesheet may well cover.
+      // Degraded, not broken.
+      if (!referencesDowelPrimitive(next)) {
+        next = next.replace(DOWEL_CORE_IMPORT_RE, '')
+      }
 
       const cssFileName = `${path.basename(id)}.dowel.css`
       const cssPath = path.join(path.dirname(id), cssFileName)

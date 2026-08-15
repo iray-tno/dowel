@@ -41,8 +41,8 @@
 //!   time, since it is looking straight at the JSX tree. Web asks
 //!   `:first-child` at match time; here the answer is already known, so it
 //!   costs nothing at runtime. Only an undecidable position (a component
-//!   root, or a sibling of something unmodeled -- see
-//!   `Node::children_complete`) is an error.
+//!   root, or a sibling of anything carried as `Child::Verbatim`, which
+//!   may render nothing or a hundred elements) is an error.
 //! - `Hover`/`Focus` are warnings. Also unbuilt rather than impossible --
 //!   a tablet with a trackpad or pencil reports hover, as do the
 //!   macOS/Windows/visionOS targets -- but stopping a cross-platform build
@@ -55,7 +55,7 @@ mod style;
 
 use dowel_ir::{
     Breakpoint, Condition, ConditionExpr, Diagnostic, DiagnosticCode, ExprRef, Node, Primitive,
-    Severity, StyleDeclaration, StyleProperty, TextContent, TextOverflow, WhiteSpace,
+    Severity, StyleDeclaration, StyleProperty, TextOverflow, WhiteSpace,
 };
 
 pub struct LowerOutput {
@@ -372,7 +372,8 @@ fn render_node(
     // Native's Text inherits from an enclosing Text but *not* from a View,
     // so leaving `fontSize` on the parent would silently render at the
     // default size instead.
-    let wraps_text = component != "Text" && node.text.is_some();
+    let wraps_text = component != "Text"
+        && node.children.iter().any(|c| matches!(c, dowel_ir::Child::Text(_)));
     let (text_declarations, own_declarations): (Vec<_>, Vec<_>) = if wraps_text {
         node.style.iter().cloned().partition(|d| is_text_property(&d.property))
     } else {
@@ -451,47 +452,113 @@ fn render_node(
         props_text.push_str(source_text(source, prop.span));
     }
 
-    let inner = match &node.text {
-        Some(TextContent::Literal(text)) => {
-            let escaped = escape_jsx_text(text);
-            if wraps_text {
-                wrap_in_text(
-                    &escaped,
-                    &text_declarations,
-                    &base_name,
+    // Every child, in source order. A `Verbatim` is re-emitted from source
+    // rather than dropped; a bare string on a non-Text element gets the
+    // wrapper described above.
+    let mut inner = String::new();
+    // Tracks whether any earlier sibling could occupy an element position.
+    // A `Verbatim` may render nothing, one element, or a hundred
+    // (`{items.map(..)}`), so everything after one has no compile-time
+    // position at all.
+    let mut seen_element = false;
+    let mut position_known = true;
+    for child in &node.children {
+        match child {
+            dowel_ir::Child::Node(child_node) => {
+                let child_position = if !position_known {
+                    SiblingPosition::Unknown
+                } else if seen_element {
+                    SiblingPosition::NotFirst
+                } else {
+                    SiblingPosition::First
+                };
+                seen_element = true;
+                inner.push_str(&render_node(
+                    child_node,
+                    child_position,
                     source,
-                    node,
-                    position,
+                    allocator,
                     style_entries,
                     diagnostics,
                     hooks,
-                )
-            } else {
-                escaped
+                ));
+            }
+            dowel_ir::Child::Text(text) => {
+                let escaped = escape_jsx_text(text);
+                inner.push_str(&if wraps_text {
+                    wrap_in_text(
+                        &escaped,
+                        &text_declarations,
+                        &base_name,
+                        source,
+                        node,
+                        position,
+                        style_entries,
+                        diagnostics,
+                        hooks,
+                    )
+                } else {
+                    escaped
+                });
+            }
+            dowel_ir::Child::Verbatim { source: expr_ref, nested } => {
+                seen_element = true;
+                position_known = false;
+                inner.push_str(&render_verbatim(
+                    *expr_ref,
+                    nested,
+                    source,
+                    allocator,
+                    style_entries,
+                    diagnostics,
+                    hooks,
+                ));
             }
         }
-        Some(TextContent::Dynamic(_)) | None => node
-            .children
-            .iter()
-            .enumerate()
-            .map(|(index, child)| {
-                // A child's position is only trustworthy when nothing was
-                // dropped from `children` -- an unmodeled component or an
-                // expression container renders and takes a slot without
-                // becoming a `Node`.
-                let child_position = if !node.children_complete {
-                    SiblingPosition::Unknown
-                } else if index == 0 {
-                    SiblingPosition::First
-                } else {
-                    SiblingPosition::NotFirst
-                };
-                render_node(child, child_position, source, allocator, style_entries, diagnostics, hooks)
-            })
-            .collect(),
-    };
+    }
 
     format!("<{component}{props_text}>{inner}</{component}>")
+}
+
+/// Re-emits a carried expression from source, with each Dowel primitive
+/// inside it replaced by its lowered output.
+///
+/// The nested spans are subranges of `expr_ref`'s and don't overlap (each
+/// is the outermost primitive on its branch), so one left-to-right pass is
+/// enough. `{show && <Text className="p-4">hi</Text>}` comes out as
+/// `{show && <Text style={styles.dowel1}>hi</Text>}` -- the guard
+/// untouched, the element fully compiled.
+///
+/// Position is `Unknown` for every one of them: the surrounding expression
+/// decides how many siblings it renders, so `first:` can't be resolved
+/// there (see `SiblingPosition`).
+#[allow(clippy::too_many_arguments)]
+fn render_verbatim(
+    expr_ref: ExprRef,
+    nested: &[dowel_ir::NestedNode],
+    source: &str,
+    allocator: &mut NameAllocator,
+    style_entries: &mut Vec<(String, Vec<StyleProperty>)>,
+    diagnostics: &mut Vec<Diagnostic>,
+    hooks: &mut Vec<RuntimeHook>,
+) -> String {
+    let mut out = String::new();
+    let mut cursor = expr_ref.0.start as usize;
+    for entry in nested {
+        out.push_str(&source[cursor..entry.span.start as usize]);
+        out.push_str(&render_node(
+            &entry.node,
+            SiblingPosition::Unknown,
+            source,
+            allocator,
+            style_entries,
+            diagnostics,
+            hooks,
+        ));
+        cursor = entry.span.end as usize;
+    }
+    out.push_str(&source[cursor..expr_ref.0.end as usize]);
+    out
 }
 
 /// Builds the inserted `<Text>` that carries a non-Text node's string
@@ -1011,9 +1078,7 @@ export function Login() {
             ],
             props: dowel_ir::PropSet::default(),
             children: Vec::new(),
-            text: None,
             class_name_fallback: Vec::new(),
-            children_complete: true,
             span: dowel_ir::SourceSpan { start: 0, end: 0 },
         };
         let output = lower(&node, "");

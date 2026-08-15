@@ -75,6 +75,18 @@ pub enum DiagnosticCode {
     /// desktop/visionOS targets. Naming them separately keeps "not built
     /// yet" from being mistaken for "can't be built".
     VariantNotWiredOnNative,
+    /// A Dowel primitive sits inside something the compiler carries but
+    /// doesn't read -- an expression container, or an unmodeled component's
+    /// children -- so it reaches output as source rather than as compiled
+    /// markup.
+    ///
+    /// Not an error: on Web `@dowel/core`'s real components render it and
+    /// the candidate stylesheet supplies its CSS, and on Native `View`/
+    /// `Text`/`Pressable` resolve to the same react-native components Dowel
+    /// lowers to. It costs the compile-time benefit for that element, which
+    /// is worth saying out loud rather than leaving the user to wonder why
+    /// one element behaves differently.
+    PrimitiveNotLowered,
 }
 
 // ---------------------------------------------------------------------------
@@ -95,37 +107,68 @@ pub struct Node {
     pub primitive: Primitive,
     pub style: Vec<StyleDeclaration>,
     pub props: PropSet,
-    pub children: Vec<Node>,
-    /// Present only on `Text` nodes.
-    pub text: Option<TextContent>,
+    /// Everything between this element's tags, in source order.
+    ///
+    /// Ordered and total: order matters (`<Text>Hello {name}</Text>` is not
+    /// `<Text>{name} Hello</Text>`), and every JSX child is represented,
+    /// including the ones the compiler doesn't understand. Before
+    /// 2026-08-15 this was a `Vec<Node>` holding only Dowel primitives,
+    /// with a separate `text` field -- which meant an unmodeled component,
+    /// an expression, or a fragment had nowhere to go and was silently
+    /// deleted from the output.
+    pub children: Vec<Child>,
     /// Parts of a `className` expression that couldn't be statically
     /// decomposed into `style` (proposal §7's "truly dynamic" tier) --
     /// threaded through to `@dowel/runtime`'s `cx()` at render time.
     /// Populated per-leaf, not per-node: a `cn(...)` call can contribute
     /// some declarations to `style` and some entries here in the same call.
     pub class_name_fallback: Vec<ExprRef>,
-    /// Whether `children` accounts for *every* JSX child this element had.
-    ///
-    /// It often doesn't: an unmodeled component, a fragment, or an
-    /// expression container (`{cond && <A/>}`, `{items.map(...)}`) isn't
-    /// turned into a `Node`, so `children` can be shorter than what
-    /// actually renders. That's harmless for lowering each child, and
-    /// wrong for anything that reasons about a child's *position* --
-    /// `<View><Custom/><Text className="first:mt-0"/></View>` would put the
-    /// Text at index 0 when it renders second.
-    ///
-    /// So position-dependent conditions may only be resolved at compile
-    /// time when this is `true`. It is not a claim that the element is
-    /// simple, only that nothing was dropped.
-    pub children_complete: bool,
     pub span: SourceSpan,
 }
 
+/// One thing between an element's tags.
 #[derive(Debug, Clone, PartialEq)]
-pub enum TextContent {
-    Literal(String),
-    /// e.g. `{user.name}` -- re-emitted verbatim, not interpreted.
-    Dynamic(ExprRef),
+pub enum Child {
+    /// A Dowel primitive, lowered like any other element.
+    Node(Node),
+    /// Literal text, already trimmed of surrounding JSX whitespace.
+    Text(String),
+    /// Everything else that renders: a component Dowel doesn't model, an
+    /// expression container (`{name}`, `{cond && <A/>}`, `{items.map(..)}`),
+    /// a fragment, a child spread.
+    ///
+    /// Re-emitted from the original source -- the same treatment
+    /// `PropSet::passthrough` and `class_name_fallback` already give the
+    /// parts of a component the compiler doesn't claim to understand. Not
+    /// understanding something is a reason to leave it alone, not a reason
+    /// to drop it.
+    ///
+    /// "Doesn't understand" applies to the *expression*, not to what's
+    /// inside it. A Dowel primitive nested in there is perfectly readable,
+    /// so each one is lowered and spliced back into the re-emitted text at
+    /// `nested` -- `{show && <Text className="p-4">hi</Text>}` compiles its
+    /// `Text` exactly as a top-level one, while `show &&` stays untouched.
+    Verbatim { source: ExprRef, nested: Vec<NestedNode> },
+}
+
+/// A Dowel primitive found inside a `Child::Verbatim`, with the source
+/// range its lowered output replaces.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NestedNode {
+    pub span: SourceSpan,
+    pub node: Node,
+}
+
+impl Child {
+    /// Whether this occupies a position `:first-child` would count. CSS
+    /// counts elements only, so literal text doesn't shift anything.
+    ///
+    /// `Verbatim` is the interesting case: it may render nothing, one
+    /// element, or a hundred (`{items.map(..)}`), so a sibling after one
+    /// has no compile-time position at all.
+    pub fn is_element_position(&self) -> bool {
+        matches!(self, Child::Node(_) | Child::Verbatim { .. })
+    }
 }
 
 /// A JSX attribute Dowel doesn't model, carried through to output

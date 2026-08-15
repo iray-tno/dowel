@@ -118,7 +118,9 @@ fn collect_keyframes_into(node: &Node, found: &mut Vec<&'static str>) {
         }
     }
     for child in &node.children {
-        collect_keyframes_into(child, found);
+        if let dowel_ir::Child::Node(child_node) = child {
+            collect_keyframes_into(child_node, found);
+        }
     }
 }
 
@@ -245,16 +247,68 @@ fn render_node(
         attrs.push_str(source_text(source, prop.span));
     }
 
-    let inner = match &node.text {
-        Some(dowel_ir::TextContent::Literal(text)) => markup::html_escape(text),
-        Some(dowel_ir::TextContent::Dynamic(_)) | None => node
-            .children
-            .iter()
-            .map(|child| render_node(child, source, allocator, rules, diagnostics, uses_view_base))
-            .collect(),
-    };
+    // In source order, and every child emitted -- `Verbatim` covers the
+    // ones the compiler doesn't model, re-emitted from source rather than
+    // deleted. Order is load-bearing: `<Text>Hello {name}</Text>` and
+    // `<Text>{name} Hello</Text>` differ only in it.
+    let inner: String = node
+        .children
+        .iter()
+        .map(|child| match child {
+            dowel_ir::Child::Node(child_node) => {
+                render_node(child_node, source, allocator, rules, diagnostics, uses_view_base)
+            }
+            dowel_ir::Child::Text(text) => markup::html_escape(text),
+            dowel_ir::Child::Verbatim { source: expr_ref, nested } => render_verbatim(
+                *expr_ref,
+                nested,
+                source,
+                allocator,
+                rules,
+                diagnostics,
+                uses_view_base,
+            ),
+        })
+        .collect();
 
     format!("<{tag}{attrs}>{inner}</{tag}>")
+}
+
+/// Re-emits a carried expression from source, with each Dowel primitive
+/// inside it replaced by its lowered output.
+///
+/// The nested spans are subranges of `expr_ref`'s and don't overlap (each
+/// is the outermost primitive on its branch), so one left-to-right pass is
+/// enough. `{show && <Text className="p-4">hi</Text>}` comes out as
+/// `{show && <span className="dowel-1">hi</span>}` -- the guard untouched,
+/// the element fully compiled.
+fn render_verbatim(
+    expr_ref: dowel_ir::ExprRef,
+    nested: &[dowel_ir::NestedNode],
+    source: &str,
+    allocator: &mut ClassAllocator,
+    rules: &mut String,
+    diagnostics: &mut Vec<Diagnostic>,
+    uses_view_base: &mut bool,
+) -> String {
+    let start = expr_ref.0.start as usize;
+    let mut out = String::new();
+    let mut cursor = start;
+    for entry in nested {
+        let from = entry.span.start as usize;
+        out.push_str(&source[cursor..from]);
+        out.push_str(&render_node(
+            &entry.node,
+            source,
+            allocator,
+            rules,
+            diagnostics,
+            uses_view_base,
+        ));
+        cursor = entry.span.end as usize;
+    }
+    out.push_str(&source[cursor..expr_ref.0.end as usize]);
+    out
 }
 
 fn collect_expr_refs(node: &Node) -> Vec<dowel_ir::ExprRef> {
@@ -404,6 +458,39 @@ export function Login() {
         let css = render_candidate_stylesheet(&["useState".to_string(), "p-4".to_string()]);
         assert!(css.contains(".p-4 {"));
         assert!(!css.contains("useState"));
+    }
+
+    #[test]
+    fn children_the_compiler_cannot_read_are_carried_and_their_primitives_still_compile() {
+        // Until 2026-08-15 every one of these vanished from the output with
+        // no diagnostic. Now the *expression* is carried untouched while
+        // the primitives inside it compile exactly as top-level ones do.
+        let source = r#"
+            import { View, Text } from '@dowel/core'
+            export function C({ show, items, name }) {
+              return (
+                <View className="p-4">
+                  <Avatar />
+                  {show && <Text className="text-xl">hi</Text>}
+                  {items.map((i) => <Text key={i} className="p-2">{i}</Text>)}
+                  <Text>Hello {name}</Text>
+                </View>
+              )
+            }
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source);
+
+        // Carried, not interpreted: the guard and the callback survive.
+        assert!(output.jsx.contains("{show && "), "{}", output.jsx);
+        assert!(output.jsx.contains("{items.map((i) => "), "{}", output.jsx);
+        assert!(output.jsx.contains("<Avatar />"), "{}", output.jsx);
+        // ...while the primitives inside them are fully lowered.
+        assert!(!output.jsx.contains("<Text"), "{}", output.jsx);
+        assert!(output.css.contains("font-size: 20px;"), "{}", output.css);
+        assert!(output.css.contains("padding-top: 8px;"), "{}", output.css);
+        // Text and expression keep their order.
+        assert!(output.jsx.contains(">Hello {name}<"), "{}", output.jsx);
     }
 
     #[test]

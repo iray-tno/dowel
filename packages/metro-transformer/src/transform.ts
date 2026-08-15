@@ -78,9 +78,23 @@ export function transformDowelSource(
   components.forEach((component: CompiledNativeComponent, index: number) => {
     styleBlocks.push(namespaceDowelIdentifiers(component.styles, index))
     for (const tag of RN_PRIMITIVE_TAGS) {
-      if (component.jsx.includes(`<${tag}`)) {
+      if (new RegExp(`<${tag}[\\s/>]`).test(component.jsx)) {
         usedTags.add(tag)
       }
+    }
+    // `View`/`Text`/`Pressable` carried through `Child::Verbatim` are fine:
+    // they resolve to the react-native imports above, which are the very
+    // components Dowel lowers to. `Button` is not -- Dowel's Button is a
+    // semantic primitive that lowers to Pressable, while react-native's
+    // takes a `title` prop and renders no children. Neither that nor
+    // `@dowel/core`'s Web `<button>` fallback works on a device, so this is
+    // refused rather than silently mis-rendered.
+    if (/<Button[\s/>]/.test(component.jsx)) {
+      throw new Error(
+        `[dowel] ${filename}: a <Button> is inside an expression the compiler can't read, so it ` +
+          `can't be lowered -- and React Native's own Button is a different component with a ` +
+          `different API. Move it out of the expression, or use Pressable directly.`,
+      )
     }
   })
 

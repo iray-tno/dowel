@@ -2,7 +2,8 @@
 // every individual mismatch. `pnpm --filter @dowel/tailwind-conformance report`
 
 import { CANDIDATE_GROUPS, ALL_CANDIDATES, stripVariant } from './candidates.ts'
-import { compareCandidate, type Comparison } from './compare.ts'
+import { loadFullCatalog, namespaceOf } from './catalog.ts'
+import { compareCandidate, type Comparison, type Verdict } from './compare.ts'
 import { compareNativeCandidate, type NativeComparison, type NativeVerdict } from './native.ts'
 import { buildOracle } from './oracle.ts'
 import { loadThemeVars, tailwindVersion } from './theme.ts'
@@ -151,3 +152,94 @@ if (silent.length > 0) {
     console.log(`  ${s.candidate}: ${s.detail}`)
   }
 }
+
+// ---------------------------------------------------------------------------
+// Full catalogue
+// ---------------------------------------------------------------------------
+//
+// The number above is measured against a list we chose. This one is
+// measured against Tailwind's own, asked for through the same entry point
+// its IntelliSense extension uses -- so it can't be flattered by picking
+// the utilities Dowel happens to implement.
+
+console.log('\n\n== Full catalogue (Tailwind enumerates its own surface) ==')
+
+const catalog = (await loadFullCatalog()).filter((c) => !c.includes('"'))
+const fullOracle = await buildOracle(catalog)
+const fullVars = new Map([...loadThemeVars(), ...fullOracle.registerDefaults])
+
+interface NamespaceRow {
+  total: number
+  match: number
+  mismatch: number
+  unsupported: number
+  skipped: number
+}
+
+const catalogCounts: Record<Verdict, number> = {
+  MATCH: 0,
+  MISMATCH: 0,
+  UNSUPPORTED: 0,
+  SKIPPED: 0,
+}
+const byNamespace = new Map<string, NamespaceRow>()
+// Entries Tailwind lists but produces no standalone CSS for -- a gradient
+// stop with no gradient, a negative form of something that takes no
+// negative. There is nothing for Dowel to cover, so they leave the
+// denominator. Tailwind decides this, not us.
+let notEmittedByTailwind = 0
+
+for (const candidate of catalog) {
+  const expected = fullOracle.rules.get(candidate)
+  if (expected === undefined) {
+    notEmittedByTailwind += 1
+    continue
+  }
+  const result = compareCandidate(candidate, expected, fullVars)
+  catalogCounts[result.verdict] += 1
+  const ns = namespaceOf(candidate)
+  const row =
+    byNamespace.get(ns) ?? { total: 0, match: 0, mismatch: 0, unsupported: 0, skipped: 0 }
+  row.total += 1
+  if (result.verdict === 'MATCH') row.match += 1
+  if (result.verdict === 'MISMATCH') row.mismatch += 1
+  if (result.verdict === 'UNSUPPORTED') row.unsupported += 1
+  if (result.verdict === 'SKIPPED') row.skipped += 1
+  byNamespace.set(ns, row)
+}
+
+const catalogComparable = catalog.length - notEmittedByTailwind
+console.log(
+  `Catalogue:   ${catalog.length} entries; ${notEmittedByTailwind} produce no standalone CSS ` +
+    `even from Tailwind, leaving ${comparable}.\n`,
+)
+console.log(
+  `Match:       ${catalogCounts.MATCH}/${catalogComparable} = ${pct(catalogCounts.MATCH, catalogComparable)}\n` +
+    `Mismatch:    ${catalogCounts.MISMATCH}\n` +
+    `Unsupported: ${catalogCounts.UNSUPPORTED}   (Dowel emits nothing)\n` +
+    `Skipped:     ${catalogCounts.SKIPPED}   (one side wouldn't resolve; no claim made)`,
+)
+console.log(
+  '\nRead the percentage with the shape in mind: value expansion dominates it.\n' +
+    'Covering bg-blue-500 and bg-blue-600 is one code path, and mask-* alone is\n' +
+    'over a quarter of the catalogue. The namespace table is the actionable view.',
+)
+
+const nsRows = [...byNamespace.entries()].sort((a, b) => b[1].total - a[1].total)
+console.log('\nLargest namespaces:')
+console.table(
+  nsRows.slice(0, 20).map(([namespace, row]) => ({
+    namespace,
+    total: row.total,
+    match: row.match,
+    mismatch: row.mismatch,
+    unsupported: row.unsupported,
+    skipped: row.skipped,
+  })),
+)
+const untouched = nsRows.filter(([, r]) => r.match === 0)
+console.log(
+  `Namespaces: ${nsRows.length} total, ` +
+    `${nsRows.filter(([, r]) => r.match === r.total).length} fully matching, ` +
+    `${untouched.length} with nothing matching.`,
+)

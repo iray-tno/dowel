@@ -39,16 +39,52 @@ export async function buildOracle(candidates: string[]): Promise<Oracle> {
   const byName = new Map(candidates.map((c) => [escapeClassName(c), c]))
 
   for (const { selector, declarations } of extractRules(utilities)) {
+    // Read the class names *out of* the selector and look each one up,
+    // rather than testing every candidate against every selector. The
+    // latter is fine for a hand-picked hundred and quadratic against the
+    // full ~23k catalogue, where it is tens of millions of string scans.
+    //
     // A selector may carry a pseudo-class or be a descendant form
-    // (`:where(.space-x-2 > :not(:last-child))`), so match against the
-    // escaped class name rather than requiring the whole selector to equal
-    // it.
-    for (const [escaped, candidate] of byName) {
-      if (!selectorTargetsClass(selector, escaped)) continue
+    // (`:where(.space-x-2 > :not(:last-child))`), so every class in it is
+    // considered, not just a whole-selector match.
+    for (const escaped of classNamesIn(selector)) {
+      const candidate = byName.get(escaped)
+      if (candidate === undefined) continue
       rules.set(candidate, (rules.get(candidate) ?? '') + declarations)
     }
   }
   return { rules, registerDefaults: extractRegisterDefaults(css) }
+}
+
+/**
+ * The escaped class names a selector targets.
+ *
+ * Backslash escapes are part of the name (`.hover\:bg-blue-500:hover` is
+ * the class `hover\:bg-blue-500` followed by a pseudo-class), so an escaped
+ * character is consumed together with its backslash -- otherwise the `:` in
+ * `\:` would look like the start of a pseudo-class and cut the name short.
+ */
+function classNamesIn(selector: string): string[] {
+  const names: string[] = []
+  for (let i = 0; i < selector.length; i += 1) {
+    if (selector[i] !== '.') continue
+    let name = ''
+    let j = i + 1
+    while (j < selector.length) {
+      const ch = selector[j]
+      if (ch === '\\' && j + 1 < selector.length) {
+        name += ch + selector[j + 1]
+        j += 2
+        continue
+      }
+      if (!/[\w-]/.test(ch)) break
+      name += ch
+      j += 1
+    }
+    if (name) names.push(name)
+    i = j - 1
+  }
+  return names
 }
 
 function extractRegisterDefaults(css: string): Map<string, string> {
@@ -65,13 +101,4 @@ function extractRegisterDefaults(css: string): Map<string, string> {
 /** How Tailwind escapes a candidate when writing it as a CSS selector. */
 function escapeClassName(candidate: string): string {
   return candidate.replace(/[:/.]/g, (ch) => `\\${ch}`)
-}
-
-function selectorTargetsClass(selector: string, escapedClass: string): boolean {
-  const idx = selector.indexOf(`.${escapedClass}`)
-  if (idx === -1) return false
-  // Guard against `.p-4` also matching inside `.p-40`: the next character
-  // must not continue the class name.
-  const next = selector[idx + escapedClass.length + 1]
-  return next === undefined || !/[\w-]/.test(next)
 }

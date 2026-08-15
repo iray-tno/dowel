@@ -2,7 +2,19 @@
 
 Differential test against the real Tailwind engine. For each candidate utility it compiles the class both ways — through the actual `tailwindcss` package and through Dowel — and compares the results.
 
-The report has two sections, measuring different things:
+## Two denominators
+
+It measures against two lists, and they say different things.
+
+**Curated** (`candidates.ts`, 120 utilities) — a hand-picked slice of what real app code uses. Good for "does the common path work", useless as a claim about Tailwind coverage: we chose it, and we chose it knowing what Dowel implements.
+
+**Full catalogue** (`catalog.ts`) — every class Tailwind's own design system can generate, asked for through `__unstable__loadDesignSystem().getClassList()`, the entry point the official IntelliSense extension uses. Nothing in it is our choice. Entries Tailwind itself produces no standalone CSS for (a gradient stop with no gradient, a negative form of something that takes none) leave the denominator, and Tailwind decides that too.
+
+Read the full percentage with its shape in mind: value expansion dominates it. `mask-*` alone is over a quarter of the catalogue, and covering `bg-blue-500` and `bg-blue-600` is one code path counted twice. The per-namespace table is the actionable view — which families Dowel handles, which it doesn't, and where it emits something *wrong*.
+
+## Sections
+
+The report has three sections, measuring different things:
 
 **Web** — coverage *and* fidelity, because Tailwind is the oracle.
 

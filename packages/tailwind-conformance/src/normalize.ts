@@ -99,14 +99,16 @@ function evaluateArithmetic(expr: string): string | null {
   if (/infinity/i.test(expr)) return 'infinity'
   // Every term must be a bare number or a px/rem length for this to be
   // safe to fold; a mix of units (or an unknown one) bails out.
-  const units = new Set((expr.match(/[\d.]+(px|rem|%|em)/g) ?? []).map((t) => /[a-z%]+$/.exec(t)![0]))
+  const units = new Set(
+    (expr.match(/[\d.]+(px|rem|%|em|deg)/g) ?? []).map((t) => /[a-z%]+$/.exec(t)![0]),
+  )
   if (units.size > 1) return null
   const unit = [...units][0] ?? ''
   // `em` depends on inherited font size, so it can't be folded here.
   // A lone `%` can: `calc(1 / 2 * 100%)` is just 50%.
   if (unit === 'em') return null
 
-  const bare = expr.replace(/(px|rem|%)/g, '')
+  const bare = expr.replace(/(px|rem|%|deg)/g, '')
   if (!/^[\d\s.+\-*/()]+$/.test(bare)) return null
   let result: number
   try {

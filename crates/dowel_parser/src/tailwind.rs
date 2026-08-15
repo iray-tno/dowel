@@ -284,20 +284,104 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
         return rest.parse::<f64>().ok().map(|pct| StyleProperty::Opacity(pct / 100.0));
     }
     if let Some(color) = token.strip_prefix("bg-") {
+        if is_non_color_suffix(ColorFamily::Background, color) {
+            return None;
+        }
         return Some(StyleProperty::BackgroundColor(Color::Token(color.to_string())));
     }
     if let Some(color) = token.strip_prefix("text-") {
         // Only reached if `parse_font_size`/`text-{left,center,right}` above
         // didn't match, so whatever remains is a color token (e.g. `blue-500`).
+        if is_non_color_suffix(ColorFamily::Text, color) {
+            return None;
+        }
         return Some(StyleProperty::TextColor(Color::Token(color.to_string())));
     }
     if let Some(color) = token.strip_prefix("border-") {
         // Only reached once the width/style forms above have declined it,
         // so a non-numeric, non-keyword suffix here is a color token.
+        if is_non_color_suffix(ColorFamily::Border, color) {
+            return None;
+        }
         return Some(StyleProperty::BorderColor(Color::Token(color.to_string())));
     }
 
     None
+}
+
+#[derive(Clone, Copy)]
+enum ColorFamily {
+    Background,
+    Text,
+    Border,
+}
+
+/// Whether a `bg-`/`text-`/`border-` suffix is Tailwind's name for
+/// something that isn't a colour.
+///
+/// These families end in a catch-all: whatever the earlier arms declined is
+/// treated as a colour token, and an unrecognized one becomes
+/// `var(--dowel-color-<token>)` so a project's own theme colour still
+/// reaches CSS. That is the right behaviour for `bg-brand-primary`, and
+/// quietly wrong for everything else -- `bg-auto` is a background *size*,
+/// and it was compiling to `background-color: var(--dowel-color-auto)`, a
+/// custom property nothing defines. Inert output, and Dowel claiming the
+/// utility while producing it.
+///
+/// So the catch-all is now guarded by the list below, derived from
+/// Tailwind's own class list by asking which entries in each family it does
+/// *not* give a colour property to (523 candidates did this). Matching one
+/// means "not supported yet", not "not a colour utility Dowel will ever
+/// have" -- these are the implementation targets.
+fn is_non_color_suffix(family: ColorFamily, suffix: &str) -> bool {
+    let head = suffix.split('-').next().unwrap_or(suffix);
+    match family {
+        // background-size / -position / -repeat / -attachment / -clip /
+        // -origin / -blend-mode, and the gradient constructors.
+        ColorFamily::Background => matches!(
+            head,
+            "auto"
+                | "blend"
+                | "bottom"
+                | "center"
+                | "clip"
+                | "conic"
+                | "contain"
+                | "cover"
+                | "fixed"
+                | "left"
+                | "linear"
+                | "local"
+                | "no"
+                | "none"
+                | "origin"
+                | "radial"
+                | "repeat"
+                | "right"
+                | "scroll"
+                | "top"
+        ),
+        // text-wrap / text-align's logical keywords / text-shadow.
+        ColorFamily::Text => {
+            matches!(head, "balance" | "end" | "justify" | "nowrap" | "pretty" | "shadow" | "start" | "wrap")
+        }
+        ColorFamily::Border => {
+            // Table borders, plus the two border-styles the width/style arms
+            // above don't recognize.
+            if matches!(head, "collapse" | "separate" | "spacing" | "double" | "hidden") {
+                return true;
+            }
+            // Anything still carrying a side keyword by the time it reaches
+            // the colour catch-all is unsupported. The widths that *are*
+            // supported (`border-t-4`) matched an earlier arm and never get
+            // here; what's left is per-side colours, which would otherwise
+            // become `border-color` -- all four sides, from a token that
+            // isn't a colour name (`border-b-red-500` was compiling to
+            // `border-color: var(--dowel-color-b-red-500)`) -- plus the
+            // logical/axis widths Dowel doesn't lower yet.
+            matches!(head, "t" | "r" | "b" | "l" | "x" | "y" | "s" | "e" | "bs" | "be")
+        }
+    }
 }
 
 /// Tailwind's `--radius-*` scale, in px (its own values are rem at the

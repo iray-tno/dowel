@@ -42,6 +42,10 @@ pub fn resolve_color_token(token: &str) -> Option<ResolvedColor> {
         // honest fallback rather than an invented value.
         "transparent" => Some(ResolvedColor { oklch: "transparent", hex: "transparent" }),
         "current" => Some(ResolvedColor { oklch: "currentcolor", hex: "currentcolor" }),
+        // A CSS-wide keyword, not a theme token -- without it `bg-inherit`
+        // fell through to the unknown-token fallback and became
+        // `var(--dowel-color-inherit)`, which nothing defines.
+        "inherit" => Some(ResolvedColor { oklch: "inherit", hex: "inherit" }),
         // theme.css states these two as plain hex rather than oklch, so
         // both fields carry the hex -- the Web value is meant to be what
         // Tailwind itself would emit.

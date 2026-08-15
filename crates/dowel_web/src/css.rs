@@ -55,6 +55,15 @@ fn border_style_keyword(style: &BorderStyle) -> &'static str {
     }
 }
 
+fn radius_value(radius: &Radius) -> String {
+    match radius {
+        Radius::Length(l) => length_px(*l),
+        // Exactly what Tailwind emits -- CSS can state this, so there's no
+        // reason to approximate it here.
+        Radius::Full => "calc(infinity * 1px)".to_string(),
+    }
+}
+
 fn color_var(color: &Color) -> String {
     let Color::Token(token) = color;
     match dowel_ir::resolve_color_token(token) {
@@ -166,9 +175,25 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
         StyleProperty::InsetLeft(l) => ("left", length_px(*l)),
         StyleProperty::InsetInlineStart(l) => ("inset-inline-start", length_px(*l)),
         StyleProperty::InsetInlineEnd(l) => ("inset-inline-end", length_px(*l)),
+        StyleProperty::InsetInline(l) => ("inset-inline", length_px(*l)),
+        StyleProperty::InsetBlock(l) => ("inset-block", length_px(*l)),
+        StyleProperty::InsetBlockStart(l) => ("inset-block-start", length_px(*l)),
+        StyleProperty::InsetBlockEnd(l) => ("inset-block-end", length_px(*l)),
         StyleProperty::BackgroundColor(c) => ("background-color", color_var(c)),
         StyleProperty::Opacity(o) => ("opacity", format!("{o}")),
         StyleProperty::BorderColor(c) => ("border-color", color_var(c)),
+        // One CSS longhand each, including the two axis shorthands, which
+        // is exactly what Tailwind emits.
+        StyleProperty::BorderTopColor(c) => ("border-top-color", color_var(c)),
+        StyleProperty::BorderRightColor(c) => ("border-right-color", color_var(c)),
+        StyleProperty::BorderBottomColor(c) => ("border-bottom-color", color_var(c)),
+        StyleProperty::BorderLeftColor(c) => ("border-left-color", color_var(c)),
+        StyleProperty::BorderInlineColor(c) => ("border-inline-color", color_var(c)),
+        StyleProperty::BorderBlockColor(c) => ("border-block-color", color_var(c)),
+        StyleProperty::BorderInlineStartColor(c) => ("border-inline-start-color", color_var(c)),
+        StyleProperty::BorderInlineEndColor(c) => ("border-inline-end-color", color_var(c)),
+        StyleProperty::BorderBlockStartColor(c) => ("border-block-start-color", color_var(c)),
+        StyleProperty::BorderBlockEndColor(c) => ("border-block-end-color", color_var(c)),
         StyleProperty::BorderTopWidth(l) => ("border-top-width", length_px(*l)),
         StyleProperty::BorderRightWidth(l) => ("border-right-width", length_px(*l)),
         StyleProperty::BorderBottomWidth(l) => ("border-bottom-width", length_px(*l)),
@@ -181,15 +206,23 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
             ("border-bottom-style", border_style_keyword(s).to_string())
         }
         StyleProperty::BorderLeftStyle(s) => ("border-left-style", border_style_keyword(s).to_string()),
-        StyleProperty::BorderRadius(r) => (
-            "border-radius",
-            match r {
-                Radius::Length(l) => length_px(*l),
-                // Exactly what Tailwind emits -- CSS can state this, so
-                // there's no reason to approximate it here.
-                Radius::Full => "calc(infinity * 1px)".to_string(),
-            },
-        ),
+        StyleProperty::BorderRadius(r) => ("border-radius", radius_value(r)),
+        StyleProperty::BorderTopLeftRadius(r) => ("border-top-left-radius", radius_value(r)),
+        StyleProperty::BorderTopRightRadius(r) => ("border-top-right-radius", radius_value(r)),
+        StyleProperty::BorderBottomRightRadius(r) => ("border-bottom-right-radius", radius_value(r)),
+        StyleProperty::BorderBottomLeftRadius(r) => ("border-bottom-left-radius", radius_value(r)),
+        StyleProperty::BorderStartStartRadius(r) => ("border-start-start-radius", radius_value(r)),
+        StyleProperty::BorderStartEndRadius(r) => ("border-start-end-radius", radius_value(r)),
+        StyleProperty::BorderEndStartRadius(r) => ("border-end-start-radius", radius_value(r)),
+        StyleProperty::BorderEndEndRadius(r) => ("border-end-end-radius", radius_value(r)),
+        StyleProperty::BorderTopLeftRadius(r) => ("border-top-left-radius", radius_value(r)),
+        StyleProperty::BorderTopRightRadius(r) => ("border-top-right-radius", radius_value(r)),
+        StyleProperty::BorderBottomRightRadius(r) => ("border-bottom-right-radius", radius_value(r)),
+        StyleProperty::BorderBottomLeftRadius(r) => ("border-bottom-left-radius", radius_value(r)),
+        StyleProperty::BorderStartStartRadius(r) => ("border-start-start-radius", radius_value(r)),
+        StyleProperty::BorderStartEndRadius(r) => ("border-start-end-radius", radius_value(r)),
+        StyleProperty::BorderEndStartRadius(r) => ("border-end-start-radius", radius_value(r)),
+        StyleProperty::BorderEndEndRadius(r) => ("border-end-end-radius", radius_value(r)),
         StyleProperty::FontSize(l) => ("font-size", length_px(*l)),
         StyleProperty::FontWeight(w) => ("font-weight", format!("{}", w.0)),
         StyleProperty::LineHeight(lh) => (

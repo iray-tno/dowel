@@ -279,11 +279,39 @@ pub enum StyleProperty {
     InsetLeft(Length),
     InsetInlineStart(Length),
     InsetInlineEnd(Length),
+    /// The axis shorthands (`inset-x-*`/`inset-y-*`) and the block-logical
+    /// pair, kept as their own properties for the same discriminant reason
+    /// as the per-side border colours below.
+    InsetInline(Length),
+    InsetBlock(Length),
+    InsetBlockStart(Length),
+    InsetBlockEnd(Length),
 
     // Visual
     BackgroundColor(Color),
     Opacity(f64),
     BorderColor(Color),
+    /// Per-side border colours, one variant per CSS longhand.
+    ///
+    /// Separate variants rather than one `BorderSideColor(Side, Color)`
+    /// because `dedupe_last_wins` identifies a property by its enum
+    /// discriminant -- a single variant would make `border-t-red-500` and
+    /// `border-b-blue-500` collapse into one. Same reason the per-side
+    /// widths above are spelled out.
+    ///
+    /// `Inline`/`Block` are CSS shorthands (start+end of that axis) and are
+    /// emitted as such on Web to match Tailwind exactly; the Native backend
+    /// expands them, since React Native has no shorthand form.
+    BorderTopColor(Color),
+    BorderRightColor(Color),
+    BorderBottomColor(Color),
+    BorderLeftColor(Color),
+    BorderInlineColor(Color),
+    BorderBlockColor(Color),
+    BorderInlineStartColor(Color),
+    BorderInlineEndColor(Color),
+    BorderBlockStartColor(Color),
+    BorderBlockEndColor(Color),
     // Per-side, for the same reason margin/padding are (see above):
     // `border-t-2` and `border-b-4` set disjoint sides and must compose.
     BorderTopWidth(Length),
@@ -308,6 +336,18 @@ pub enum StyleProperty {
     BorderBottomStyle(BorderStyle),
     BorderLeftStyle(BorderStyle),
     BorderRadius(Radius),
+    /// Per-corner radii. Tailwind's side forms (`rounded-t-*`) and logical
+    /// side forms (`rounded-s-*`) each expand to the two corners on that
+    /// edge, which is what Tailwind itself emits -- there is no CSS
+    /// shorthand for one edge's pair.
+    BorderTopLeftRadius(Radius),
+    BorderTopRightRadius(Radius),
+    BorderBottomRightRadius(Radius),
+    BorderBottomLeftRadius(Radius),
+    BorderStartStartRadius(Radius),
+    BorderStartEndRadius(Radius),
+    BorderEndStartRadius(Radius),
+    BorderEndEndRadius(Radius),
 
     /// CSS states these as standalone properties (`rotate: 45deg`), which
     /// is also how Tailwind v4 emits them. React Native has no standalone

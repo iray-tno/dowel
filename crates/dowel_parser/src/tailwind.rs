@@ -300,6 +300,9 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
     if let Some(color) = token.strip_prefix("border-") {
         // Only reached once the width/style forms above have declined it,
         // so a non-numeric, non-keyword suffix here is a color token.
+        if let Some(prop) = parse_border_side_color(color) {
+            return Some(prop);
+        }
         if is_non_color_suffix(ColorFamily::Border, color) {
             return None;
         }
@@ -307,6 +310,75 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
     }
 
     None
+}
+
+/// `inset-<value>` and `inset-<side>-<value>`, each optionally negated.
+///
+/// Bare `inset-*` sets all four sides, so it stays four physical
+/// properties; the axis and logical forms map to the single CSS property
+/// Tailwind emits for each.
+fn expand_inset(token: &str) -> Option<Vec<StyleProperty>> {
+    let (negative, token) = match token.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, token),
+    };
+    let rest = token.strip_prefix("inset-")?;
+
+    let (side, value) = match rest.split_once('-') {
+        Some((side, value)) if matches!(side, "x" | "y" | "s" | "e" | "bs" | "be") => {
+            (Some(side), value)
+        }
+        _ => (None, rest),
+    };
+    let Length::Px(px) = parse_spacing_suffix(value)?;
+    let length = Length::Px(signed(px, negative));
+
+    Some(match side {
+        Some("x") => vec![StyleProperty::InsetInline(length)],
+        Some("y") => vec![StyleProperty::InsetBlock(length)],
+        Some("s") => vec![StyleProperty::InsetInlineStart(length)],
+        Some("e") => vec![StyleProperty::InsetInlineEnd(length)],
+        Some("bs") => vec![StyleProperty::InsetBlockStart(length)],
+        Some("be") => vec![StyleProperty::InsetBlockEnd(length)],
+        _ => vec![
+            StyleProperty::InsetTop(length),
+            StyleProperty::InsetRight(length),
+            StyleProperty::InsetBottom(length),
+            StyleProperty::InsetLeft(length),
+        ],
+    })
+}
+
+/// `border-<side>-<color>`, for every side Tailwind offers.
+///
+/// The width forms (`border-t-2`) matched an earlier arm, so a side here is
+/// always followed by a colour token. Until 2026-08-15 this fell through to
+/// the plain colour path and compiled `border-b-red-500` to
+/// `border-color: var(--dowel-color-b-red-500)` -- the wrong property, on
+/// all four sides, from a token that isn't a colour name.
+fn parse_border_side_color(suffix: &str) -> Option<StyleProperty> {
+    let (side, token) = suffix.split_once('-')?;
+    // A number is a *width* on that side (`border-x-2`), not a colour. The
+    // physical sides' widths matched an earlier arm; the logical and axis
+    // ones aren't lowered yet, so declining here lets the guard below
+    // refuse them by name instead of inventing a colour called "2".
+    if token.parse::<f64>().is_ok() {
+        return None;
+    }
+    let color = Color::Token(token.to_string());
+    Some(match side {
+        "t" => StyleProperty::BorderTopColor(color),
+        "r" => StyleProperty::BorderRightColor(color),
+        "b" => StyleProperty::BorderBottomColor(color),
+        "l" => StyleProperty::BorderLeftColor(color),
+        "x" => StyleProperty::BorderInlineColor(color),
+        "y" => StyleProperty::BorderBlockColor(color),
+        "s" => StyleProperty::BorderInlineStartColor(color),
+        "e" => StyleProperty::BorderInlineEndColor(color),
+        "bs" => StyleProperty::BorderBlockStartColor(color),
+        "be" => StyleProperty::BorderBlockEndColor(color),
+        _ => return None,
+    })
 }
 
 #[derive(Clone, Copy)]
@@ -389,24 +461,80 @@ fn is_non_color_suffix(family: ColorFamily, suffix: &str) -> bool {
 /// as `rounded-sm` in v4 -- they happen to share a value here but are
 /// separate scale entries.
 fn parse_border_radius(token: &str) -> Option<Radius> {
+    radius_from_suffix(token.strip_prefix("rounded")?.strip_prefix('-').unwrap_or(""))
+}
+
+/// The size half of a `rounded-*` utility, with the corner (if any) already
+/// stripped. An empty suffix is bare `rounded`.
+fn radius_from_suffix(suffix: &str) -> Option<Radius> {
     // Kept as an intent rather than a number -- see `dowel_ir::Radius`.
-    if token == "rounded-full" {
+    if suffix == "full" {
         return Some(Radius::Full);
     }
-    let px = match token {
-        "rounded" => 4.0,
-        "rounded-none" => 0.0,
-        "rounded-xs" => 2.0,
-        "rounded-sm" => 4.0,
-        "rounded-md" => 6.0,
-        "rounded-lg" => 8.0,
-        "rounded-xl" => 12.0,
-        "rounded-2xl" => 16.0,
-        "rounded-3xl" => 24.0,
-        "rounded-4xl" => 32.0,
+    let px = match suffix {
+        "" => 4.0,
+        "none" => 0.0,
+        "xs" => 2.0,
+        "sm" => 4.0,
+        "md" => 6.0,
+        "lg" => 8.0,
+        "xl" => 12.0,
+        "2xl" => 16.0,
+        "3xl" => 24.0,
+        "4xl" => 32.0,
         _ => return None,
     };
     Some(Radius::Length(Length::Px(px)))
+}
+
+/// `rounded-<corner>-<size>`, where a corner may be a single corner, one
+/// edge (two corners), or their logical equivalents.
+fn expand_border_radius(token: &str) -> Option<Vec<StyleProperty>> {
+    let rest = token.strip_prefix("rounded")?.strip_prefix('-')?;
+    // `rounded-lg` has no corner part; `rounded-t-lg` does. The corner is
+    // never a valid size and vice versa, so trying the whole suffix as a
+    // size first disambiguates without a lookahead.
+    let (corner, size) = match rest.split_once('-') {
+        Some((corner, size)) if radius_from_suffix(size).is_some() => (corner, size),
+        _ => return None,
+    };
+    let r = radius_from_suffix(size)?;
+
+    Some(match corner {
+        "t" => vec![
+            StyleProperty::BorderTopLeftRadius(r),
+            StyleProperty::BorderTopRightRadius(r),
+        ],
+        "r" => vec![
+            StyleProperty::BorderTopRightRadius(r),
+            StyleProperty::BorderBottomRightRadius(r),
+        ],
+        "b" => vec![
+            StyleProperty::BorderBottomRightRadius(r),
+            StyleProperty::BorderBottomLeftRadius(r),
+        ],
+        "l" => vec![
+            StyleProperty::BorderTopLeftRadius(r),
+            StyleProperty::BorderBottomLeftRadius(r),
+        ],
+        "s" => vec![
+            StyleProperty::BorderStartStartRadius(r),
+            StyleProperty::BorderEndStartRadius(r),
+        ],
+        "e" => vec![
+            StyleProperty::BorderStartEndRadius(r),
+            StyleProperty::BorderEndEndRadius(r),
+        ],
+        "tl" => vec![StyleProperty::BorderTopLeftRadius(r)],
+        "tr" => vec![StyleProperty::BorderTopRightRadius(r)],
+        "br" => vec![StyleProperty::BorderBottomRightRadius(r)],
+        "bl" => vec![StyleProperty::BorderBottomLeftRadius(r)],
+        "ss" => vec![StyleProperty::BorderStartStartRadius(r)],
+        "se" => vec![StyleProperty::BorderStartEndRadius(r)],
+        "es" => vec![StyleProperty::BorderEndStartRadius(r)],
+        "ee" => vec![StyleProperty::BorderEndEndRadius(r)],
+        _ => return None,
+    })
 }
 
 /// Tailwind's named `--leading-*` scale: unitless multipliers of the
@@ -760,15 +888,11 @@ fn expand_base_utility(token: &str) -> Vec<StyleProperty> {
             return vec![StyleProperty::RowGap(v)];
         }
     }
-    if let Some(rest) = token.strip_prefix("inset-") {
-        if let Some(v) = parse_spacing_suffix(rest) {
-            return vec![
-                StyleProperty::InsetTop(v),
-                StyleProperty::InsetRight(v),
-                StyleProperty::InsetBottom(v),
-                StyleProperty::InsetLeft(v),
-            ];
-        }
+    if let Some(props) = expand_inset(token) {
+        return props;
+    }
+    if let Some(props) = expand_border_radius(token) {
+        return props;
     }
     if let Some(rest) = token.strip_prefix("size-") {
         if let Some(d) = parse_dimension_suffix(rest) {
@@ -1173,6 +1297,78 @@ mod tests {
             expand_utility("left-2"),
             (Condition::Always, vec![StyleProperty::InsetLeft(Length::Px(8.0))])
         );
+    }
+
+    #[test]
+    fn per_side_border_colors_reach_the_right_side() {
+        // Until 2026-08-15 every one of these compiled to `border-color`
+        // -- all four sides -- from a token that isn't a colour name
+        // (`var(--dowel-color-b-red-500)`). Wrong property, wrong value.
+        assert_eq!(
+            expand_utility("border-b-red-500").1,
+            vec![StyleProperty::BorderBottomColor(Color::Token("red-500".to_string()))]
+        );
+        assert_eq!(
+            expand_utility("border-s-red-500").1,
+            vec![StyleProperty::BorderInlineStartColor(Color::Token("red-500".to_string()))]
+        );
+        // The axis forms stay shorthands, which is what Tailwind emits.
+        assert_eq!(
+            expand_utility("border-x-red-500").1,
+            vec![StyleProperty::BorderInlineColor(Color::Token("red-500".to_string()))]
+        );
+        // A number on a side is still a width, not a colour called "4".
+        assert_eq!(
+            expand_utility("border-b-4").1,
+            vec![
+                StyleProperty::BorderBottomWidth(Length::Px(4.0)),
+                StyleProperty::BorderBottomStyle(BorderStyle::Solid),
+            ]
+        );
+    }
+
+    #[test]
+    fn inset_covers_its_axis_and_logical_forms_and_negatives() {
+        assert_eq!(
+            expand_utility("inset-x-4").1,
+            vec![StyleProperty::InsetInline(Length::Px(16.0))]
+        );
+        assert_eq!(
+            expand_utility("inset-bs-2").1,
+            vec![StyleProperty::InsetBlockStart(Length::Px(8.0))]
+        );
+        assert_eq!(
+            expand_utility("-inset-y-4").1,
+            vec![StyleProperty::InsetBlock(Length::Px(-16.0))]
+        );
+        // Bare `inset-*` is still all four physical sides.
+        assert_eq!(expand_utility("inset-0").1.len(), 4);
+    }
+
+    #[test]
+    fn rounded_corners_expand_to_the_longhands_tailwind_emits() {
+        let lg = Radius::Length(Length::Px(8.0));
+        assert_eq!(
+            expand_utility("rounded-t-lg").1,
+            vec![
+                StyleProperty::BorderTopLeftRadius(lg),
+                StyleProperty::BorderTopRightRadius(lg),
+            ]
+        );
+        assert_eq!(
+            expand_utility("rounded-tl-lg").1,
+            vec![StyleProperty::BorderTopLeftRadius(lg)]
+        );
+        // Logical corners stay logical, so RTL keeps working.
+        assert_eq!(
+            expand_utility("rounded-s-lg").1,
+            vec![
+                StyleProperty::BorderStartStartRadius(lg),
+                StyleProperty::BorderEndStartRadius(lg),
+            ]
+        );
+        // The all-corners form is unaffected.
+        assert_eq!(expand_utility("rounded-lg").1, vec![StyleProperty::BorderRadius(lg)]);
     }
 
     #[test]

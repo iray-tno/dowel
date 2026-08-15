@@ -23,6 +23,17 @@ use dowel_ir::{
     Length, LineHeight, Overflow, Position, Radius, StyleProperty, TextAlign, TextTransform,
 };
 
+fn radius_number(radius: &Radius) -> String {
+    match radius {
+        Radius::Length(l) => number(*l),
+        // RN has no infinity. Any radius past half the box's shorter side
+        // already renders as a pill, so a large finite value is the
+        // standard way to express this -- the approximation is forced here,
+        // unlike on Web.
+        Radius::Full => "9999".to_string(),
+    }
+}
+
 fn number(length: Length) -> String {
     let Length::Px(value) = length;
     format!("{value}")
@@ -201,9 +212,39 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
         StyleProperty::InsetLeft(l) => vec![("left", number(*l))],
         StyleProperty::InsetInlineStart(l) => vec![("start", number(*l))],
         StyleProperty::InsetInlineEnd(l) => vec![("end", number(*l))],
+        // No axis shorthand in React Native, so both edges are written.
+        StyleProperty::InsetInline(l) => vec![("start", number(*l)), ("end", number(*l))],
+        StyleProperty::InsetBlock(l) => vec![("top", number(*l)), ("bottom", number(*l))],
+        // The block axis is only distinct from top/bottom under a vertical
+        // `writing-mode`, which React Native has no concept of.
+        StyleProperty::InsetBlockStart(l) => vec![("top", number(*l))],
+        StyleProperty::InsetBlockEnd(l) => vec![("bottom", number(*l))],
         StyleProperty::BackgroundColor(c) => vec![("backgroundColor", resolve_color(c))],
         StyleProperty::Opacity(o) => vec![("opacity", format!("{o}"))],
         StyleProperty::BorderColor(c) => vec![("borderColor", resolve_color(c))],
+        StyleProperty::BorderTopColor(c) => vec![("borderTopColor", resolve_color(c))],
+        StyleProperty::BorderRightColor(c) => vec![("borderRightColor", resolve_color(c))],
+        StyleProperty::BorderBottomColor(c) => vec![("borderBottomColor", resolve_color(c))],
+        StyleProperty::BorderLeftColor(c) => vec![("borderLeftColor", resolve_color(c))],
+        // React Native has no axis shorthand, so the two sides are written
+        // out. It does have the inline-logical pair (`borderStartColor` /
+        // `borderEndColor`), which is what keeps `border-s-*` correct under
+        // RTL rather than being flattened to left/right.
+        StyleProperty::BorderInlineColor(c) => vec![
+            ("borderStartColor", resolve_color(c)),
+            ("borderEndColor", resolve_color(c)),
+        ],
+        StyleProperty::BorderBlockColor(c) => vec![
+            ("borderTopColor", resolve_color(c)),
+            ("borderBottomColor", resolve_color(c)),
+        ],
+        StyleProperty::BorderInlineStartColor(c) => vec![("borderStartColor", resolve_color(c))],
+        StyleProperty::BorderInlineEndColor(c) => vec![("borderEndColor", resolve_color(c))],
+        // The block axis only diverges from top/bottom under a vertical
+        // `writing-mode`, which React Native has no concept of -- the same
+        // horizontal-only assumption `py-*` already lowers under.
+        StyleProperty::BorderBlockStartColor(c) => vec![("borderTopColor", resolve_color(c))],
+        StyleProperty::BorderBlockEndColor(c) => vec![("borderBottomColor", resolve_color(c))],
         // Unlike Web, RN defaults borderStyle to 'solid' and borderColor to
         // black, so a width alone already renders -- the opposite gotcha
         // from CSS's "invisible without border-style".
@@ -231,6 +272,22 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
                 Radius::Full => "9999".to_string(),
             },
         )],
+        StyleProperty::BorderTopLeftRadius(r) => vec![("borderTopLeftRadius", radius_number(r))],
+        StyleProperty::BorderTopRightRadius(r) => vec![("borderTopRightRadius", radius_number(r))],
+        StyleProperty::BorderBottomRightRadius(r) => {
+            vec![("borderBottomRightRadius", radius_number(r))]
+        }
+        StyleProperty::BorderBottomLeftRadius(r) => {
+            vec![("borderBottomLeftRadius", radius_number(r))]
+        }
+        // React Native has the logical corner names too, so `rounded-s-*`
+        // stays correct under RTL rather than being flattened to left/right.
+        StyleProperty::BorderStartStartRadius(r) => {
+            vec![("borderStartStartRadius", radius_number(r))]
+        }
+        StyleProperty::BorderStartEndRadius(r) => vec![("borderStartEndRadius", radius_number(r))],
+        StyleProperty::BorderEndStartRadius(r) => vec![("borderEndStartRadius", radius_number(r))],
+        StyleProperty::BorderEndEndRadius(r) => vec![("borderEndEndRadius", radius_number(r))],
         StyleProperty::FontSize(l) => vec![("fontSize", number(*l))],
         // RN's `fontWeight` type is a *string* ('100'..'900'/'normal'/
         // 'bold'), not a number -- unlike CSS's numeric font-weight.

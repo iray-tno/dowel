@@ -83,6 +83,60 @@ pub fn transform_entry(props: &[StyleProperty]) -> Option<(&'static str, String)
     Some(("transform", format!("[{}]", parts.join(", "))))
 }
 
+/// Joins whichever ring/shadow utilities a rule carries into one
+/// `boxShadow` string, in the same layer order the Web backend uses so both
+/// platforms stack them identically.
+///
+/// React Native 0.81 accepts a CSS-like string for `boxShadow`, so the
+/// composed value is the same shape as the Web one -- only the quoting and
+/// the unitless-number convention differ.
+pub fn box_shadow_entry(props: &[StyleProperty]) -> Option<(&'static str, String)> {
+    let ring = props.iter().find_map(|p| match p {
+        StyleProperty::RingWidth(Length::Px(v)) => Some(*v),
+        _ => None,
+    });
+    let inset_ring = props.iter().find_map(|p| match p {
+        StyleProperty::InsetRingWidth(Length::Px(v)) => Some(*v),
+        _ => None,
+    });
+    let ring_color = props.iter().find_map(|p| match p {
+        StyleProperty::RingColor(c) => Some(c),
+        _ => None,
+    });
+    let inset_ring_color = props.iter().find_map(|p| match p {
+        StyleProperty::InsetRingColor(c) => Some(c),
+        _ => None,
+    });
+    let shadow = props.iter().find_map(|p| match p {
+        StyleProperty::BoxShadow(s) => Some(s.clone()),
+        _ => None,
+    });
+
+    // Tailwind's default ring colour. Unquoted here because the whole
+    // `boxShadow` value is one string.
+    let paint = |c: Option<&Color>| {
+        c.map_or("currentcolor".to_string(), |c| resolve_color(c).trim_matches('\'').to_string())
+    };
+
+    let mut layers: Vec<String> = Vec::new();
+    if let Some(width) = inset_ring {
+        layers.push(format!("inset 0 0 0 {width}px {}", paint(inset_ring_color)));
+    }
+    if let Some(width) = ring {
+        layers.push(format!("0 0 0 {width}px {}", paint(ring_color)));
+    }
+    if let Some(shadow) = shadow {
+        // See the Web backend: `shadow-none` clears the shadow layer, not
+        // the ring beside it.
+        if shadow != "none" {
+            layers.push(shadow);
+        } else if layers.is_empty() {
+            return Some(("boxShadow", "'none'".to_string()));
+        }
+    }
+    (!layers.is_empty()).then(|| ("boxShadow", format!("'{}'", layers.join(", "))))
+}
+
 fn justify_literal(justify: &Justify) -> String {
     match justify {
         Justify::Start => "'flex-start'",
@@ -337,7 +391,13 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
         | StyleProperty::TranslateX(_)
         | StyleProperty::TranslateY(_) => Vec::new(),
         // RN accepts a string for both, so the CSS text carries over as-is.
-        StyleProperty::BoxShadow(s) => vec![("boxShadow", format!("'{s}'"))],
+        // Composed with any ring layers by `box_shadow_entry`, not emitted
+        // here -- `style_pairs` filters these out before this runs.
+        StyleProperty::BoxShadow(_)
+        | StyleProperty::RingWidth(_)
+        | StyleProperty::RingColor(_)
+        | StyleProperty::InsetRingWidth(_)
+        | StyleProperty::InsetRingColor(_) => vec![],
         StyleProperty::Filter(f) => vec![("filter", format!("'{f}'"))],
         StyleProperty::TextTransform(t) => vec![(
             "textTransform",

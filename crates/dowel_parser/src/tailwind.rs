@@ -312,6 +312,47 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
     None
 }
 
+/// `ring*` / `inset-ring*`: a width, or the colour that width renders in.
+///
+/// A colour on its own emits nothing, which is correct rather than a gap --
+/// it only means something once a width is present, and the two compose in
+/// the backend (see `StyleProperty::RingWidth`). Tailwind behaves the same
+/// way; standalone `ring-red-500` produces no declarations either, only a
+/// custom property.
+fn parse_ring(token: &str) -> Option<StyleProperty> {
+    let (inset, rest) = match token.strip_prefix("inset-ring") {
+        Some(rest) => (true, rest),
+        None => (false, token.strip_prefix("ring")?),
+    };
+    // `ring-offset-*` is a third layer with its own colour and width, not a
+    // spelling of the ring itself. Declining leaves it unsupported by name
+    // rather than mis-read as a ring colour called `offset-red-500`.
+    if rest.starts_with("-offset") {
+        return None;
+    }
+    let suffix = match rest {
+        // Bare `ring` / `inset-ring` is 1px.
+        "" => return Some(width_prop(inset, Length::Px(1.0))),
+        rest => rest.strip_prefix('-')?,
+    };
+    match suffix.parse::<f64>() {
+        Ok(px) => Some(width_prop(inset, Length::Px(px))),
+        Err(_) => Some(if inset {
+            StyleProperty::InsetRingColor(Color::Token(suffix.to_string()))
+        } else {
+            StyleProperty::RingColor(Color::Token(suffix.to_string()))
+        }),
+    }
+}
+
+fn width_prop(inset: bool, width: Length) -> StyleProperty {
+    if inset {
+        StyleProperty::InsetRingWidth(width)
+    } else {
+        StyleProperty::RingWidth(width)
+    }
+}
+
 /// `inset-<value>` and `inset-<side>-<value>`, each optionally negated.
 ///
 /// Bare `inset-*` sets all four sides, so it stays four physical
@@ -887,6 +928,11 @@ fn expand_base_utility(token: &str) -> Vec<StyleProperty> {
         if let Some(v) = parse_spacing_suffix(rest) {
             return vec![StyleProperty::RowGap(v)];
         }
+    }
+    // Before `expand_inset`, which would otherwise read `inset-ring-2` as
+    // an inset of "ring-2".
+    if let Some(prop) = parse_ring(token) {
+        return vec![prop];
     }
     if let Some(props) = expand_inset(token) {
         return props;

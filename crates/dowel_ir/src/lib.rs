@@ -371,6 +371,20 @@ pub enum StyleProperty {
     /// both backends emit the same text and there's nothing for a
     /// structured form to buy here.
     BoxShadow(String),
+    /// Ring layers, kept apart from `BoxShadow` because they *compose* with
+    /// it rather than replace it: `shadow-lg ring-2` renders both, and a
+    /// single property would make the later one win under
+    /// `dedupe_last_wins`.
+    ///
+    /// Width and colour are separate for the same reason -- `ring-2` and
+    /// `ring-blue-500` are two utilities that must combine, which is
+    /// exactly what Tailwind uses its `--tw-ring-*` registers for. Dowel
+    /// resolves the composition at compile time instead, so no custom
+    /// properties reach the output.
+    RingWidth(Length),
+    RingColor(Color),
+    InsetRingWidth(Length),
+    InsetRingColor(Color),
     Filter(String),
 
     // Typography

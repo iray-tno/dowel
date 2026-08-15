@@ -530,6 +530,59 @@ export function Login() {
         assert!(!output.css.contains(".dowel-0 {\n  margin-inline-end"));
     }
 
+    /// Compiles one element with `classes` and returns its CSS.
+    fn css_for(classes: &str) -> String {
+        let source = format!(
+            "import {{ View }} from '@dowel/core'\nconst el = <View className=\"{classes}\" />\n"
+        );
+        let parsed = dowel_parser::parse_tsx(&source);
+        lower(&parsed.roots[0].node, &source).css
+    }
+
+    #[test]
+    fn ring_and_shadow_compose_into_one_box_shadow() {
+        // The whole point of keeping these as separate IR properties. A
+        // single `BoxShadow` would make the later utility win under
+        // `dedupe_last_wins`, and the conformance suite can't catch it --
+        // it compares one utility at a time, and a ring colour paints
+        // nothing on its own.
+        let css = css_for("ring-2 ring-blue-500 shadow-lg");
+        assert!(
+            css.contains(
+                "box-shadow: 0 0 0 2px oklch(62.3% 0.214 259.815), \
+                 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);"
+            ),
+            "{css}"
+        );
+    }
+
+    #[test]
+    fn a_ring_defaults_to_currentcolor_and_stacks_inside_out() {
+        // Tailwind's default ring colour, and its layer order: inset ring
+        // before ring before shadow.
+        let css = css_for("inset-ring-4 ring-2");
+        assert!(
+            css.contains("box-shadow: inset 0 0 0 4px currentcolor, 0 0 0 2px currentcolor;"),
+            "{css}"
+        );
+    }
+
+    #[test]
+    fn shadow_none_clears_the_shadow_without_taking_the_ring_with_it() {
+        assert!(css_for("shadow-none").contains("box-shadow: none;"));
+        // `none` as the whole declaration would erase the ring too, which
+        // is not what Tailwind's register-clearing does.
+        let css = css_for("shadow-none ring-2");
+        assert!(css.contains("box-shadow: 0 0 0 2px currentcolor;"), "{css}");
+    }
+
+    #[test]
+    fn a_ring_colour_alone_paints_nothing() {
+        // Correct, not a gap: there is no width to paint. Tailwind emits
+        // only a custom property here for the same reason.
+        assert!(!css_for("ring-blue-500").contains("box-shadow"));
+    }
+
     #[test]
     fn animation_emits_its_keyframes_once() {
         let source = r#"

@@ -215,14 +215,6 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
         StyleProperty::BorderStartEndRadius(r) => ("border-start-end-radius", radius_value(r)),
         StyleProperty::BorderEndStartRadius(r) => ("border-end-start-radius", radius_value(r)),
         StyleProperty::BorderEndEndRadius(r) => ("border-end-end-radius", radius_value(r)),
-        StyleProperty::BorderTopLeftRadius(r) => ("border-top-left-radius", radius_value(r)),
-        StyleProperty::BorderTopRightRadius(r) => ("border-top-right-radius", radius_value(r)),
-        StyleProperty::BorderBottomRightRadius(r) => ("border-bottom-right-radius", radius_value(r)),
-        StyleProperty::BorderBottomLeftRadius(r) => ("border-bottom-left-radius", radius_value(r)),
-        StyleProperty::BorderStartStartRadius(r) => ("border-start-start-radius", radius_value(r)),
-        StyleProperty::BorderStartEndRadius(r) => ("border-start-end-radius", radius_value(r)),
-        StyleProperty::BorderEndStartRadius(r) => ("border-end-start-radius", radius_value(r)),
-        StyleProperty::BorderEndEndRadius(r) => ("border-end-end-radius", radius_value(r)),
         StyleProperty::FontSize(l) => ("font-size", length_px(*l)),
         StyleProperty::FontWeight(w) => ("font-weight", format!("{}", w.0)),
         StyleProperty::LineHeight(lh) => (
@@ -284,7 +276,13 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
         StyleProperty::Scale(pct) => ("scale", format!("{pct}% {pct}%")),
         StyleProperty::TranslateX(l) => ("translate", format!("{} 0", length_px(*l))),
         StyleProperty::TranslateY(l) => ("translate", format!("0 {}", length_px(*l))),
+        // Composed with any ring layers by `box_shadow_value`, not emitted
+        // here -- `render_rule` partitions these out before this runs.
         StyleProperty::BoxShadow(s) => ("box-shadow", s.clone()),
+        StyleProperty::RingWidth(_)
+        | StyleProperty::RingColor(_)
+        | StyleProperty::InsetRingWidth(_)
+        | StyleProperty::InsetRingColor(_) => ("box-shadow", String::new()),
         StyleProperty::Filter(f) => ("filter", f.clone()),
         StyleProperty::TextTransform(t) => (
             "text-transform",
@@ -359,6 +357,74 @@ pub fn condition_shape(condition: &Condition) -> (Option<String>, String) {
 
 /// Renders one CSS rule (optionally media-wrapped) for a class + condition
 /// group's already-deduped properties.
+fn is_shadow_layer(prop: &StyleProperty) -> bool {
+    matches!(
+        prop,
+        StyleProperty::BoxShadow(_)
+            | StyleProperty::RingWidth(_)
+            | StyleProperty::RingColor(_)
+            | StyleProperty::InsetRingWidth(_)
+            | StyleProperty::InsetRingColor(_)
+    )
+}
+
+/// Joins whichever ring/shadow utilities are present into one `box-shadow`.
+///
+/// Tailwind does this at runtime with `--tw-*` registers spliced into a
+/// fixed layer list; Dowel knows the whole set at compile time, so it
+/// writes the resolved list directly and ships no custom properties. Layer
+/// order follows Tailwind's: inset ring, then ring, then the shadow.
+///
+/// A ring colour with no width contributes nothing, which is correct --
+/// `ring-blue-500` alone has nothing to paint, exactly as in Tailwind.
+fn box_shadow_value(props: &[&StyleProperty]) -> Option<String> {
+    let find_length = |f: fn(&StyleProperty) -> Option<Length>| props.iter().find_map(|p| f(p));
+    let find_color = |f: fn(&StyleProperty) -> Option<&Color>| props.iter().find_map(|p| f(p));
+
+    let ring = find_length(|p| match p {
+        StyleProperty::RingWidth(l) => Some(*l),
+        _ => None,
+    });
+    let inset_ring = find_length(|p| match p {
+        StyleProperty::InsetRingWidth(l) => Some(*l),
+        _ => None,
+    });
+    let ring_color = find_color(|p| match p {
+        StyleProperty::RingColor(c) => Some(c),
+        _ => None,
+    });
+    let inset_ring_color = find_color(|p| match p {
+        StyleProperty::InsetRingColor(c) => Some(c),
+        _ => None,
+    });
+    let shadow = props.iter().find_map(|p| match p {
+        StyleProperty::BoxShadow(s) => Some(s.clone()),
+        _ => None,
+    });
+
+    // Tailwind's default ring colour is `currentcolor`.
+    let paint = |c: Option<&Color>| c.map_or("currentcolor".to_string(), color_var);
+
+    let mut layers: Vec<String> = Vec::new();
+    if let Some(width) = inset_ring {
+        layers.push(format!("inset 0 0 0 {} {}", length_px(width), paint(inset_ring_color)));
+    }
+    if let Some(width) = ring {
+        layers.push(format!("0 0 0 {} {}", length_px(width), paint(ring_color)));
+    }
+    if let Some(shadow) = shadow {
+        // `shadow-none` removes the *shadow* layer, not the whole
+        // declaration -- `shadow-none ring-2` still draws the ring, which is
+        // what Tailwind does by clearing only its `--tw-shadow` register.
+        if shadow != "none" {
+            layers.push(shadow);
+        } else if layers.is_empty() {
+            return Some("none".to_string());
+        }
+    }
+    (!layers.is_empty()).then(|| layers.join(", "))
+}
+
 pub fn render_rule(class_name: &str, condition: &Condition, props: &[StyleProperty]) -> String {
     let (media, suffix) = condition_shape(condition);
 
@@ -367,12 +433,19 @@ pub fn render_rule(class_name: &str, condition: &Condition, props: &[StyleProper
     let (child_props, own_props): (Vec<_>, Vec<_>) =
         props.iter().partition(|p| matches!(p, StyleProperty::SpaceX(_) | StyleProperty::SpaceY(_)));
 
+    // Rings and shadows are several utilities that share one CSS property,
+    // so they're composed rather than emitted one declaration each.
+    let (shadow_props, own_props): (Vec<_>, Vec<_>) = own_props.iter().partition(|p| is_shadow_layer(p));
+
     let mut rules: Vec<String> = Vec::new();
-    if !own_props.is_empty() {
+    if !own_props.is_empty() || !shadow_props.is_empty() {
         let mut body = String::new();
         for prop in own_props {
             let (name, value) = property_and_value(prop);
             body.push_str(&format!("  {name}: {value};\n"));
+        }
+        if let Some(value) = box_shadow_value(&shadow_props) {
+            body.push_str(&format!("  box-shadow: {value};\n"));
         }
         rules.push(format!(".{class_name}{suffix} {{\n{body}}}"));
     }

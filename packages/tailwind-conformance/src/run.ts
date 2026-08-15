@@ -181,12 +181,18 @@ const catalogCounts: Record<Verdict, number> = {
   MISMATCH: 0,
   UNSUPPORTED: 0,
   SKIPPED: 0,
+  COMPOSITION_ONLY: 0,
 }
 const byNamespace = new Map<string, NamespaceRow>()
 // Entries Tailwind lists but produces no standalone CSS for -- a gradient
 // stop with no gradient, a negative form of something that takes no
 // negative. There is nothing for Dowel to cover, so they leave the
 // denominator. Tailwind decides this, not us.
+//
+// `COMPOSITION_ONLY` is the same situation one step later: Tailwind emits a
+// rule, but it only sets a custom property and paints nothing (`ring-blue-500`
+// is the colour a ring renders in, inert until a `ring-2` exists to paint).
+// A one-utility comparison can't measure those either, so they leave too.
 let notEmittedByTailwind = 0
 
 for (const candidate of catalog) {
@@ -208,10 +214,13 @@ for (const candidate of catalog) {
   byNamespace.set(ns, row)
 }
 
-const catalogComparable = catalog.length - notEmittedByTailwind
+const catalogComparable =
+  catalog.length - notEmittedByTailwind - catalogCounts.COMPOSITION_ONLY
 console.log(
-  `Catalogue:   ${catalog.length} entries; ${notEmittedByTailwind} produce no standalone CSS ` +
-    `even from Tailwind, leaving ${catalogComparable}.\n`,
+  `Catalogue:   ${catalog.length} entries. ${notEmittedByTailwind} produce no rule at all from ` +
+    `Tailwind and\n             ${catalogCounts.COMPOSITION_ONLY} produce one that paints nothing ` +
+    `until combined with another utility;\n             neither is measurable one utility at a ` +
+    `time, leaving ${catalogComparable}.\n`,
 )
 console.log(
   `Match:       ${catalogCounts.MATCH}/${catalogComparable} = ${pct(catalogCounts.MATCH, catalogComparable)}\n` +

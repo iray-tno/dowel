@@ -2,16 +2,21 @@
 // producing an explicit verdict per candidate. The verdicts distinguish
 // three failure modes that mean very different things:
 //
-//   UNSUPPORTED -- Dowel emits nothing. A coverage gap, not a bug.
-//   MISMATCH    -- both emit, and they disagree. A fidelity bug.
-//   SKIPPED     -- the normalizer couldn't resolve one side confidently,
-//                  so no claim is made either way.
+//   UNSUPPORTED      -- Dowel emits nothing. A coverage gap, not a bug.
+//   MISMATCH         -- both emit, and they disagree. A fidelity bug.
+//   SKIPPED          -- the normalizer couldn't resolve one side
+//                       confidently, so no claim is made either way.
+//   COMPOSITION_ONLY -- Tailwind itself paints nothing standalone, so a
+//                       one-utility comparison can't measure it at all.
+//                       Not a gap: emitting nothing *is* the right answer
+//                       here, and it leaves the denominator for the same
+//                       reason the candidates Tailwind emits no rule for do.
 
 import { compile as dowelCompile } from '@dowel/compiler'
 import { extractRules } from './extract.ts'
 import { normalize } from './normalize.ts'
 
-export type Verdict = 'MATCH' | 'MISMATCH' | 'UNSUPPORTED' | 'SKIPPED'
+export type Verdict = 'MATCH' | 'MISMATCH' | 'UNSUPPORTED' | 'SKIPPED' | 'COMPOSITION_ONLY'
 
 export interface Comparison {
   candidate: string
@@ -36,8 +41,8 @@ const ACCEPTED_DIFFERENCES: Record<string, { property: string; reason: string }>
     reason:
       'Dowel emits `none`; Tailwind clears its own `--tw-shadow` register and leaves the ' +
       'ring/inset chain in place, which resolves to fully transparent layers. Both render no ' +
-      'shadow. Not equivalent forever: once `ring-*` is supported, `shadow-none ring-2` would ' +
-      "need Tailwind's form, since `none` clobbers the ring too. Revisit with `ring-*`.",
+      'shadow. The composition hazard flagged when this was added is now handled: `shadow-none` ' +
+      'clears only the shadow layer, so `shadow-none ring-2` still draws the ring.',
   },
 }
 
@@ -87,14 +92,7 @@ export function compareCandidate(
     return { candidate, verdict: 'SKIPPED', detail: 'tailwind produced no rule for this candidate' }
   }
 
-  const dowelBlock = dowelDeclarations(candidate)
-  if (dowelBlock.trim() === '') {
-    return { candidate, verdict: 'UNSUPPORTED' }
-  }
-
   const expected = normalize(oracleBlock, vars)
-  const actual = normalize(dowelBlock, vars)
-
   if (expected.unresolved.length > 0) {
     return {
       candidate,
@@ -102,15 +100,33 @@ export function compareCandidate(
       detail: `unresolvable in tailwind output: ${expected.unresolved.join(', ')}`,
     }
   }
+  // Checked before Dowel's side, deliberately. Some utilities only set a
+  // custom property and paint nothing on their own -- `ring-blue-500` is
+  // the colour a ring renders in, and does nothing until a `ring-2` exists
+  // to paint. A standalone comparison cannot measure those either way, so
+  // scoring them as a Dowel gap would be wrong: emitting nothing is the
+  // correct output. Same treatment as the candidates Tailwind produces no
+  // rule for at all -- out of the denominator, decided by Tailwind.
+  if (expected.declarations.size === 0) {
+    return {
+      candidate,
+      verdict: 'COMPOSITION_ONLY',
+      detail: 'tailwind paints nothing standalone; only meaningful combined with another utility',
+    }
+  }
+
+  const dowelBlock = dowelDeclarations(candidate)
+  if (dowelBlock.trim() === '') {
+    return { candidate, verdict: 'UNSUPPORTED' }
+  }
+
+  const actual = normalize(dowelBlock, vars)
   if (actual.unresolved.length > 0) {
     return {
       candidate,
       verdict: 'SKIPPED',
       detail: `unresolvable in dowel output: ${actual.unresolved.join(', ')}`,
     }
-  }
-  if (expected.declarations.size === 0) {
-    return { candidate, verdict: 'SKIPPED', detail: 'tailwind rule had no comparable declarations' }
   }
 
   const accepted = ACCEPTED_DIFFERENCES[candidate]

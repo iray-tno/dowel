@@ -196,22 +196,22 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
         }
     }
     if let Some(rest) = token.strip_prefix("top-") {
-        if let Some(v) = parse_spacing_suffix(rest) {
+        if let Some(v) = parse_dimension_suffix(rest) {
             return Some(StyleProperty::InsetTop(v));
         }
     }
     if let Some(rest) = token.strip_prefix("right-") {
-        if let Some(v) = parse_spacing_suffix(rest) {
+        if let Some(v) = parse_dimension_suffix(rest) {
             return Some(StyleProperty::InsetRight(v));
         }
     }
     if let Some(rest) = token.strip_prefix("bottom-") {
-        if let Some(v) = parse_spacing_suffix(rest) {
+        if let Some(v) = parse_dimension_suffix(rest) {
             return Some(StyleProperty::InsetBottom(v));
         }
     }
     if let Some(rest) = token.strip_prefix("left-") {
-        if let Some(v) = parse_spacing_suffix(rest) {
+        if let Some(v) = parse_dimension_suffix(rest) {
             return Some(StyleProperty::InsetLeft(v));
         }
     }
@@ -309,6 +309,57 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
         return Some(StyleProperty::BorderColor(Color::Token(color.to_string())));
     }
 
+    None
+}
+
+/// The one-property spacing/sizing families that take a `Dimension`.
+///
+/// A flat prefix table because that is all they are -- each is one CSS
+/// property fed by the same value parser everything else uses.
+fn expand_dimension_family(token: &str) -> Option<Vec<StyleProperty>> {
+    const FAMILIES: &[(&str, fn(Dimension) -> StyleProperty)] = &[
+        ("basis-", StyleProperty::FlexBasis),
+        ("block-", StyleProperty::BlockSize),
+        ("inline-", StyleProperty::InlineSize),
+        ("max-block-", StyleProperty::MaxBlockSize),
+        ("max-inline-", StyleProperty::MaxInlineSize),
+        ("min-block-", StyleProperty::MinBlockSize),
+        ("min-inline-", StyleProperty::MinInlineSize),
+        ("indent-", StyleProperty::TextIndent),
+        ("mbs-", StyleProperty::MarginBlockStart),
+        ("mbe-", StyleProperty::MarginBlockEnd),
+    ];
+    // Longest prefix first: `max-block-` must beat `block-`.
+    for (prefix, make) in FAMILIES.iter().filter(|(p, _)| token.starts_with(*p)).max_by_key(|(p, _)| p.len())
+    {
+        if let Some(value) = parse_dimension_suffix(&token[prefix.len()..]) {
+            return Some(vec![make(value)]);
+        }
+    }
+    if let Some(rest) = token.strip_prefix("pbs-") {
+        return parse_spacing_suffix(rest).map(|l| vec![StyleProperty::PaddingBlockStart(l)]);
+    }
+    if let Some(rest) = token.strip_prefix("pbe-") {
+        return parse_spacing_suffix(rest).map(|l| vec![StyleProperty::PaddingBlockEnd(l)]);
+    }
+    if let Some(rest) = token.strip_prefix("border-spacing-x-") {
+        return parse_spacing_suffix(rest).map(|l| vec![StyleProperty::BorderSpacingX(l)]);
+    }
+    if let Some(rest) = token.strip_prefix("border-spacing-y-") {
+        return parse_spacing_suffix(rest).map(|l| vec![StyleProperty::BorderSpacingY(l)]);
+    }
+    if let Some(rest) = token.strip_prefix("border-spacing-") {
+        return parse_spacing_suffix(rest)
+            .map(|l| vec![StyleProperty::BorderSpacingX(l), StyleProperty::BorderSpacingY(l)]);
+    }
+    // Bare `translate-*` sets both axes; `translate-z-*` the third.
+    if let Some(rest) = token.strip_prefix("translate-z-") {
+        return parse_spacing_suffix(rest).map(|l| vec![StyleProperty::TranslateZ(l)]);
+    }
+    if let Some(rest) = token.strip_prefix("translate-") {
+        return parse_dimension_suffix(rest)
+            .map(|d| vec![StyleProperty::TranslateX(d), StyleProperty::TranslateY(d)]);
+    }
     None
 }
 
@@ -503,10 +554,6 @@ fn expand_mask(token: &str) -> Option<StyleProperty> {
 /// Regular enough to be one function: eleven edges, two families, and the
 /// same spacing scale everything else uses.
 fn expand_scroll(token: &str) -> Option<Vec<StyleProperty>> {
-    let (negative, token) = match token.strip_prefix('-') {
-        Some(rest) => (true, rest),
-        None => (false, token),
-    };
     let rest = token.strip_prefix("scroll-")?;
 
     // `scroll-auto` is the initial value, so it emits nothing meaningful on
@@ -518,13 +565,13 @@ fn expand_scroll(token: &str) -> Option<Vec<StyleProperty>> {
     let family = rest.chars().next()?;
     let (edge_part, value) = rest.get(1..)?.split_once('-')?;
     let edge = edge_keyword(edge_part)?;
-    let Length::Px(px) = parse_spacing_suffix(value)?;
-    let length = Length::Px(signed(px, negative));
+    let length = parse_spacing_suffix(value)?;
 
     Some(match family {
         'm' => vec![StyleProperty::ScrollMargin(edge, length)],
-        // Padding takes no negative value, in CSS or in Tailwind.
-        'p' if !negative => vec![StyleProperty::ScrollPadding(edge, length)],
+        // `scroll-padding` takes no negative, which `negated` enforces by
+        // having no arm for it.
+        'p' => vec![StyleProperty::ScrollPadding(edge, length)],
         _ => return None,
     })
 }
@@ -742,10 +789,6 @@ fn width_prop(inset: bool, width: Length) -> StyleProperty {
 /// properties; the axis and logical forms map to the single CSS property
 /// Tailwind emits for each.
 fn expand_inset(token: &str) -> Option<Vec<StyleProperty>> {
-    let (negative, token) = match token.strip_prefix('-') {
-        Some(rest) => (true, rest),
-        None => (false, token),
-    };
     let rest = token.strip_prefix("inset-")?;
 
     let (side, value) = match rest.split_once('-') {
@@ -754,8 +797,7 @@ fn expand_inset(token: &str) -> Option<Vec<StyleProperty>> {
         }
         _ => (None, rest),
     };
-    let Length::Px(px) = parse_spacing_suffix(value)?;
-    let length = Length::Px(signed(px, negative));
+    let length = parse_dimension_suffix(value)?;
 
     Some(match side {
         Some("x") => vec![StyleProperty::InsetInline(length)],
@@ -1067,13 +1109,13 @@ fn parse_transform(token: &str) -> Option<StyleProperty> {
         // Kept as the authored percentage -- see `StyleProperty::Scale`.
         return Some(StyleProperty::Scale(signed(pct, negative)));
     }
+    // `translate-x-1/2` is the centring idiom, so these take the wider
+    // `Dimension` rather than a pixel length.
     if let Some(rest) = token.strip_prefix("translate-x-") {
-        let Length::Px(v) = parse_spacing_suffix(rest)?;
-        return Some(StyleProperty::TranslateX(Length::Px(signed(v, negative))));
+        return parse_dimension_suffix(rest).map(StyleProperty::TranslateX);
     }
     if let Some(rest) = token.strip_prefix("translate-y-") {
-        let Length::Px(v) = parse_spacing_suffix(rest)?;
-        return Some(StyleProperty::TranslateY(Length::Px(signed(v, negative))));
+        return parse_dimension_suffix(rest).map(StyleProperty::TranslateY);
     }
     None
 }
@@ -1119,6 +1161,11 @@ fn parse_max_size_suffix(suffix: &str) -> Option<Dimension> {
 /// Width/height accept more than the spacing scale: `w-1/2` fractions and
 /// `w-full`/`w-auto` keywords (the latter handled by the exact-match table).
 fn parse_dimension_suffix(suffix: &str) -> Option<Dimension> {
+    match suffix {
+        "auto" => return Some(Dimension::Auto),
+        "full" => return Some(Dimension::Percent(100.0)),
+        _ => {}
+    }
     if let Some((num, denom)) = suffix.split_once('/') {
         let num: f64 = num.parse().ok()?;
         let denom: f64 = denom.parse().ok()?;
@@ -1199,8 +1246,8 @@ fn parse_spacing_utility(token: &str) -> Option<StyleProperty> {
         // Margins accept `auto` where padding doesn't, so they take the
         // wider `Dimension` and are parsed separately below.
         "mt" | "mr" | "mb" | "ml" | "ms" | "me" => None,
-        "start" => Some(StyleProperty::InsetInlineStart(value)),
-        "end" => Some(StyleProperty::InsetInlineEnd(value)),
+        "start" => Some(StyleProperty::InsetInlineStart(Dimension::Length(value))),
+        "end" => Some(StyleProperty::InsetInlineEnd(Dimension::Length(value))),
         _ => None,
     }
 }
@@ -1251,7 +1298,72 @@ pub fn parse_variant_prefix(token: &str) -> (Condition, &str) {
 /// condition that prefix implies alongside the properties it maps to.
 pub fn expand_utility(token: &str) -> (Condition, Vec<StyleProperty>) {
     let (condition, base) = parse_variant_prefix(token);
-    (condition, expand_base_utility(base))
+    (condition, expand_negatable(base))
+}
+
+/// Handles Tailwind's leading `-` once, for every family, by expanding the
+/// positive form and flipping the result.
+///
+/// Doing it here rather than in each parser is what keeps `-mt-4`, `-top-4`
+/// and `-translate-x-1/2` from each needing their own sign handling -- the
+/// families that take a negative are exactly the ones whose properties are
+/// numeric, and `negated` decides that per property rather than per parser.
+fn expand_negatable(token: &str) -> Vec<StyleProperty> {
+    match token.strip_prefix('-') {
+        // A leading `-` on something that doesn't take one (`-p-4`) yields
+        // nothing rather than an invented negative padding.
+        Some(positive) => {
+            expand_base_utility(positive).into_iter().map(negated).collect::<Option<Vec<_>>>()
+        }
+        None => Some(expand_base_utility(token)),
+    }
+    .unwrap_or_default()
+}
+
+/// Flips one property's sign, or `None` if it has no meaningful negative.
+///
+/// Tailwind only generates the `-` form where CSS accepts a negative value,
+/// so refusing here keeps Dowel from accepting more than Tailwind does.
+fn negated(prop: StyleProperty) -> Option<StyleProperty> {
+    fn flip(d: Dimension) -> Option<Dimension> {
+        Some(match d {
+            Dimension::Length(Length::Px(v)) => Dimension::Length(Length::Px(signed(v, true))),
+            Dimension::Percent(v) => Dimension::Percent(signed(v, true)),
+            // `auto` and the viewport units have no negative form.
+            _ => return None,
+        })
+    }
+    Some(match prop {
+        StyleProperty::MarginTop(d) => StyleProperty::MarginTop(flip(d)?),
+        StyleProperty::MarginRight(d) => StyleProperty::MarginRight(flip(d)?),
+        StyleProperty::MarginBottom(d) => StyleProperty::MarginBottom(flip(d)?),
+        StyleProperty::MarginLeft(d) => StyleProperty::MarginLeft(flip(d)?),
+        StyleProperty::MarginInlineStart(d) => StyleProperty::MarginInlineStart(flip(d)?),
+        StyleProperty::MarginInlineEnd(d) => StyleProperty::MarginInlineEnd(flip(d)?),
+        StyleProperty::InsetTop(d) => StyleProperty::InsetTop(flip(d)?),
+        StyleProperty::InsetRight(d) => StyleProperty::InsetRight(flip(d)?),
+        StyleProperty::InsetBottom(d) => StyleProperty::InsetBottom(flip(d)?),
+        StyleProperty::InsetLeft(d) => StyleProperty::InsetLeft(flip(d)?),
+        StyleProperty::InsetInlineStart(d) => StyleProperty::InsetInlineStart(flip(d)?),
+        StyleProperty::InsetInlineEnd(d) => StyleProperty::InsetInlineEnd(flip(d)?),
+        StyleProperty::InsetInline(d) => StyleProperty::InsetInline(flip(d)?),
+        StyleProperty::InsetBlock(d) => StyleProperty::InsetBlock(flip(d)?),
+        StyleProperty::InsetBlockStart(d) => StyleProperty::InsetBlockStart(flip(d)?),
+        StyleProperty::InsetBlockEnd(d) => StyleProperty::InsetBlockEnd(flip(d)?),
+        StyleProperty::TranslateX(d) => StyleProperty::TranslateX(flip(d)?),
+        StyleProperty::TranslateY(d) => StyleProperty::TranslateY(flip(d)?),
+        StyleProperty::SpaceX(Length::Px(v)) => StyleProperty::SpaceX(Length::Px(signed(v, true))),
+        StyleProperty::SpaceY(Length::Px(v)) => StyleProperty::SpaceY(Length::Px(signed(v, true))),
+        StyleProperty::ScrollMargin(edge, Length::Px(v)) => {
+            StyleProperty::ScrollMargin(edge, Length::Px(signed(v, true)))
+        }
+        StyleProperty::Rotate(a) => StyleProperty::Rotate(Angle { degrees: signed(a.degrees, true) }),
+        StyleProperty::Scale(pct) => StyleProperty::Scale(signed(pct, true)),
+        StyleProperty::MaskAngle(slot, degrees) => {
+            StyleProperty::MaskAngle(slot, signed(degrees, true))
+        }
+        _ => return None,
+    })
 }
 
 /// Multi-side utilities (`p-6`, `px-4`, `py-2`, `m-6`, `mx-4`, `my-2`,
@@ -1311,6 +1423,9 @@ fn expand_base_utility(token: &str) -> Vec<StyleProperty> {
         if let Some(v) = parse_spacing_suffix(rest) {
             return vec![StyleProperty::RowGap(v)];
         }
+    }
+    if let Some(props) = expand_dimension_family(token) {
+        return props;
     }
     if let Some(prop) = expand_scrollbar(token) {
         return vec![prop];
@@ -1578,17 +1693,17 @@ mod tests {
         );
         assert_eq!(
             expand_utility("top-4"),
-            (Condition::Always, vec![StyleProperty::InsetTop(Length::Px(16.0))])
+            (Condition::Always, vec![StyleProperty::InsetTop(Dimension::Length(Length::Px(16.0)))])
         );
         assert_eq!(
             expand_utility("inset-0"),
             (
                 Condition::Always,
                 vec![
-                    StyleProperty::InsetTop(Length::Px(0.0)),
-                    StyleProperty::InsetRight(Length::Px(0.0)),
-                    StyleProperty::InsetBottom(Length::Px(0.0)),
-                    StyleProperty::InsetLeft(Length::Px(0.0)),
+                    StyleProperty::InsetTop(Dimension::Length(Length::Px(0.0))),
+                    StyleProperty::InsetRight(Dimension::Length(Length::Px(0.0))),
+                    StyleProperty::InsetBottom(Dimension::Length(Length::Px(0.0))),
+                    StyleProperty::InsetLeft(Dimension::Length(Length::Px(0.0))),
                 ]
             )
         );
@@ -1707,7 +1822,7 @@ mod tests {
         );
         assert_eq!(
             expand_utility("translate-x-2"),
-            (Condition::Always, vec![StyleProperty::TranslateX(Length::Px(8.0))])
+            (Condition::Always, vec![StyleProperty::TranslateX(Dimension::Length(Length::Px(8.0)))])
         );
     }
 
@@ -1719,7 +1834,7 @@ mod tests {
         );
         assert_eq!(
             expand_utility("-translate-y-2"),
-            (Condition::Always, vec![StyleProperty::TranslateY(Length::Px(-8.0))])
+            (Condition::Always, vec![StyleProperty::TranslateY(Dimension::Length(Length::Px(-8.0)))])
         );
     }
 
@@ -1738,7 +1853,7 @@ mod tests {
         );
         assert_eq!(
             expand_utility("start-2"),
-            (Condition::Always, vec![StyleProperty::InsetInlineStart(Length::Px(8.0))])
+            (Condition::Always, vec![StyleProperty::InsetInlineStart(Dimension::Length(Length::Px(8.0)))])
         );
         // The physical ones stay physical -- Tailwind has both families.
         assert_eq!(
@@ -1747,7 +1862,7 @@ mod tests {
         );
         assert_eq!(
             expand_utility("left-2"),
-            (Condition::Always, vec![StyleProperty::InsetLeft(Length::Px(8.0))])
+            (Condition::Always, vec![StyleProperty::InsetLeft(Dimension::Length(Length::Px(8.0)))])
         );
     }
 
@@ -1810,6 +1925,51 @@ mod tests {
     }
 
     #[test]
+    fn a_leading_minus_is_handled_once_for_every_family() {
+        // `expand_negatable` flips the expanded result rather than each
+        // parser growing its own sign handling.
+        assert_eq!(
+            expand_utility("-mt-4").1,
+            vec![StyleProperty::MarginTop(Dimension::Length(Length::Px(-16.0)))]
+        );
+        assert_eq!(
+            expand_utility("-top-4").1,
+            vec![StyleProperty::InsetTop(Dimension::Length(Length::Px(-16.0)))]
+        );
+        assert_eq!(expand_utility("-rotate-45").1, vec![StyleProperty::Rotate(Angle { degrees: -45.0 })]);
+        // ...and refuses where CSS has no negative, rather than inventing
+        // a negative padding.
+        assert!(expand_utility("-p-4").1.is_empty());
+        assert!(expand_utility("-scroll-p-4").1.is_empty());
+    }
+
+    #[test]
+    fn dimension_families_accept_fractions_and_keywords() {
+        assert_eq!(
+            expand_utility("top-1/2").1,
+            vec![StyleProperty::InsetTop(Dimension::Percent(50.0))]
+        );
+        assert_eq!(
+            expand_utility("basis-1/3").1,
+            vec![StyleProperty::FlexBasis(Dimension::Percent(1.0 / 3.0 * 100.0))]
+        );
+        assert_eq!(expand_utility("basis-auto").1, vec![StyleProperty::FlexBasis(Dimension::Auto)]);
+        // Longest prefix wins: `max-block-` must not be read as `block-`.
+        assert_eq!(
+            expand_utility("max-block-4").1,
+            vec![StyleProperty::MaxBlockSize(Dimension::Length(Length::Px(16.0)))]
+        );
+        // Bare `translate-*` sets both axes.
+        assert_eq!(
+            expand_utility("translate-1/2").1,
+            vec![
+                StyleProperty::TranslateX(Dimension::Percent(50.0)),
+                StyleProperty::TranslateY(Dimension::Percent(50.0)),
+            ]
+        );
+    }
+
+    #[test]
     fn scroll_margin_and_padding_cover_every_edge() {
         assert_eq!(
             expand_utility("scroll-mt-4").1,
@@ -1863,15 +2023,15 @@ mod tests {
     fn inset_covers_its_axis_and_logical_forms_and_negatives() {
         assert_eq!(
             expand_utility("inset-x-4").1,
-            vec![StyleProperty::InsetInline(Length::Px(16.0))]
+            vec![StyleProperty::InsetInline(Dimension::Length(Length::Px(16.0)))]
         );
         assert_eq!(
             expand_utility("inset-bs-2").1,
-            vec![StyleProperty::InsetBlockStart(Length::Px(8.0))]
+            vec![StyleProperty::InsetBlockStart(Dimension::Length(Length::Px(8.0)))]
         );
         assert_eq!(
             expand_utility("-inset-y-4").1,
-            vec![StyleProperty::InsetBlock(Length::Px(-16.0))]
+            vec![StyleProperty::InsetBlock(Dimension::Length(Length::Px(-16.0)))]
         );
         // Bare `inset-*` is still all four physical sides.
         assert_eq!(expand_utility("inset-0").1.len(), 4);

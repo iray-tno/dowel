@@ -540,6 +540,20 @@ export function Login() {
     }
 
     #[test]
+    fn the_translate_axes_share_one_declaration() {
+        // CSS `translate` is one property taking up to three values. Until
+        // 2026-08-15 each axis emitted its own `translate:`, so this pair
+        // wrote two declarations and last-wins threw the x away. The
+        // conformance suite can't see it -- it compiles one utility at a
+        // time, and each was correct alone.
+        assert!(css_for("translate-x-4").contains("translate: 16px 0;"));
+        assert!(css_for("translate-y-8").contains("translate: 0 32px;"));
+        let css = css_for("translate-x-4 translate-y-8");
+        assert!(css.contains("translate: 16px 32px;"), "{css}");
+        assert_eq!(css.matches("translate:").count(), 1, "{css}");
+    }
+
+    #[test]
     fn scrollbar_thumb_and_track_share_one_declaration() {
         // `scrollbar-color` takes both halves at once, so writing only one
         // still has to name the other -- Tailwind's registers default to

@@ -289,6 +289,72 @@ fn mask_declarations(props: &[&StyleProperty]) -> Vec<(&'static str, String)> {
     ]
 }
 
+fn is_border_spacing(prop: &StyleProperty) -> bool {
+    matches!(prop, StyleProperty::BorderSpacingX(_) | StyleProperty::BorderSpacingY(_))
+}
+
+fn is_translate(prop: &StyleProperty) -> bool {
+    matches!(
+        prop,
+        StyleProperty::TranslateX(_) | StyleProperty::TranslateY(_) | StyleProperty::TranslateZ(_)
+    )
+}
+
+/// CSS's `translate` is one property taking up to three values, so the
+/// three axes have to become one declaration. Emitting them separately --
+/// which this did until 2026-08-15 -- made `translate-x-4 translate-y-8`
+/// write two `translate:` declarations, and last-wins threw the x away.
+///
+/// The z value is only written when present, matching Tailwind: the
+/// two-value form is what `translate-x-*`/`translate-y-*` produce.
+fn translate_value(props: &[&StyleProperty]) -> Option<String> {
+    if props.is_empty() {
+        return None;
+    }
+    let axis = |f: fn(&StyleProperty) -> Option<String>| {
+        props.iter().find_map(|p| f(p)).unwrap_or_else(|| "0".to_string())
+    };
+    let x = axis(|p| match p {
+        StyleProperty::TranslateX(d) => Some(dimension_value(*d)),
+        _ => None,
+    });
+    let y = axis(|p| match p {
+        StyleProperty::TranslateY(d) => Some(dimension_value(*d)),
+        _ => None,
+    });
+    let z = props.iter().find_map(|p| match p {
+        StyleProperty::TranslateZ(l) => Some(length_px(*l)),
+        _ => None,
+    });
+    Some(match z {
+        Some(z) => format!("{x} {y} {z}"),
+        None => format!("{x} {y}"),
+    })
+}
+
+/// `border-spacing` takes a horizontal and a vertical value in one
+/// declaration, so the two axes compose. An unset axis is `0`, matching
+/// what Tailwind writes for `border-spacing-x-*`.
+fn border_spacing_value(props: &[&StyleProperty]) -> Option<String> {
+    if props.is_empty() {
+        return None;
+    }
+    let axis = |f: fn(&StyleProperty) -> Option<Length>| {
+        props.iter().find_map(|p| f(p)).map(length_px).unwrap_or_else(|| "0".to_string())
+    };
+    Some(format!(
+        "{} {}",
+        axis(|p| match p {
+            StyleProperty::BorderSpacingX(l) => Some(*l),
+            _ => None,
+        }),
+        axis(|p| match p {
+            StyleProperty::BorderSpacingY(l) => Some(*l),
+            _ => None,
+        }),
+    ))
+}
+
 fn is_scrollbar_color(prop: &StyleProperty) -> bool {
     matches!(
         prop,
@@ -435,16 +501,16 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
             }
             .to_string(),
         ),
-        StyleProperty::InsetTop(l) => ("top", length_px(*l)),
-        StyleProperty::InsetRight(l) => ("right", length_px(*l)),
-        StyleProperty::InsetBottom(l) => ("bottom", length_px(*l)),
-        StyleProperty::InsetLeft(l) => ("left", length_px(*l)),
-        StyleProperty::InsetInlineStart(l) => ("inset-inline-start", length_px(*l)),
-        StyleProperty::InsetInlineEnd(l) => ("inset-inline-end", length_px(*l)),
-        StyleProperty::InsetInline(l) => ("inset-inline", length_px(*l)),
-        StyleProperty::InsetBlock(l) => ("inset-block", length_px(*l)),
-        StyleProperty::InsetBlockStart(l) => ("inset-block-start", length_px(*l)),
-        StyleProperty::InsetBlockEnd(l) => ("inset-block-end", length_px(*l)),
+        StyleProperty::InsetTop(d) => ("top", dimension_value(*d)),
+        StyleProperty::InsetRight(d) => ("right", dimension_value(*d)),
+        StyleProperty::InsetBottom(d) => ("bottom", dimension_value(*d)),
+        StyleProperty::InsetLeft(d) => ("left", dimension_value(*d)),
+        StyleProperty::InsetInlineStart(d) => ("inset-inline-start", dimension_value(*d)),
+        StyleProperty::InsetInlineEnd(d) => ("inset-inline-end", dimension_value(*d)),
+        StyleProperty::InsetInline(d) => ("inset-inline", dimension_value(*d)),
+        StyleProperty::InsetBlock(d) => ("inset-block", dimension_value(*d)),
+        StyleProperty::InsetBlockStart(d) => ("inset-block-start", dimension_value(*d)),
+        StyleProperty::InsetBlockEnd(d) => ("inset-block-end", dimension_value(*d)),
         StyleProperty::BackgroundColor(c) => ("background-color", color_var(c)),
         StyleProperty::Opacity(o) => ("opacity", format!("{o}")),
         StyleProperty::BorderColor(c) => ("border-color", color_var(c)),
@@ -597,8 +663,26 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
         // these do the same rather than relying on one-value expansion.
         StyleProperty::Rotate(a) => ("rotate", format!("{}deg", a.degrees)),
         StyleProperty::Scale(pct) => ("scale", format!("{pct}% {pct}%")),
-        StyleProperty::TranslateX(l) => ("translate", format!("{} 0", length_px(*l))),
-        StyleProperty::TranslateY(l) => ("translate", format!("0 {}", length_px(*l))),
+        // Composed by `translate_value`; partitioned out above.
+        StyleProperty::TranslateX(_) | StyleProperty::TranslateY(_) | StyleProperty::TranslateZ(_) => {
+            ("translate", String::new())
+        }
+        StyleProperty::FlexBasis(d) => ("flex-basis", dimension_value(*d)),
+        StyleProperty::BlockSize(d) => ("block-size", dimension_value(*d)),
+        StyleProperty::InlineSize(d) => ("inline-size", dimension_value(*d)),
+        StyleProperty::MaxBlockSize(d) => ("max-block-size", dimension_value(*d)),
+        StyleProperty::MaxInlineSize(d) => ("max-inline-size", dimension_value(*d)),
+        StyleProperty::MinBlockSize(d) => ("min-block-size", dimension_value(*d)),
+        StyleProperty::MinInlineSize(d) => ("min-inline-size", dimension_value(*d)),
+        StyleProperty::TextIndent(d) => ("text-indent", dimension_value(*d)),
+        StyleProperty::MarginBlockStart(d) => ("margin-block-start", dimension_value(*d)),
+        StyleProperty::MarginBlockEnd(d) => ("margin-block-end", dimension_value(*d)),
+        StyleProperty::PaddingBlockStart(l) => ("padding-block-start", length_px(*l)),
+        StyleProperty::PaddingBlockEnd(l) => ("padding-block-end", length_px(*l)),
+        // `border-spacing` takes both axes at once, so these compose.
+        StyleProperty::BorderSpacingX(_) | StyleProperty::BorderSpacingY(_) => {
+            ("border-spacing", String::new())
+        }
         // Composed with any ring layers by `box_shadow_value`, not emitted
         // here -- `render_rule` partitions these out before this runs.
         StyleProperty::BoxShadow(s) => ("box-shadow", s.clone()),
@@ -777,14 +861,20 @@ pub fn render_rule(class_name: &str, condition: &Condition, props: &[StyleProper
         own_props.into_iter().partition(|p| is_shadow_layer(p));
     let (mask_props, rest): (Vec<&StyleProperty>, Vec<&StyleProperty>) =
         rest.into_iter().partition(|p| is_mask_gradient(p));
-    let (scrollbar_props, own_props): (Vec<&StyleProperty>, Vec<&StyleProperty>) =
+    let (scrollbar_props, rest): (Vec<&StyleProperty>, Vec<&StyleProperty>) =
         rest.into_iter().partition(|p| is_scrollbar_color(p));
+    let (translate_props, rest): (Vec<&StyleProperty>, Vec<&StyleProperty>) =
+        rest.into_iter().partition(|p| is_translate(p));
+    let (spacing_props, own_props): (Vec<&StyleProperty>, Vec<&StyleProperty>) =
+        rest.into_iter().partition(|p| is_border_spacing(p));
 
     let mut rules: Vec<String> = Vec::new();
     if !own_props.is_empty()
         || !shadow_props.is_empty()
         || !mask_props.is_empty()
         || !scrollbar_props.is_empty()
+        || !translate_props.is_empty()
+        || !spacing_props.is_empty()
     {
         let mut body = String::new();
         for prop in own_props {
@@ -799,6 +889,12 @@ pub fn render_rule(class_name: &str, condition: &Condition, props: &[StyleProper
         }
         if let Some(value) = scrollbar_color_value(&scrollbar_props) {
             body.push_str(&format!("  scrollbar-color: {value};\n"));
+        }
+        if let Some(value) = translate_value(&translate_props) {
+            body.push_str(&format!("  translate: {value};\n"));
+        }
+        if let Some(value) = border_spacing_value(&spacing_props) {
+            body.push_str(&format!("  border-spacing: {value};\n"));
         }
         rules.push(format!(".{class_name}{suffix} {{\n{body}}}"));
     }

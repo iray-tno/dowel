@@ -59,13 +59,13 @@ fn dimension_value(dim: Dimension) -> String {
 pub fn transform_entry(props: &[StyleProperty]) -> Option<(&'static str, String)> {
     let mut parts: Vec<String> = Vec::new();
     for prop in props {
-        if let StyleProperty::TranslateX(Length::Px(v)) = prop {
-            parts.push(format!("{{ translateX: {v} }}"));
+        if let StyleProperty::TranslateX(d) = prop {
+            parts.push(format!("{{ translateX: {} }}", dimension_value(*d)));
         }
     }
     for prop in props {
-        if let StyleProperty::TranslateY(Length::Px(v)) = prop {
-            parts.push(format!("{{ translateY: {v} }}"));
+        if let StyleProperty::TranslateY(d) = prop {
+            parts.push(format!("{{ translateY: {} }}", dimension_value(*d)));
         }
     }
     for prop in props {
@@ -251,6 +251,25 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
         StyleProperty::Width(d) => vec![("width", dimension_value(*d))],
         StyleProperty::Height(d) => vec![("height", dimension_value(*d))],
         StyleProperty::MinWidth(d) => vec![("minWidth", dimension_value(*d))],
+        StyleProperty::FlexBasis(d) => vec![("flexBasis", dimension_value(*d))],
+        // The block/inline logical sizes only differ from height/width
+        // under a vertical `writing-mode`, which React Native has no
+        // concept of -- the same assumption `py-*` already lowers under.
+        StyleProperty::BlockSize(d) => vec![("height", dimension_value(*d))],
+        StyleProperty::InlineSize(d) => vec![("width", dimension_value(*d))],
+        StyleProperty::MaxBlockSize(d) => vec![("maxHeight", dimension_value(*d))],
+        StyleProperty::MaxInlineSize(d) => vec![("maxWidth", dimension_value(*d))],
+        StyleProperty::MinBlockSize(d) => vec![("minHeight", dimension_value(*d))],
+        StyleProperty::MinInlineSize(d) => vec![("minWidth", dimension_value(*d))],
+        StyleProperty::MarginBlockStart(d) => vec![("marginTop", dimension_value(*d))],
+        StyleProperty::MarginBlockEnd(d) => vec![("marginBottom", dimension_value(*d))],
+        StyleProperty::PaddingBlockStart(l) => vec![("paddingTop", number(*l))],
+        StyleProperty::PaddingBlockEnd(l) => vec![("paddingBottom", number(*l))],
+        // Refused upstream by `unsupported_on_native`.
+        StyleProperty::TranslateZ(_)
+        | StyleProperty::TextIndent(_)
+        | StyleProperty::BorderSpacingX(_)
+        | StyleProperty::BorderSpacingY(_) => Vec::new(),
         StyleProperty::MinHeight(d) => vec![("minHeight", dimension_value(*d))],
         StyleProperty::MaxWidth(d) => vec![("maxWidth", dimension_value(*d))],
         StyleProperty::MaxHeight(d) => vec![("maxHeight", dimension_value(*d))],
@@ -263,19 +282,23 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
             }
             .to_string(),
         )],
-        StyleProperty::InsetTop(l) => vec![("top", number(*l))],
-        StyleProperty::InsetRight(l) => vec![("right", number(*l))],
-        StyleProperty::InsetBottom(l) => vec![("bottom", number(*l))],
-        StyleProperty::InsetLeft(l) => vec![("left", number(*l))],
-        StyleProperty::InsetInlineStart(l) => vec![("start", number(*l))],
-        StyleProperty::InsetInlineEnd(l) => vec![("end", number(*l))],
+        StyleProperty::InsetTop(d) => vec![("top", dimension_value(*d))],
+        StyleProperty::InsetRight(d) => vec![("right", dimension_value(*d))],
+        StyleProperty::InsetBottom(d) => vec![("bottom", dimension_value(*d))],
+        StyleProperty::InsetLeft(d) => vec![("left", dimension_value(*d))],
+        StyleProperty::InsetInlineStart(d) => vec![("start", dimension_value(*d))],
+        StyleProperty::InsetInlineEnd(d) => vec![("end", dimension_value(*d))],
         // No axis shorthand in React Native, so both edges are written.
-        StyleProperty::InsetInline(l) => vec![("start", number(*l)), ("end", number(*l))],
-        StyleProperty::InsetBlock(l) => vec![("top", number(*l)), ("bottom", number(*l))],
+        StyleProperty::InsetInline(d) => {
+            vec![("start", dimension_value(*d)), ("end", dimension_value(*d))]
+        }
+        StyleProperty::InsetBlock(d) => {
+            vec![("top", dimension_value(*d)), ("bottom", dimension_value(*d))]
+        }
         // The block axis is only distinct from top/bottom under a vertical
         // `writing-mode`, which React Native has no concept of.
-        StyleProperty::InsetBlockStart(l) => vec![("top", number(*l))],
-        StyleProperty::InsetBlockEnd(l) => vec![("bottom", number(*l))],
+        StyleProperty::InsetBlockStart(d) => vec![("top", dimension_value(*d))],
+        StyleProperty::InsetBlockEnd(d) => vec![("bottom", dimension_value(*d))],
         StyleProperty::BackgroundColor(c) => vec![("backgroundColor", resolve_color(c))],
         StyleProperty::Opacity(o) => vec![("opacity", format!("{o}"))],
         StyleProperty::BorderColor(c) => vec![("borderColor", resolve_color(c))],

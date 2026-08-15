@@ -273,19 +273,22 @@ pub enum StyleProperty {
     /// engine has no grid implementation at all.
     GridTemplateColumns(u32),
     Position(Position),
-    InsetTop(Length),
-    InsetRight(Length),
-    InsetBottom(Length),
-    InsetLeft(Length),
-    InsetInlineStart(Length),
-    InsetInlineEnd(Length),
+    /// `Dimension` rather than `Length`: Tailwind offers `top-1/2` and
+    /// `inset-x-auto` alongside the spacing scale, so a plain pixel length
+    /// cannot represent the family.
+    InsetTop(Dimension),
+    InsetRight(Dimension),
+    InsetBottom(Dimension),
+    InsetLeft(Dimension),
+    InsetInlineStart(Dimension),
+    InsetInlineEnd(Dimension),
     /// The axis shorthands (`inset-x-*`/`inset-y-*`) and the block-logical
     /// pair, kept as their own properties for the same discriminant reason
     /// as the per-side border colours below.
-    InsetInline(Length),
-    InsetBlock(Length),
-    InsetBlockStart(Length),
-    InsetBlockEnd(Length),
+    InsetInline(Dimension),
+    InsetBlock(Dimension),
+    InsetBlockStart(Dimension),
+    InsetBlockEnd(Dimension),
 
     // Visual
     BackgroundColor(Color),
@@ -364,8 +367,13 @@ pub enum StyleProperty {
     /// wants the ratio and divides once, where the same rounding is
     /// invisible -- it takes a number, not a string.
     Scale(f64),
-    TranslateX(Length),
-    TranslateY(Length),
+    /// CSS's `translate` is one property taking up to three values, so
+    /// these compose into a single declaration rather than one each --
+    /// before 2026-08-15 `translate-x-4 translate-y-8` emitted two
+    /// `translate:` declarations and the x was lost to last-wins.
+    TranslateX(Dimension),
+    TranslateY(Dimension),
+    TranslateZ(Length),
     /// Kept as the already-composed CSS value rather than a structured
     /// list. React Native accepts a string for `boxShadow`/`filter` too, so
     /// both backends emit the same text and there's nothing for a
@@ -469,6 +477,28 @@ pub enum StyleProperty {
     /// transparent, matching Tailwind's register default.
     ScrollbarThumbColor(Color),
     ScrollbarTrackColor(Color),
+    /// The remaining one-property spacing families. Nothing subtle in any
+    /// of them -- they were simply unimplemented.
+    FlexBasis(Dimension),
+    BlockSize(Dimension),
+    InlineSize(Dimension),
+    MaxBlockSize(Dimension),
+    MaxInlineSize(Dimension),
+    MinBlockSize(Dimension),
+    MinInlineSize(Dimension),
+    TextIndent(Dimension),
+    /// `border-spacing` is one property taking a horizontal and a vertical
+    /// value, so `border-spacing-x-*` and `-y-*` compose into it.
+    BorderSpacingX(Length),
+    BorderSpacingY(Length),
+    /// Block-axis logical margins and paddings. Emitted as the logical CSS
+    /// longhands on Web to match Tailwind exactly; the Native backend folds
+    /// them to top/bottom, which is the horizontal-writing-mode assumption
+    /// it already makes for `py-*`.
+    MarginBlockStart(Dimension),
+    MarginBlockEnd(Dimension),
+    PaddingBlockStart(Length),
+    PaddingBlockEnd(Length),
     /// `scroll-m-*` / `scroll-p-*`.
     ///
     /// These carry their edge rather than getting a variant each, unlike
@@ -685,6 +715,17 @@ impl StyleProperty {
             | StyleProperty::MaskComposite(_) => Some(
                 "`mask-*`: React Native has no masking of any kind -- no mask-image, no \
                  mask-clip, nothing to approximate it with"
+                    .to_string(),
+            ),
+            StyleProperty::TranslateZ(_) => Some(
+                "`translate-z-*`: React Native's transform has no 3D translation".to_string(),
+            ),
+            StyleProperty::TextIndent(_) => {
+                Some("`indent-*`: React Native has no text-indent".to_string())
+            }
+            StyleProperty::BorderSpacingX(_) | StyleProperty::BorderSpacingY(_) => Some(
+                "`border-spacing-*`: it applies to a separated-border table, which React Native \
+                 has no equivalent of"
                     .to_string(),
             ),
             StyleProperty::ScrollbarWidth(_)

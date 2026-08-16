@@ -43,6 +43,18 @@ export function reactNativeVersion(): string {
 export interface StyleKey {
   name: string
   values?: Set<string>
+  /**
+   * Set when the declared type admits numbers and nothing else
+   * (`zIndex?: number`). A CSS keyword is then provably not assignable,
+   * which is a second thing the types can settle beyond a closed union.
+   *
+   * Deliberately narrow: `aspectRatio?: number | string` admits a string,
+   * so the types cannot rule out `aspect-ratio: auto` even though React
+   * Native rejects it at runtime. That refusal is right for a reason the
+   * types don't carry, and the audit says so rather than pretending
+   * otherwise.
+   */
+  numeric?: boolean
 }
 
 /// Only the interfaces that describe a style. The file also declares the
@@ -81,6 +93,12 @@ export function reactNativeStyleKeys(): Map<string, StyleKey> {
     for (const match of body.matchAll(/^ {2}(?:readonly )?([a-zA-Z][a-zA-Z0-9]*)\??:([^;]*);/gm)) {
       const [, name, type] = match
       const values = literalUnion(type, aliases)
+      if (values === undefined && numericOnly(type, aliases)) {
+        // Same widening rule as below: a key that is numeric in one
+        // interface and open in another counts as open.
+        if (!keys.has(name)) keys.set(name, { name, numeric: true })
+        continue
+      }
       // A key seen in two interfaces keeps the looser constraint: `overflow`
       // is narrower on ImageStyle than on ViewStyle, and the question here
       // is whether React Native can express it anywhere.
@@ -194,6 +212,33 @@ export function reactNativeCssProperties(): Set<string> | undefined {
     properties.add(match[1])
   }
   return properties.size > 0 ? properties : undefined
+}
+
+/**
+ * Whether the type admits numbers and nothing else -- allowing for the
+ * animated-value aliases React Native wraps its numeric styles in.
+ */
+function numericOnly(type: string, aliases: Map<string, string>, depth = 0): boolean {
+  if (depth > 4) return false
+  let sawNumber = false
+  for (const part of type.split('|')) {
+    const term = part.trim()
+    if (term === '' || term === 'undefined' || term === 'null') continue
+    if (term === 'number') {
+      sawNumber = true
+      continue
+    }
+    // `Animated.AnimatedNode` is what an animatable number widens to; it
+    // is still not a place a CSS keyword could go.
+    if (term === 'Animated.AnimatedNode') continue
+    const alias = aliases.get(term)
+    if (alias && numericOnly(alias, aliases, depth + 1)) {
+      sawNumber = true
+      continue
+    }
+    return false
+  }
+  return sawNumber
 }
 
 /** `border-top-width` -> `borderTopWidth`. */

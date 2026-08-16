@@ -273,7 +273,10 @@ pub enum StyleProperty {
     MinHeight(Dimension),
     MaxWidth(Dimension),
     MaxHeight(Dimension),
-    ZIndex(i32),
+    /// `None` is `z-auto`. One variant for both, not a separate `ZIndexAuto`
+    /// or a `Keyword`: they are the same CSS property, and splitting them
+    /// would stop them overriding each other.
+    ZIndex(Option<i32>),
     /// `order-*`. Flex ordering, which Yoga doesn't implement -- React
     /// Native lays children out in tree order and has no way to say
     /// otherwise.
@@ -287,6 +290,24 @@ pub enum StyleProperty {
     /// `columns-*`. CSS multi-column layout, which React Native has no
     /// equivalent for at all.
     Columns(ColumnCount),
+    /// `grow`/`grow-0`/`shrink`/`shrink-0` and `aspect-*`. All three are
+    /// real React Native styles, which is why they are properties rather
+    /// than `Keyword`s -- the refusal audit caught them being refused as
+    /// part of the keyword tail.
+    FlexGrow(f64),
+    FlexShrink(f64),
+    AspectRatio(&'static str),
+    /// `border-s/e/x/y/bs/be-*`: a border width and its style on a
+    /// *logical* edge.
+    ///
+    /// Edge-keyed rather than one variant per edge, unlike the physical
+    /// sides above -- `dedupe_key` already knows how to key on an `Edge`,
+    /// and six more edges is twelve more variants for no gain. Restricted
+    /// to the logical edges precisely so the two encodings can't describe
+    /// the same declaration: `Edge::Top` here would be a second spelling
+    /// of `BorderTopWidth` and the pair would stop overriding each other.
+    BorderLogicalWidth(Edge, Length),
+    BorderLogicalStyle(Edge, BorderStyle),
     /// `overflow-x-*` / `overflow-y-*`. Separate properties from
     /// `Overflow`, matching CSS -- React Native has only the combined one,
     /// so the per-axis forms are refused there.
@@ -671,6 +692,10 @@ pub enum FlexShorthand {
     Auto,
     None,
     Grow(f64),
+    /// `flex-1/2`. Kept as the authored fraction, not folded to a
+    /// percentage: Tailwind emits `calc(1/2 * 100%)` and the division is
+    /// what keeps thirds exact rather than 33.33333333333333%.
+    Fraction(u32, u32),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -796,6 +821,12 @@ impl StyleProperty {
                 "`order-*`: Yoga lays children out in tree order and has no flex `order`, so the \
                  only way to reorder on React Native is to reorder the elements"
                     .to_string(),
+            ),
+            StyleProperty::ZIndex(None) => Some(
+                "`z-auto`: React Native's zIndex is a number and has no auto".to_string(),
+            ),
+            StyleProperty::AspectRatio("auto") => Some(
+                "`aspect-auto`: React Native's aspectRatio is a number and has no auto".to_string(),
             ),
             StyleProperty::Columns(_) => {
                 Some("`columns-*`: React Native has no multi-column layout".to_string())
@@ -1457,6 +1488,9 @@ impl StyleProperty {
             StyleProperty::MaskStopColor(slot, stop, _)
             | StyleProperty::MaskStopPosition(slot, stop, _) => {
                 (*slot as u32) * 2 + *stop as u32
+            }
+            StyleProperty::BorderLogicalWidth(edge, _) | StyleProperty::BorderLogicalStyle(edge, _) => {
+                *edge as u32
             }
             StyleProperty::MaskAngle(slot, _) => *slot as u32,
             StyleProperty::Filter(function, _) | StyleProperty::BackdropFilter(function, _) => {

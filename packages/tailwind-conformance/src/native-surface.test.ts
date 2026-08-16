@@ -57,6 +57,21 @@ test('resolves a union declared through a type alias', () => {
   )
 })
 
+test('marks the numeric-only keys, and only those', () => {
+  const keys = reactNativeStyleKeys()
+  // `zIndex?: number` -- a CSS keyword is provably not assignable, which is
+  // how the audit knows `z-auto` is correctly refused.
+  assert.equal(keys.get('zIndex')?.numeric, true)
+  assert.equal(keys.get('flexGrow')?.numeric, true)
+  // `aspectRatio?: number | string` admits a string, so the types cannot
+  // rule out `auto` even though React Native rejects it. That refusal is
+  // right for a reason the types don't carry, and must not be claimed here
+  // -- it is recorded in the audit's acknowledged list instead.
+  assert.equal(keys.get('aspectRatio')?.numeric, undefined)
+  assert.equal(keys.get('backgroundColor')?.numeric, undefined)
+  assert.equal(keys.get('display')?.numeric, undefined)
+})
+
 test('leaves open types unconstrained', () => {
   const keys = reactNativeStyleKeys()
   // Anything taking a number, colour or dimension has no useful value-level

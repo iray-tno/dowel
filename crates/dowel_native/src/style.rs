@@ -20,6 +20,7 @@
 
 use dowel_ir::{
     Align, AlignSelf, BorderStyle, Color, DecorationStyle, Dimension, Display, FilterFunction,
+    Edge,
     FlexDirection,
     LetterSpacing,
     FlexShorthand, Justify,
@@ -35,6 +36,13 @@ fn radius_number(radius: &Radius) -> String {
         // unlike on Web.
         Radius::Full => "9999".to_string(),
     }
+}
+
+/// React Native's `aspectRatio` is a number, where CSS writes a ratio.
+fn aspect_number(value: &str) -> Option<String> {
+    let (w, h) = value.split_once(" / ")?;
+    let (w, h) = (w.parse::<f64>().ok()?, h.parse::<f64>().ok()?);
+    Some(format!("{}", w / h))
 }
 
 fn number(length: Length) -> String {
@@ -357,6 +365,10 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
         )],
         StyleProperty::Flex(shorthand) => match shorthand {
             FlexShorthand::Grow(n) => vec![("flex", format!("{n}"))],
+            // RN's `flex` is a grow factor, and a fraction of the parent is
+            // not one -- refused upstream rather than divided into
+            // something that would lay out differently.
+            FlexShorthand::Fraction(..) => Vec::new(),
             FlexShorthand::Auto => vec![("flexGrow", "1".to_string()), ("flexShrink", "1".to_string())],
             FlexShorthand::Initial => vec![("flexGrow", "0".to_string()), ("flexShrink", "1".to_string())],
             FlexShorthand::None => vec![("flexGrow", "0".to_string()), ("flexShrink", "0".to_string())],
@@ -430,7 +442,8 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
         StyleProperty::MinHeight(d) => vec![("minHeight", dimension_value(*d))],
         StyleProperty::MaxWidth(d) => vec![("maxWidth", dimension_value(*d))],
         StyleProperty::MaxHeight(d) => vec![("maxHeight", dimension_value(*d))],
-        StyleProperty::ZIndex(z) => vec![("zIndex", format!("{z}"))],
+        // RN's zIndex is a number; `auto` is refused upstream.
+        StyleProperty::ZIndex(z) => z.map_or_else(Vec::new, |z| vec![("zIndex", z.to_string())]),
         // RN's `cursor` takes `auto` and `pointer`; every other keyword is
         // refused upstream by `unsupported_on_native`, so anything reaching
         // here is one of the two.
@@ -452,6 +465,33 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
         // RN has `objectFit` with the same five keywords, `userSelect`, and
         // `textDecorationLine` with all but `overline`. The per-axis
         // overflows are refused upstream -- RN has only the combined one.
+        // RN spells the two inline edges `borderStartWidth`/`borderEndWidth`
+        // and has no combined inline/block width; the block edges are top
+        // and bottom there, since it has no vertical writing mode. It has
+        // no per-edge border style at all -- and needs none, because a
+        // width renders on its own.
+        StyleProperty::BorderLogicalWidth(edge, l) => match edge {
+            Edge::InlineStart => vec![("borderStartWidth", number(*l))],
+            Edge::InlineEnd => vec![("borderEndWidth", number(*l))],
+            Edge::BlockStart => vec![("borderTopWidth", number(*l))],
+            Edge::BlockEnd => vec![("borderBottomWidth", number(*l))],
+            Edge::Inline => {
+                vec![("borderStartWidth", number(*l)), ("borderEndWidth", number(*l))]
+            }
+            Edge::Block => {
+                vec![("borderTopWidth", number(*l)), ("borderBottomWidth", number(*l))]
+            }
+            _ => Vec::new(),
+        },
+        StyleProperty::BorderLogicalStyle(..) => Vec::new(),
+        StyleProperty::FlexGrow(n) => vec![("flexGrow", format!("{n}"))],
+        StyleProperty::FlexShrink(n) => vec![("flexShrink", format!("{n}"))],
+        // RN's aspectRatio takes a number, so the ratio is divided out. It
+        // has no `auto`, which is refused upstream.
+        StyleProperty::AspectRatio(v) => match aspect_number(v) {
+            Some(n) => vec![("aspectRatio", n)],
+            None => Vec::new(),
+        },
         StyleProperty::ObjectFit(v) => vec![("objectFit", format!("'{v}'"))],
         StyleProperty::UserSelect(v) => vec![("userSelect", format!("'{v}'"))],
         StyleProperty::TextDecorationLine(v) => vec![("textDecorationLine", format!("'{v}'"))],

@@ -56,6 +56,14 @@ fn parse_spacing_suffix(suffix: &str) -> Option<Length> {
 pub fn parse_utility(token: &str) -> Option<StyleProperty> {
     match token {
         "flex-auto" => return Some(StyleProperty::Flex(FlexShorthand::Auto)),
+        "shrink" => return Some(StyleProperty::FlexShrink(1.0)),
+        "shrink-0" => return Some(StyleProperty::FlexShrink(0.0)),
+        "grow" => return Some(StyleProperty::FlexGrow(1.0)),
+        "grow-0" => return Some(StyleProperty::FlexGrow(0.0)),
+        "z-auto" => return Some(StyleProperty::ZIndex(None)),
+        "aspect-square" => return Some(StyleProperty::AspectRatio("1 / 1")),
+        "aspect-video" => return Some(StyleProperty::AspectRatio("16 / 9")),
+        "aspect-auto" => return Some(StyleProperty::AspectRatio("auto")),
         "flex-initial" => return Some(StyleProperty::Flex(FlexShorthand::Initial)),
         "flex-none" => return Some(StyleProperty::Flex(FlexShorthand::None)),
         "flex-row" => return Some(StyleProperty::FlexDirection(FlexDirection::Row)),
@@ -247,7 +255,7 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
     }
     if let Some(rest) = token.strip_prefix("z-") {
         if let Ok(z) = rest.parse::<i32>() {
-            return Some(StyleProperty::ZIndex(z));
+            return Some(StyleProperty::ZIndex(Some(z)));
         }
     }
     if let Some(prop) = parse_order(token) {
@@ -1407,6 +1415,34 @@ fn parse_cursor(token: &str) -> Option<&str> {
 /// the conformance report rather than caught by it: a candidate Tailwind
 /// produces no rule for leaves the denominator, so Dowel accepting a class
 /// Tailwind rejects is exactly the shape of error that report can't see.
+/// `border-s/e/x/y/bs/be`, the logical-edge border widths.
+///
+/// Each writes the style alongside the width for the same reason the
+/// physical sides do: CSS defaults `border-style` to `none`, so a width
+/// alone renders nothing, and scoping the style to the same edge stops the
+/// untouched edges falling back to `border-width: medium` and appearing.
+fn parse_logical_border(token: &str) -> Option<Vec<StyleProperty>> {
+    let rest = token.strip_prefix("border-")?;
+    let (name, width) = match rest.split_once('-') {
+        Some((name, value)) => (name, parse_border_width_px(value)?),
+        // `border-s` with no width means 1px, as for the physical sides.
+        None => (rest, Length::Px(1.0)),
+    };
+    let edge = match name {
+        "s" => Edge::InlineStart,
+        "e" => Edge::InlineEnd,
+        "x" => Edge::Inline,
+        "y" => Edge::Block,
+        "bs" => Edge::BlockStart,
+        "be" => Edge::BlockEnd,
+        _ => return None,
+    };
+    Some(vec![
+        StyleProperty::BorderLogicalWidth(edge, width),
+        StyleProperty::BorderLogicalStyle(edge, BorderStyle::Solid),
+    ])
+}
+
 /// The values of already-modelled properties that Dowel didn't cover.
 ///
 /// These can't join `KEYWORD_UTILITIES`: their property already has a
@@ -1824,6 +1860,11 @@ fn keyword_utility(token: &str) -> Option<StyleProperty> {
 /// `flex-<n>`, the two blend modes, and the display keywords beyond the
 /// three Yoga implements.
 fn parse_keyword_utility(token: &str) -> Option<StyleProperty> {
+    if let Some((n, d)) = token.strip_prefix("flex-").and_then(|r| r.split_once('/')) {
+        if let (Ok(n), Ok(d)) = (n.parse::<u32>(), d.parse::<u32>()) {
+            return Some(StyleProperty::Flex(FlexShorthand::Fraction(n, d)));
+        }
+    }
     // `flex-<n>` is `n 1 0%`, i.e. grow by n and start from nothing --
     // which is `FlexShorthand::Grow`, the same shape `flex-1` already had.
     if let Some(rest) = token.strip_prefix("flex-") {
@@ -2114,7 +2155,7 @@ fn negated(prop: StyleProperty) -> Option<StyleProperty> {
         StyleProperty::OutlineOffset(Length::Px(v)) => {
             StyleProperty::OutlineOffset(Length::Px(signed(v, true)))
         }
-        StyleProperty::ZIndex(z) => StyleProperty::ZIndex(-z),
+        StyleProperty::ZIndex(Some(z)) => StyleProperty::ZIndex(Some(-z)),
         // A marker rather than a value: negating `scale-z-50` must keep the
         // three-value form, so this negates to itself. Without an arm here
         // `negated` returned None and dropped the whole utility.
@@ -2227,6 +2268,9 @@ fn expand_base_utility(token: &str) -> Vec<StyleProperty> {
     }
     if let Some(prop) = parse_extended_value(token) {
         return vec![prop];
+    }
+    if let Some(props) = parse_logical_border(token) {
+        return props;
     }
     if let Some(prop) = expand_scrollbar(token) {
         return vec![prop];
@@ -2543,7 +2587,7 @@ mod tests {
     fn parses_the_remaining_tier_one_utilities() {
         assert_eq!(
             expand_utility("z-10"),
-            (Condition::Always, vec![StyleProperty::ZIndex(10)])
+            (Condition::Always, vec![StyleProperty::ZIndex(Some(10))])
         );
         assert_eq!(
             expand_utility("min-w-0"),
@@ -2713,6 +2757,31 @@ mod tests {
                 expand_utility(token).1,
                 vec![StyleProperty::Keyword(property, value)],
                 "{token}"
+            );
+        }
+    }
+
+    #[test]
+    fn no_keyword_property_is_also_written_by_a_variant() {
+        // The other half of the `Keyword` invariant, and the half the
+        // expansion test below cannot see: a token can expand to the
+        // `Keyword` it claims and *still* collide, if some other utility
+        // reaches the same CSS property through a variant. That is what
+        // `z-auto` did -- it expanded to `Keyword("z-index", "auto")`
+        // exactly as the table said, while `z-10` produced a `ZIndex`, so
+        // the two stopped overriding each other.
+        //
+        // Checked by reading the Web emitter, because it is the only
+        // exhaustive list of which CSS property each variant writes and
+        // Rust can't enumerate enum variants. Coarse -- a property named in
+        // a comment there would trip this -- but it fails loudly and in the
+        // safe direction.
+        let emitter = include_str!("../../dowel_web/src/css.rs");
+        for (token, property, _) in KEYWORD_UTILITIES {
+            assert!(
+                !emitter.contains(&format!("(\"{property}\",")),
+                "`{token}` sets `{property}`, which dowel_web also writes from a variant: \
+                 give it a property of its own instead of a Keyword"
             );
         }
     }
@@ -2889,7 +2958,7 @@ mod tests {
             expand_utility("-translate-z-2"),
             (Condition::Always, vec![StyleProperty::TranslateZ(Length::Px(-8.0))])
         );
-        assert_eq!(expand_utility("-z-10"), (Condition::Always, vec![StyleProperty::ZIndex(-10)]));
+        assert_eq!(expand_utility("-z-10"), (Condition::Always, vec![StyleProperty::ZIndex(Some(-10))]));
         assert_eq!(
             expand_utility("-outline-offset-2"),
             (Condition::Always, vec![StyleProperty::OutlineOffset(Length::Px(-2.0))])

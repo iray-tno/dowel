@@ -81,6 +81,34 @@ fn justify_keyword(justify: &Justify) -> &'static str {
     }
 }
 
+/// The CSS longhand each logical edge writes. Spelled out rather than
+/// built, because `property_and_value` returns `&'static str`.
+fn border_width_property(edge: Edge) -> &'static str {
+    match edge {
+        Edge::Inline => "border-inline-width",
+        Edge::Block => "border-block-width",
+        Edge::InlineStart => "border-inline-start-width",
+        Edge::InlineEnd => "border-inline-end-width",
+        Edge::BlockStart => "border-block-start-width",
+        Edge::BlockEnd => "border-block-end-width",
+        // The physical edges have their own properties; see
+        // `StyleProperty::BorderLogicalWidth`.
+        _ => "border-width",
+    }
+}
+
+fn border_style_property(edge: Edge) -> &'static str {
+    match edge {
+        Edge::Inline => "border-inline-style",
+        Edge::Block => "border-block-style",
+        Edge::InlineStart => "border-inline-start-style",
+        Edge::InlineEnd => "border-inline-end-style",
+        Edge::BlockStart => "border-block-start-style",
+        Edge::BlockEnd => "border-block-end-style",
+        _ => "border-style",
+    }
+}
+
 fn overflow_keyword(overflow: &Overflow) -> &'static str {
     match overflow {
         Overflow::Visible => "visible",
@@ -612,6 +640,7 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
             "flex",
             match shorthand {
                 FlexShorthand::Grow(n) => format!("{n} 1 0%"),
+                FlexShorthand::Fraction(n, d) => format!("calc({n}/{d} * 100%)"),
                 FlexShorthand::Auto => "1 1 auto".to_string(),
                 FlexShorthand::Initial => "0 1 auto".to_string(),
                 FlexShorthand::None => "none".to_string(),
@@ -667,7 +696,10 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
         StyleProperty::MinHeight(d) => ("min-height", dimension_value(*d)),
         StyleProperty::MaxWidth(d) => ("max-width", dimension_value(*d)),
         StyleProperty::MaxHeight(d) => ("max-height", dimension_value(*d)),
-        StyleProperty::ZIndex(z) => ("z-index", format!("{z}")),
+        StyleProperty::ZIndex(z) => (
+            "z-index",
+            z.map_or_else(|| "auto".to_string(), |z| z.to_string()),
+        ),
         StyleProperty::GridTemplateColumns(t) => ("grid-template-columns", grid_tracks(t)),
         StyleProperty::GridTemplateRows(t) => ("grid-template-rows", grid_tracks(t)),
         StyleProperty::GridColumnStart(l) => ("grid-column-start", grid_line(l)),
@@ -799,6 +831,13 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
         StyleProperty::TextUnderlineOffset(d) => ("text-underline-offset", dimension_value(*d)),
         StyleProperty::OverflowX(o) => ("overflow-x", overflow_keyword(o).to_string()),
         StyleProperty::OverflowY(o) => ("overflow-y", overflow_keyword(o).to_string()),
+        StyleProperty::BorderLogicalWidth(edge, l) => (border_width_property(*edge), length_px(*l)),
+        StyleProperty::BorderLogicalStyle(edge, s) => {
+            (border_style_property(*edge), border_style_keyword(s).to_string())
+        }
+        StyleProperty::FlexGrow(n) => ("flex-grow", format!("{n}")),
+        StyleProperty::FlexShrink(n) => ("flex-shrink", format!("{n}")),
+        StyleProperty::AspectRatio(v) => ("aspect-ratio", v.to_string()),
         StyleProperty::ObjectFit(v) => ("object-fit", v.to_string()),
         // Composed above: it writes the -webkit- prefix too.
         StyleProperty::UserSelect(_) => ("user-select", String::new()),

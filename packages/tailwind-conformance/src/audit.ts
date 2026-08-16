@@ -51,7 +51,29 @@ function expressible(property: string, value: string): { ok: boolean; reason?: s
   if (key.values && !key.values.has(value.trim())) {
     return { ok: false, reason: `${key.name} does not accept ${value.trim()}` }
   }
+  // A CSS keyword is provably not assignable to a numeric-only key.
+  if (key.numeric && !/^-?[\d.]+$/.test(value.trim())) {
+    return { ok: false, reason: `${key.name} is a number, not \`${value.trim()}\`` }
+  }
   return { ok: true }
+}
+
+/**
+ * Refusals the types cannot adjudicate, with the reason they are right
+ * anyway.
+ *
+ * The counterpart of `ACCEPTED_DIFFERENCES` in `compare.ts`, and it exists
+ * for the same reason: a standing entry needs a justification, not just a
+ * line. React Native's types are a necessary condition and not a sufficient
+ * one, so a handful of correct refusals will always look suspect -- and
+ * leaving them in the suspect count would make the number mean "unreviewed"
+ * rather than "unsupported", which is the thing that lets a wrong refusal
+ * hide again.
+ */
+const ACKNOWLEDGED_REFUSALS: Record<string, string> = {
+  'aspect-auto': `\`aspectRatio\` is typed \`number | string\`, so the types can't rule out
+    \`auto\` -- but React Native has no auto aspect ratio, and passing the
+    string makes it ignore the style rather than fall back to content size.`,
 }
 
 let cachedSurface: ReturnType<typeof reactNativeStyleKeys> | undefined
@@ -108,5 +130,11 @@ export function auditRefusal(
   if (base.expressible.length === 0) base.verdict = 'CONFIRMED'
   else if (base.inexpressible.length === 0) base.verdict = 'SUSPECT'
   else base.verdict = 'PARTIAL'
+
+  const acknowledged = ACKNOWLEDGED_REFUSALS[candidate]
+  if (acknowledged && base.verdict === 'SUSPECT') {
+    base.verdict = 'CONFIRMED'
+    base.inexpressible.push(`reviewed: ${acknowledged.replace(/\s+/g, ' ').trim()}`)
+  }
   return base
 }

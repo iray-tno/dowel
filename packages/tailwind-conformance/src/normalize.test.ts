@@ -98,11 +98,23 @@ test('normalizes rem to px', () => {
 })
 
 test('reports unresolvable values instead of guessing', () => {
-  // An unknown custom property with no fallback must not silently vanish
-  // or resolve to something invented.
-  const result = normalize('box-shadow: var(--tw-shadow);', vars)
-  assert.equal(result.declarations.size, 0)
-  assert.equal(result.unresolved.length, 1)
+  // An unknown custom property with no fallback must not resolve to
+  // something invented. It yields no declaration either way; what matters
+  // is which kind of nothing it is.
+  //
+  // A `--tw-*` register with no default is a slot another utility fills,
+  // so the declaration is inert rather than unknown -- see
+  // `unfilledRegisters`. That distinction is the whole point: inert is a
+  // claim (this paints nothing), unknown is a refusal to claim.
+  const inert = normalize('box-shadow: var(--tw-shadow);', vars)
+  assert.equal(inert.declarations.size, 0)
+  assert.deepEqual(inert.unresolved, [])
+
+  // Anything else unresolved is still reported, so a resolution bug can't
+  // hide as "it paints nothing".
+  const unknown = normalize('box-shadow: var(--shadow-of-doubt);', vars)
+  assert.equal(unknown.declarations.size, 0)
+  assert.equal(unknown.unresolved.length, 1)
 })
 
 test('declines to fold calc() mixing incompatible units', () => {
@@ -144,4 +156,33 @@ test('skips Tailwind runtime register declarations', () => {
   // `--tw-*` assignments feed later declarations; they are not output to
   // compare on their own.
   assert.deepEqual(decls('--tw-leading: 1; line-height: 1;'), { 'line-height': '1' })
+})
+
+test('folds calc arithmetic in em, where the unit is shared', () => {
+  // Every term shares one unit, so the arithmetic is exact whatever that
+  // unit means -- no font size needed. Excluding `em` here left all six
+  // `-tracking-*` unresolvable on Tailwind's side, which hid a real Dowel
+  // gap behind a harness limitation.
+  const vars = new Map([['--tracking-tight', '-0.025em']])
+  const out = normalize('letter-spacing: calc(var(--tracking-tight) * -1);', vars)
+  assert.deepEqual(out.unresolved, [])
+  assert.equal(out.declarations.get('letter-spacing'), '0.025em')
+})
+
+test('an unfilled --tw- register means the declaration paints nothing', () => {
+  // `bg-conic` is `conic-gradient(var(--tw-gradient-stops))`, and the stops
+  // only exist once a `from-*` is written beside it. Standalone the
+  // declaration is invalid at computed-value time and the browser drops it,
+  // so reporting it as inert is what lets the comparison call it
+  // composition-only rather than making no claim at all.
+  const out = normalize('background-image: conic-gradient(var(--tw-gradient-stops));', new Map())
+  assert.deepEqual(out.unresolved, [])
+  assert.equal(out.declarations.size, 0)
+})
+
+test('a theme variable that fails to resolve is still reported', () => {
+  // Only Tailwind's own registers are treated as slots. A missing theme
+  // lookup is a resolution bug, and excusing it as "inert" would hide it.
+  const out = normalize('color: var(--color-nonexistent);', new Map())
+  assert.equal(out.unresolved.length, 1)
 })

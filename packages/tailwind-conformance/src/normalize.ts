@@ -104,11 +104,13 @@ function evaluateArithmetic(expr: string): string | null {
   )
   if (units.size > 1) return null
   const unit = [...units][0] ?? ''
-  // `em` depends on inherited font size, so it can't be folded here.
-  // A lone `%` can: `calc(1 / 2 * 100%)` is just 50%.
-  if (unit === 'em') return null
-
-  const bare = expr.replace(/(px|rem|%|deg)/g, '')
+  // Every term shares one unit, so the arithmetic is exact whatever that
+  // unit means -- `calc(-0.025em * -1)` is `0.025em` without knowing any
+  // font size. `em` was excluded here until 2026-08-16, which left all six
+  // `-tracking-*` unresolvable on Tailwind's side and so unmeasurable.
+  // Mixing units is the unsafe case, and the check above already bails on
+  // it.
+  const bare = expr.replace(/(px|rem|%|deg|em)/g, '')
   if (!/^[\d\s.+\-*/()]+$/.test(bare)) return null
   let result: number
   try {
@@ -319,6 +321,18 @@ function expandFlex(value: string): Array<[string, string]> {
   ]
 }
 
+/**
+ * The `--tw-*` registers still referenced after resolution, i.e. the ones
+ * with no `@property` default and no assignment in this rule.
+ *
+ * Only Tailwind's own registers count. A `var(--color-something)` left over
+ * is a theme lookup that genuinely failed and must still be reported --
+ * treating that as "inert" would quietly excuse a resolution bug.
+ */
+function unfilledRegisters(value: string): string[] {
+  return [...value.matchAll(/var\((--tw-[a-z0-9-]+)/g)].map((m) => m[1])
+}
+
 export function normalize(block: string, vars: Map<string, string>): Normalized {
   const declarations = new Map<string, string>()
   const unresolved: string[] = []
@@ -341,6 +355,15 @@ export function normalize(block: string, vars: Map<string, string>): Normalized 
     value = canonicalizeValue(value)
 
     if (value.includes('var(') || value.includes('calc(')) {
+      // A `--tw-*` register with no `@property` default that nothing in
+      // this rule sets is not "we couldn't work it out" -- it is a slot
+      // another utility fills. `bg-conic` is
+      // `conic-gradient(var(--tw-gradient-stops))` and the stops only
+      // exist once a `from-*` is written beside it, so standalone the
+      // declaration is invalid at computed-value time and the browser
+      // drops it. Reporting that as inert is what lets the comparison
+      // call it composition-only rather than leaving no claim at all.
+      if (unfilledRegisters(value).length > 0) continue
       unresolved.push(`${prop}: ${rawValue}`)
       continue
     }

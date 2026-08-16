@@ -2390,6 +2390,11 @@ fn negated(prop: StyleProperty) -> Option<StyleProperty> {
         StyleProperty::MarginBlockStart(d) => StyleProperty::MarginBlockStart(flip(d)?),
         StyleProperty::MarginBlockEnd(d) => StyleProperty::MarginBlockEnd(flip(d)?),
         StyleProperty::TextIndent(d) => StyleProperty::TextIndent(flip(d)?),
+        // Only the em form negates: an absolute tracking is already folded
+        // against a font size, and Tailwind has no negative form of it.
+        StyleProperty::LetterSpacing(LetterSpacing::Em(Em(v))) => {
+            StyleProperty::LetterSpacing(LetterSpacing::Em(Em(signed(v, true))))
+        }
         StyleProperty::TextUnderlineOffset(d) => StyleProperty::TextUnderlineOffset(flip(d)?),
         StyleProperty::InsetTop(d) => StyleProperty::InsetTop(flip(d)?),
         StyleProperty::InsetRight(d) => StyleProperty::InsetRight(flip(d)?),

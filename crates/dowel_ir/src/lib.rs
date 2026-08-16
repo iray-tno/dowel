@@ -388,7 +388,7 @@ pub enum StyleProperty {
     ///
     /// React Native expresses the whole thing as `numberOfLines` on Text,
     /// which is why this is a property rather than a pile of keywords.
-    LineClamp(Option<u32>),
+    LineClamp(Option<Clamp>),
     /// `grow`/`grow-0`/`shrink`/`shrink-0` and `aspect-*`. All three are
     /// real React Native styles, which is why they are properties rather
     /// than `Keyword`s -- the refusal audit caught them being refused as
@@ -586,9 +586,9 @@ pub enum StyleProperty {
     /// property, which is what makes `scale-50 scale-x-75` resolve the way
     /// Tailwind does: `dedupe_last_wins` keys on the property, so the axes
     /// have to be separate properties to override one another.
-    ScaleX(f64),
-    ScaleY(f64),
-    ScaleZ(f64),
+    ScaleX(Scale),
+    ScaleY(Scale),
+    ScaleZ(Scale),
     /// Whether the `scale` declaration writes its third component.
     ///
     /// Not the same question as "is the z register set": `scale-50` sets all
@@ -612,7 +612,7 @@ pub enum StyleProperty {
     /// `translate:` declarations and the x was lost to last-wins.
     TranslateX(Dimension),
     TranslateY(Dimension),
-    TranslateZ(Length),
+    TranslateZ(Dimension),
     /// Kept as the already-composed CSS value rather than a structured
     /// list. React Native accepts a string for `boxShadow`/`filter` too, so
     /// both backends emit the same text and there's nothing for a
@@ -716,13 +716,26 @@ pub enum StyleProperty {
     /// must combine into one gradient.
     MaskStopColor(MaskSlot, MaskStop, Color),
     MaskStopPosition(MaskSlot, MaskStop, Dimension),
-    /// `mask-linear-<n>` / `mask-conic-<n>`, in degrees.
-    MaskAngle(MaskSlot, f64),
+    /// The argument a mask gradient slot carries on its own: an angle for
+    /// `mask-linear-*` and `mask-conic-*`, a size for `mask-radial-[…]`.
+    ///
+    /// One variant for all three because they occupy the same position in
+    /// Tailwind's output -- the fallback inside
+    /// `var(--tw-mask-<slot>-stops, …)`, which is what the gradient becomes
+    /// when no stop utility was written. `Angle` carries it because that is
+    /// what it is for two of the three, and because the arbitrary case is
+    /// unresolvable text in any of them.
+    ///
+    /// Only the *arbitrary* radial size lands here. `mask-radial-closest-side`
+    /// is `MaskRadialSize` instead and paints nothing alone, which is
+    /// Tailwind's own split: it emits no rule at all for the named form and
+    /// a whole gradient for the bracketed one.
+    MaskSlotArgument(MaskSlot, Angle),
     /// `mask-circle`/`mask-ellipse`, `mask-radial-closest-side`, and
     /// `mask-radial-at-*`. Each paints nothing alone -- they only shape a
     /// radial gradient some other utility supplies.
     MaskRadialShape(&'static str),
-    MaskRadialSize(&'static str),
+    MaskRadialSize(String),
     MaskRadialPosition(&'static str),
     MaskComposite(&'static str),
     ScrollbarWidth(&'static str),
@@ -745,8 +758,8 @@ pub enum StyleProperty {
     TextIndent(Dimension),
     /// `border-spacing` is one property taking a horizontal and a vertical
     /// value, so `border-spacing-x-*` and `-y-*` compose into it.
-    BorderSpacingX(Length),
-    BorderSpacingY(Length),
+    BorderSpacingX(Dimension),
+    BorderSpacingY(Dimension),
     /// Block-axis logical margins and paddings. Emitted as the logical CSS
     /// longhands on Web to match Tailwind exactly; the Native backend folds
     /// them to top/bottom, which is the horizontal-writing-mode assumption
@@ -796,12 +809,12 @@ pub enum StyleProperty {
     /// child-scoped selector; Native has no selector engine and instead
     /// hands the style to `DowelSpaced`, which distributes it over the
     /// children at render time. Both target every child but the last.
-    DivideX(Length),
-    DivideY(Length),
+    DivideX(Dimension),
+    DivideY(Dimension),
     DivideColor(Color),
     DivideStyle(BorderStyle),
-    SpaceX(Length),
-    SpaceY(Length),
+    SpaceX(Dimension),
+    SpaceY(Dimension),
     TextAlign(TextAlign),
     TextTransform(TextTransform),
     TextColor(Color),
@@ -1020,6 +1033,31 @@ impl StyleProperty {
                  has scaleX and scaleY and no scaleZ"
                     .to_string(),
             ),
+            // The arbitrary transform cases. React Native's transform
+            // array takes numbers -- a rotation is a number of degrees and
+            // a scale is a ratio -- so a value that stayed CSS text has
+            // nothing to become. Named here rather than left out of the
+            // composed `transform`, which is where it would otherwise
+            // vanish without a word.
+            StyleProperty::Rotate(Angle::Css(value))
+            | StyleProperty::RotateX(Angle::Css(value))
+            | StyleProperty::RotateY(Angle::Css(value))
+            | StyleProperty::RotateZ(Angle::Css(value))
+            | StyleProperty::SkewX(Angle::Css(value))
+            | StyleProperty::SkewY(Angle::Css(value)) => Some(format!(
+                "`[{value}]`: React Native's transform takes a number of degrees, and this is CSS \
+                 text that only a browser can resolve to one"
+            )),
+            StyleProperty::ScaleX(Scale::Css(value)) | StyleProperty::ScaleY(Scale::Css(value)) => {
+                Some(format!(
+                    "`[{value}]`: React Native's scale is a ratio, and this is CSS text that only \
+                     a browser can resolve to one"
+                ))
+            }
+            StyleProperty::LineClamp(Some(Clamp::Css(value))) => Some(format!(
+                "`line-clamp-[{value}]`: React Native's numberOfLines is a line count, and this \
+                 isn't one"
+            )),
             StyleProperty::ZIndex(None) => Some(
                 "`z-auto`: React Native's zIndex is a number and has no auto".to_string(),
             ),
@@ -1183,7 +1221,7 @@ impl StyleProperty {
             | StyleProperty::MaskImageNone
             | StyleProperty::MaskStopColor(..)
             | StyleProperty::MaskStopPosition(..)
-            | StyleProperty::MaskAngle(..)
+            | StyleProperty::MaskSlotArgument(..)
             | StyleProperty::MaskRadialShape(_)
             | StyleProperty::MaskRadialSize(_)
             | StyleProperty::MaskRadialPosition(_)
@@ -1569,9 +1607,98 @@ pub enum TextAlign {
     Css(&'static str),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Angle {
-    pub degrees: f64,
+/// An angle, in degrees where Dowel can resolve one.
+///
+/// `Css` is the arbitrary case, and it is not an edge case: Tailwind's
+/// arbitrary values are unvalidated, so `rotate-x-[1.5em]` compiles to
+/// `rotateX(1.5em)` there rather than being refused. The text has to live
+/// inside this type rather than escaping to a raw declaration, because
+/// transform functions *compose* -- `rotate-x-[…] skew-y-3` is one
+/// `transform`, and a raw declaration beside a typed one would be two of
+/// them, with last-wins silently dropping whichever came first.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Angle {
+    Deg(f64),
+    Css(String),
+}
+
+impl Angle {
+    /// The angle as CSS, which is where the two cases stop differing.
+    pub fn css(&self) -> String {
+        match self {
+            Angle::Deg(degrees) => format!("{degrees}deg"),
+            Angle::Css(text) => text.clone(),
+        }
+    }
+
+    /// The angle in degrees, for the backends that need a number rather
+    /// than a declaration. `None` is React Native's answer: it takes a
+    /// numeric rotation, and there is nothing to hand it here.
+    pub fn degrees(&self) -> Option<f64> {
+        match self {
+            Angle::Deg(degrees) => Some(*degrees),
+            Angle::Css(_) => None,
+        }
+    }
+}
+
+/// A per-axis scale, as the percentage Tailwind writes (`scale-110` -> 110).
+///
+/// `Css` exists for the same reason `Angle::Css` does, with one extra
+/// wrinkle: an arbitrary scale is a *ratio*, not a percentage.
+/// `scale-x-[1.5]` is `scale: 1.5`, and putting that 1.5 in the numeric
+/// case would print `1.5%` -- a scale of one sixty-sixth, which looks
+/// deliberate and renders as nothing.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Scale {
+    Percent(f64),
+    Css(String),
+}
+
+impl Scale {
+    pub fn css(&self) -> String {
+        match self {
+            Scale::Percent(value) => format!("{value}%"),
+            Scale::Css(text) => text.clone(),
+        }
+    }
+
+    /// The scale as the ratio React Native's `transform` wants.
+    pub fn ratio(&self) -> Option<f64> {
+        match self {
+            Scale::Percent(value) => Some(value / 100.0),
+            Scale::Css(_) => None,
+        }
+    }
+}
+
+/// A line clamp: a count, or text Dowel couldn't read as one.
+///
+/// `line-clamp-[1.5]` is neither a refusal nor a clamp of one. Tailwind
+/// writes `-webkit-line-clamp: 1.5` and lets the browser discard it, and
+/// `as u32` used to turn it into a clamp of a single line -- a number that
+/// looks deliberate and isn't the one written.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Clamp {
+    Lines(u32),
+    Css(String),
+}
+
+impl Clamp {
+    pub fn css(&self) -> String {
+        match self {
+            Clamp::Lines(lines) => lines.to_string(),
+            Clamp::Css(text) => text.clone(),
+        }
+    }
+
+    /// The count React Native's `numberOfLines` takes.
+    pub fn lines(&self) -> Option<u32> {
+        match self {
+            Clamp::Lines(lines) => Some(*lines),
+            Clamp::Css(_) => None,
+        }
+    }
 }
 
 /// A length in `em` -- relative to the element's own font size, so it can't
@@ -1981,7 +2108,7 @@ impl StyleProperty {
             StyleProperty::BorderLogicalWidth(edge, _) | StyleProperty::BorderLogicalStyle(edge, _) => {
                 *edge as u32
             }
-            StyleProperty::MaskAngle(slot, _) => *slot as u32,
+            StyleProperty::MaskSlotArgument(slot, _) => *slot as u32,
             StyleProperty::Filter(function, _) | StyleProperty::BackdropFilter(function, _) => {
                 *function as u32
             }

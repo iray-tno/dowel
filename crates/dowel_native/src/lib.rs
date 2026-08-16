@@ -1373,7 +1373,7 @@ fn truncation_props(node: &Node) -> Option<Vec<(&'static str, String)>> {
     let has = |want: &StyleProperty| node.style.iter().any(|d| d.property == *want);
     // `line-clamp-<n>` is the same mechanism with a line count: React
     // Native has one prop for both, so the two utilities meet here.
-    if let Some(lines) = node.style.iter().find_map(|d| match d.property {
+    if let Some(lines) = node.style.iter().find_map(|d| match &d.property {
         StyleProperty::LineClamp(lines) => Some(lines),
         _ => None,
     }) {
@@ -1381,7 +1381,12 @@ fn truncation_props(node: &Node) -> Option<Vec<(&'static str, String)>> {
             // `line-clamp-none` means no clamping, which on this platform
             // is the absence of the prop rather than a value for it.
             None => Some(Vec::new()),
-            Some(n) => Some(vec![("numberOfLines", n.to_string())]),
+            // A clamp Dowel couldn't read as a count is refused by name in
+            // `StyleProperty::native_gap`, so there is nothing to emit for
+            // it here.
+            Some(n) => Some(n.lines().map_or_else(Vec::new, |lines| {
+                vec![("numberOfLines", lines.to_string())]
+            })),
         };
     }
     if !has(&StyleProperty::WhiteSpace(WhiteSpace::NoWrap)) {

@@ -5,11 +5,11 @@
 //! callers decide what to do with an unmapped utility (Phase 0: drop it).
 
 use dowel_ir::{
-    Align, AlignSelf, Angle, Animation, BorderStyle, Breakpoint, Color, Condition, Dimension,
+    Align, AlignSelf, Angle, Animation, BorderStyle, Breakpoint, Clamp, Color, Condition, Dimension,
     ColumnCount, DecorationStyle, Display, Edge, Em, GridLine, GridSpan, GridTracks, LetterSpacing,
     MaskSlot, MaskStop,
     FilterFunction, FlexDirection, FlexShorthand, FontWeight, Justify, Length, LineHeight, Overflow,
-    Position, Radius, StyleProperty, TextAlign, TextOverflow, TextTransform, WhiteSpace,
+    Position, Radius, Scale, StyleProperty, TextAlign, TextOverflow, TextTransform, WhiteSpace,
 };
 
 /// The property lists Tailwind's `transition`/`transition-colors` expand
@@ -204,12 +204,12 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
     }
     if let Some(rest) = token.strip_prefix("space-x-") {
         if let Some(v) = parse_spacing_suffix(rest) {
-            return Some(StyleProperty::SpaceX(v));
+            return Some(StyleProperty::SpaceX(Dimension::Length(v)));
         }
     }
     if let Some(rest) = token.strip_prefix("space-y-") {
         if let Some(v) = parse_spacing_suffix(rest) {
-            return Some(StyleProperty::SpaceY(v));
+            return Some(StyleProperty::SpaceY(Dimension::Length(v)));
         }
     }
     if let Some(rest) = token.strip_prefix("top-") {
@@ -437,14 +437,21 @@ fn expand_dimension_family(token: &str) -> Option<Vec<StyleProperty>> {
         return parse_spacing_suffix(rest).map(|l| vec![StyleProperty::PaddingBlockEnd(l)]);
     }
     if let Some(rest) = token.strip_prefix("border-spacing-x-") {
-        return parse_spacing_suffix(rest).map(|l| vec![StyleProperty::BorderSpacingX(l)]);
+        return parse_spacing_suffix(rest)
+            .map(|l| vec![StyleProperty::BorderSpacingX(Dimension::Length(l))]);
     }
     if let Some(rest) = token.strip_prefix("border-spacing-y-") {
-        return parse_spacing_suffix(rest).map(|l| vec![StyleProperty::BorderSpacingY(l)]);
+        return parse_spacing_suffix(rest)
+            .map(|l| vec![StyleProperty::BorderSpacingY(Dimension::Length(l))]);
     }
     if let Some(rest) = token.strip_prefix("border-spacing-") {
         return parse_spacing_suffix(rest)
-            .map(|l| vec![StyleProperty::BorderSpacingX(l), StyleProperty::BorderSpacingY(l)]);
+            .map(|l| {
+                vec![
+                    StyleProperty::BorderSpacingX(Dimension::Length(l)),
+                    StyleProperty::BorderSpacingY(Dimension::Length(l)),
+                ]
+            });
     }
     // `*-screen` is a viewport size, which the block/inline families spell
     // on their own axis: `block-screen` is a height, `inline-screen` a
@@ -468,7 +475,7 @@ fn expand_dimension_family(token: &str) -> Option<Vec<StyleProperty>> {
     }
     // Bare `translate-*` sets both axes; `translate-z-*` the third.
     if let Some(rest) = token.strip_prefix("translate-z-") {
-        return parse_spacing_suffix(rest).map(|l| vec![StyleProperty::TranslateZ(l)]);
+        return parse_spacing_suffix(rest).map(|l| vec![StyleProperty::TranslateZ(Dimension::Length(l))]);
     }
     if let Some(rest) = token.strip_prefix("translate-") {
         return parse_dimension_suffix(rest)
@@ -491,8 +498,8 @@ fn parse_axis_transform(token: &str) -> Option<Vec<StyleProperty>> {
     if token == "scale-3d" {
         return Some(vec![StyleProperty::Scale3d]);
     }
-    let percent = |rest: &str| rest.parse::<f64>().ok();
-    let degrees = |rest: &str| rest.parse::<f64>().ok().map(|d| Angle { degrees: d });
+    let percent = |rest: &str| rest.parse::<f64>().ok().map(Scale::Percent);
+    let degrees = |rest: &str| rest.parse::<f64>().ok().map(Angle::Deg);
 
     if let Some(rest) = token.strip_prefix("scale-x-") {
         return percent(rest).map(|p| vec![StyleProperty::ScaleX(p)]);
@@ -507,7 +514,7 @@ fn parse_axis_transform(token: &str) -> Option<Vec<StyleProperty>> {
     }
     if let Some(rest) = token.strip_prefix("scale-") {
         return percent(rest).map(|p| {
-            vec![StyleProperty::ScaleX(p), StyleProperty::ScaleY(p), StyleProperty::ScaleZ(p)]
+            vec![StyleProperty::ScaleX(p.clone()), StyleProperty::ScaleY(p.clone()), StyleProperty::ScaleZ(p)]
         });
     }
     if let Some(rest) = token.strip_prefix("rotate-x-") {
@@ -527,7 +534,7 @@ fn parse_axis_transform(token: &str) -> Option<Vec<StyleProperty>> {
     }
     // Bare `skew-*` is both axes, the same way bare `scale-*` is all three.
     if let Some(rest) = token.strip_prefix("skew-") {
-        return degrees(rest).map(|a| vec![StyleProperty::SkewX(a), StyleProperty::SkewY(a)]);
+        return degrees(rest).map(|a| vec![StyleProperty::SkewX(a.clone()), StyleProperty::SkewY(a)]);
     }
     None
 }
@@ -582,7 +589,7 @@ fn expand_mask_gradient(token: &str) -> Option<Vec<StyleProperty>> {
             size,
             "closest-side" | "closest-corner" | "farthest-side" | "farthest-corner"
         ) {
-            return Some(vec![StyleProperty::MaskRadialSize(leak_size(size))]);
+            return Some(vec![StyleProperty::MaskRadialSize(leak_size(size).to_string())]);
         }
     }
 
@@ -592,7 +599,7 @@ fn expand_mask_gradient(token: &str) -> Option<Vec<StyleProperty>> {
     // `mask-linear-45` / `mask-conic-45`: the whole tail is an angle.
     if let Ok(degrees) = tail.parse::<f64>() {
         if matches!(axis, "linear" | "conic") {
-            return Some(vec![StyleProperty::MaskAngle(slots[0], signed(degrees, negative))]);
+            return Some(vec![StyleProperty::MaskSlotArgument(slots[0], Angle::Deg(signed(degrees, negative)))]);
         }
         return None;
     }
@@ -626,7 +633,7 @@ fn expand_mask_gradient(token: &str) -> Option<Vec<StyleProperty>> {
 }
 
 /// Tailwind's axis abbreviations. `x`/`y` name two slots each.
-fn mask_slots(axis: &str) -> Option<Vec<MaskSlot>> {
+pub(crate) fn mask_slots(axis: &str) -> Option<Vec<MaskSlot>> {
     Some(match axis {
         "t" => vec![MaskSlot::Top],
         "r" => vec![MaskSlot::Right],
@@ -867,12 +874,12 @@ fn expand_divide(token: &str) -> Option<Vec<StyleProperty>> {
 
     if let Some(width) = suffix.strip_prefix("x") {
         if let Some(length) = divide_width(width) {
-            return Some(vec![StyleProperty::DivideX(length)]);
+            return Some(vec![StyleProperty::DivideX(Dimension::Length(length))]);
         }
     }
     if let Some(width) = suffix.strip_prefix("y") {
         if let Some(length) = divide_width(width) {
-            return Some(vec![StyleProperty::DivideY(length)]);
+            return Some(vec![StyleProperty::DivideY(Dimension::Length(length))]);
         }
     }
     if let Some(style) = border_style_keyword(suffix) {
@@ -1359,7 +1366,7 @@ fn parse_transform(token: &str) -> Option<StyleProperty> {
     };
     if let Some(rest) = token.strip_prefix("rotate-") {
         let degrees: f64 = rest.parse().ok()?;
-        return Some(StyleProperty::Rotate(Angle { degrees: signed(degrees, negative) }));
+        return Some(StyleProperty::Rotate(Angle::Deg(signed(degrees, negative))));
     }
     // `translate-x-1/2` is the centring idiom, so these take the wider
     // `Dimension` rather than a pixel length.
@@ -1599,7 +1606,7 @@ fn parse_extended_value(token: &str) -> Option<StyleProperty> {
         // Writes the three-value form with every axis at its default, which
         // is how Tailwind switches the z component on.
         "translate-3d" => {
-            return Some(StyleProperty::TranslateZ(Length::Px(0.0)));
+            return Some(StyleProperty::TranslateZ(Dimension::Length(Length::Px(0.0))));
         }
         "decoration-auto" => return Some(StyleProperty::Keyword("text-decoration-thickness", "auto")),
         "decoration-from-font" => {
@@ -2403,6 +2410,27 @@ fn expand_negatable(token: &str) -> Vec<StyleProperty> {
 /// sign flip. Without an arm for it the whole utility was dropped --
 /// negation returned `None`, and the caller reads that as "this property
 /// has no negative form".
+/// Flips an angle's sign.
+///
+/// `None` for an angle carried as text: `-rotate-x-[1.5em]` would have to
+/// negate a string, and prefixing a `-` would produce `--1.5em` for an
+/// author who already wrote one. Tailwind refuses the same combination.
+fn negated_angle(angle: Angle) -> Option<Angle> {
+    match angle {
+        Angle::Deg(degrees) => Some(Angle::Deg(signed(degrees, true))),
+        Angle::Css(_) => None,
+    }
+}
+
+/// Flips a scale's sign. `None` for the text case, for the same reason
+/// `negated_angle` gives.
+fn negated_scale(scale: Scale) -> Option<Scale> {
+    match scale {
+        Scale::Percent(value) => Some(Scale::Percent(signed(value, true))),
+        Scale::Css(_) => None,
+    }
+}
+
 fn negated_length(length: Length) -> Option<Length> {
     Some(match length {
         Length::Px(v) => Length::Px(signed(v, true)),
@@ -2450,7 +2478,7 @@ fn negated(prop: StyleProperty) -> Option<StyleProperty> {
         StyleProperty::InsetBlockEnd(d) => StyleProperty::InsetBlockEnd(flip(d)?),
         StyleProperty::TranslateX(d) => StyleProperty::TranslateX(flip(d)?),
         StyleProperty::TranslateY(d) => StyleProperty::TranslateY(flip(d)?),
-        StyleProperty::TranslateZ(l) => StyleProperty::TranslateZ(negated_length(l)?),
+        StyleProperty::TranslateZ(d) => StyleProperty::TranslateZ(flip(d)?),
         StyleProperty::OutlineOffset(l) => StyleProperty::OutlineOffset(negated_length(l)?),
         StyleProperty::ZIndex(Some(z)) => StyleProperty::ZIndex(Some(-z)),
         // A marker rather than a value: negating `scale-z-50` must keep the
@@ -2472,21 +2500,19 @@ fn negated(prop: StyleProperty) -> Option<StyleProperty> {
         StyleProperty::GridRowEnd(GridLine::Line(n)) => {
             StyleProperty::GridRowEnd(GridLine::Line(-n))
         }
-        StyleProperty::SpaceX(l) => StyleProperty::SpaceX(negated_length(l)?),
-        StyleProperty::SpaceY(l) => StyleProperty::SpaceY(negated_length(l)?),
+        StyleProperty::SpaceX(d) => StyleProperty::SpaceX(flip(d)?),
+        StyleProperty::SpaceY(d) => StyleProperty::SpaceY(flip(d)?),
         StyleProperty::ScrollMargin(edge, l) => StyleProperty::ScrollMargin(edge, negated_length(l)?),
-        StyleProperty::Rotate(a) => StyleProperty::Rotate(Angle { degrees: signed(a.degrees, true) }),
-        StyleProperty::ScaleX(pct) => StyleProperty::ScaleX(signed(pct, true)),
-        StyleProperty::ScaleY(pct) => StyleProperty::ScaleY(signed(pct, true)),
-        StyleProperty::ScaleZ(pct) => StyleProperty::ScaleZ(signed(pct, true)),
-        StyleProperty::RotateX(a) => StyleProperty::RotateX(Angle { degrees: signed(a.degrees, true) }),
-        StyleProperty::RotateY(a) => StyleProperty::RotateY(Angle { degrees: signed(a.degrees, true) }),
-        StyleProperty::RotateZ(a) => StyleProperty::RotateZ(Angle { degrees: signed(a.degrees, true) }),
-        StyleProperty::SkewX(a) => StyleProperty::SkewX(Angle { degrees: signed(a.degrees, true) }),
-        StyleProperty::SkewY(a) => StyleProperty::SkewY(Angle { degrees: signed(a.degrees, true) }),
-        StyleProperty::MaskAngle(slot, degrees) => {
-            StyleProperty::MaskAngle(slot, signed(degrees, true))
-        }
+        StyleProperty::Rotate(a) => StyleProperty::Rotate(negated_angle(a)?),
+        StyleProperty::ScaleX(s) => StyleProperty::ScaleX(negated_scale(s)?),
+        StyleProperty::ScaleY(s) => StyleProperty::ScaleY(negated_scale(s)?),
+        StyleProperty::ScaleZ(s) => StyleProperty::ScaleZ(negated_scale(s)?),
+        StyleProperty::RotateX(a) => StyleProperty::RotateX(negated_angle(a)?),
+        StyleProperty::RotateY(a) => StyleProperty::RotateY(negated_angle(a)?),
+        StyleProperty::RotateZ(a) => StyleProperty::RotateZ(negated_angle(a)?),
+        StyleProperty::SkewX(a) => StyleProperty::SkewX(negated_angle(a)?),
+        StyleProperty::SkewY(a) => StyleProperty::SkewY(negated_angle(a)?),
+        StyleProperty::MaskSlotArgument(slot, a) => StyleProperty::MaskSlotArgument(slot, negated_angle(a)?),
         _ => return None,
     })
 }
@@ -2581,7 +2607,7 @@ fn expand_base_utility(token: &str) -> Vec<StyleProperty> {
             return vec![StyleProperty::LineClamp(None)];
         }
         if let Ok(lines) = rest.parse::<u32>() {
-            return vec![StyleProperty::LineClamp(Some(lines))];
+            return vec![StyleProperty::LineClamp(Some(Clamp::Lines(lines)))];
         }
     }
     if let Some(prop) = parse_extended_value(token) {
@@ -2980,7 +3006,7 @@ mod tests {
         );
         assert_eq!(
             expand_utility("rotate-45"),
-            (Condition::Always, vec![StyleProperty::Rotate(Angle { degrees: 45.0 })])
+            (Condition::Always, vec![StyleProperty::Rotate(Angle::Deg(45.0))])
         );
         // Tailwind writes a percentage and the IR keeps it as authored.
         // Bare `scale-*` sets all three axes, so `scale-95 scale-x-50` can
@@ -2990,9 +3016,9 @@ mod tests {
             (
                 Condition::Always,
                 vec![
-                    StyleProperty::ScaleX(95.0),
-                    StyleProperty::ScaleY(95.0),
-                    StyleProperty::ScaleZ(95.0),
+                    StyleProperty::ScaleX(Scale::Percent(95.0)),
+                    StyleProperty::ScaleY(Scale::Percent(95.0)),
+                    StyleProperty::ScaleZ(Scale::Percent(95.0)),
                 ]
             )
         );
@@ -3042,7 +3068,7 @@ mod tests {
 
     #[test]
     fn line_clamp_is_one_property_because_react_native_has_one_prop() {
-        assert_eq!(expand_utility("line-clamp-3").1, vec![StyleProperty::LineClamp(Some(3))]);
+        assert_eq!(expand_utility("line-clamp-3").1, vec![StyleProperty::LineClamp(Some(Clamp::Lines(3)))]);
         assert_eq!(expand_utility("line-clamp-none").1, vec![StyleProperty::LineClamp(None)]);
     }
 
@@ -3289,33 +3315,33 @@ mod tests {
         // replace the whole thing.
         assert_eq!(
             expand_utility("scale-x-50").1,
-            vec![StyleProperty::ScaleX(50.0)]
+            vec![StyleProperty::ScaleX(Scale::Percent(50.0))]
         );
         // Writing the z axis also switches the declaration to its
         // three-value form, which is a separate fact from the axis having
         // a value.
         assert_eq!(
             expand_utility("scale-z-50").1,
-            vec![StyleProperty::ScaleZ(50.0), StyleProperty::Scale3d]
+            vec![StyleProperty::ScaleZ(Scale::Percent(50.0)), StyleProperty::Scale3d]
         );
         assert_eq!(expand_utility("scale-3d").1, vec![StyleProperty::Scale3d]);
 
         assert_eq!(
             expand_utility("rotate-x-45").1,
-            vec![StyleProperty::RotateX(Angle { degrees: 45.0 })]
+            vec![StyleProperty::RotateX(Angle::Deg(45.0))]
         );
         // Bare `skew-*` is both axes, the same way bare `scale-*` is all
         // three -- and must not be swallowed by the `skew-x-` branch.
         assert_eq!(
             expand_utility("skew-6").1,
             vec![
-                StyleProperty::SkewX(Angle { degrees: 6.0 }),
-                StyleProperty::SkewY(Angle { degrees: 6.0 })
+                StyleProperty::SkewX(Angle::Deg(6.0)),
+                StyleProperty::SkewY(Angle::Deg(6.0))
             ]
         );
         assert_eq!(
             expand_utility("-rotate-y-12").1,
-            vec![StyleProperty::RotateY(Angle { degrees: -12.0 })]
+            vec![StyleProperty::RotateY(Angle::Deg(-12.0))]
         );
     }
 
@@ -3323,7 +3349,7 @@ mod tests {
     fn negated_transforms_are_recognized() {
         assert_eq!(
             expand_utility("-rotate-45"),
-            (Condition::Always, vec![StyleProperty::Rotate(Angle { degrees: -45.0 })])
+            (Condition::Always, vec![StyleProperty::Rotate(Angle::Deg(-45.0))])
         );
         assert_eq!(
             expand_utility("-translate-y-2"),
@@ -3331,7 +3357,7 @@ mod tests {
         );
         assert_eq!(
             expand_utility("-translate-z-2"),
-            (Condition::Always, vec![StyleProperty::TranslateZ(Length::Spacing(-2.0))])
+            (Condition::Always, vec![StyleProperty::TranslateZ(Dimension::Length(Length::Spacing(-2.0)))])
         );
         assert_eq!(expand_utility("-z-10"), (Condition::Always, vec![StyleProperty::ZIndex(Some(-10))]));
         assert_eq!(
@@ -3483,7 +3509,7 @@ mod tests {
         );
         assert_eq!(
             expand_utility("-mask-linear-45").1,
-            vec![StyleProperty::MaskAngle(MaskSlot::Linear, -45.0)]
+            vec![StyleProperty::MaskSlotArgument(MaskSlot::Linear, Angle::Deg(-45.0))]
         );
         assert_eq!(
             expand_utility("mask-subtract").1,
@@ -3503,7 +3529,7 @@ mod tests {
             expand_utility("-top-4").1,
             vec![StyleProperty::InsetTop(Dimension::Length(Length::Spacing(-4.0)))]
         );
-        assert_eq!(expand_utility("-rotate-45").1, vec![StyleProperty::Rotate(Angle { degrees: -45.0 })]);
+        assert_eq!(expand_utility("-rotate-45").1, vec![StyleProperty::Rotate(Angle::Deg(-45.0))]);
         // ...and refuses where CSS has no negative, rather than inventing
         // a negative padding.
         assert!(expand_utility("-p-4").1.is_empty());

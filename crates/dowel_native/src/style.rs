@@ -84,8 +84,14 @@ pub fn transform_entry(props: &[StyleProperty], theme: &Theme) -> Option<(&'stat
         }
     }
     for prop in props {
+        // An angle that stayed CSS text has no degrees to give. It is
+        // refused by name in `StyleProperty::native_gap` rather than
+        // dropped here, so leaving it out of the array is the second half
+        // of a reported gap, not a silent one.
         if let StyleProperty::Rotate(a) = prop {
-            parts.push(format!("{{ rotate: '{}deg' }}", a.degrees));
+            if let Some(degrees) = a.degrees() {
+                parts.push(format!("{{ rotate: '{degrees}deg' }}"));
+            }
         }
     }
     // React Native has the 3D rotations and the skews as transform entries
@@ -108,13 +114,13 @@ pub fn transform_entry(props: &[StyleProperty], theme: &Theme) -> Option<(&'stat
     let x = axis(scale_x);
     let y = axis(scale_y);
     match (x, y) {
-        (Some(x), Some(y)) if x == y => parts.push(format!("{{ scale: {} }}", x / 100.0)),
+        (Some(x), Some(y)) if x == y => parts.push(format!("{{ scale: {x} }}")),
         _ => {
             if let Some(x) = x {
-                parts.push(format!("{{ scaleX: {} }}", x / 100.0));
+                parts.push(format!("{{ scaleX: {x} }}"));
             }
             if let Some(y) = y {
-                parts.push(format!("{{ scaleY: {} }}", y / 100.0));
+                parts.push(format!("{{ scaleY: {y} }}"));
             }
         }
     }
@@ -126,43 +132,43 @@ pub fn transform_entry(props: &[StyleProperty], theme: &Theme) -> Option<(&'stat
 
 fn rotate_x(prop: &StyleProperty) -> Option<f64> {
     match prop {
-        StyleProperty::RotateX(a) => Some(a.degrees),
+        StyleProperty::RotateX(a) => a.degrees(),
         _ => None,
     }
 }
 fn rotate_y(prop: &StyleProperty) -> Option<f64> {
     match prop {
-        StyleProperty::RotateY(a) => Some(a.degrees),
+        StyleProperty::RotateY(a) => a.degrees(),
         _ => None,
     }
 }
 fn rotate_z(prop: &StyleProperty) -> Option<f64> {
     match prop {
-        StyleProperty::RotateZ(a) => Some(a.degrees),
+        StyleProperty::RotateZ(a) => a.degrees(),
         _ => None,
     }
 }
 fn skew_x(prop: &StyleProperty) -> Option<f64> {
     match prop {
-        StyleProperty::SkewX(a) => Some(a.degrees),
+        StyleProperty::SkewX(a) => a.degrees(),
         _ => None,
     }
 }
 fn skew_y(prop: &StyleProperty) -> Option<f64> {
     match prop {
-        StyleProperty::SkewY(a) => Some(a.degrees),
+        StyleProperty::SkewY(a) => a.degrees(),
         _ => None,
     }
 }
 fn scale_x(prop: &StyleProperty) -> Option<f64> {
     match prop {
-        StyleProperty::ScaleX(v) => Some(*v),
+        StyleProperty::ScaleX(v) => v.ratio(),
         _ => None,
     }
 }
 fn scale_y(prop: &StyleProperty) -> Option<f64> {
     match prop {
-        StyleProperty::ScaleY(v) => Some(*v),
+        StyleProperty::ScaleY(v) => v.ratio(),
         _ => None,
     }
 }
@@ -353,10 +359,10 @@ pub fn child_property_and_value(prop: &StyleProperty, theme: &Theme) -> Vec<(&'s
         // child's.
         StyleProperty::SpaceX(l) => vec![
             ("marginInlineStart", "0".to_string()),
-            ("marginInlineEnd", number(*l, theme)),
+            ("marginInlineEnd", dimension_value(l, theme)),
         ],
         StyleProperty::SpaceY(l) => {
-            vec![("marginTop", "0".to_string()), ("marginBottom", number(*l, theme))]
+            vec![("marginTop", "0".to_string()), ("marginBottom", dimension_value(l, theme))]
         }
         StyleProperty::DivideX(l) => vec![
             ("borderStyle", "'solid'".to_string()),
@@ -364,12 +370,12 @@ pub fn child_property_and_value(prop: &StyleProperty, theme: &Theme) -> Vec<(&'s
             // `borderEndWidth`; it has no `borderInline*Width`, unlike the
             // margins just above, which do take the CSS logical names.
             ("borderStartWidth", "0".to_string()),
-            ("borderEndWidth", number(*l, theme)),
+            ("borderEndWidth", dimension_value(l, theme)),
         ],
         StyleProperty::DivideY(l) => vec![
             ("borderStyle", "'solid'".to_string()),
             ("borderTopWidth", "0".to_string()),
-            ("borderBottomWidth", number(*l, theme)),
+            ("borderBottomWidth", dimension_value(l, theme)),
         ],
         StyleProperty::DivideColor(c) => vec![("borderColor", resolve_color(c))],
         StyleProperty::DivideStyle(s) => vec![("borderStyle", border_style_literal(s))],
@@ -778,7 +784,7 @@ pub fn property_and_value<'a>(prop: &'a StyleProperty, theme: &Theme) -> Vec<(&'
         | StyleProperty::MaskImageNone
         | StyleProperty::MaskStopColor(..)
         | StyleProperty::MaskStopPosition(..)
-        | StyleProperty::MaskAngle(..)
+        | StyleProperty::MaskSlotArgument(..)
         | StyleProperty::MaskRadialShape(_)
         | StyleProperty::MaskRadialSize(_)
         | StyleProperty::MaskRadialPosition(_)

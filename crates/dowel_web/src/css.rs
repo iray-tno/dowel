@@ -15,7 +15,8 @@
 //! correct-but-unresolved, not silently wrong.
 
 use dowel_ir::{
-    Align, AlignSelf, Angle, BorderStyle, Breakpoint, Color, Condition, ConditionExpr, FilterFunction,
+    Align, AlignSelf, Angle, BorderStyle, Breakpoint, Clamp, Color, Condition, ConditionExpr,
+    FilterFunction, Scale,
     DecorationStyle,
     ColumnCount, Dimension, Display, Edge, GridLine, GridSpan, GridTracks, MaskSlot, MaskStop,
     Em, FlexDirection, LetterSpacing, FlexShorthand, Justify, Length, LineHeight, Overflow, Position, Radius,
@@ -127,13 +128,13 @@ fn border_style_property(edge: Edge) -> &'static str {
 /// Tailwind writes all four because the `-webkit-line-clamp` mechanism
 /// only works inside a `-webkit-box` with a vertical orientation and
 /// hidden overflow -- they are one thing, not four choices.
-fn line_clamp_declarations(lines: Option<u32>) -> Vec<(&'static str, String)> {
+fn line_clamp_declarations(lines: Option<&Clamp>) -> Vec<(&'static str, String)> {
     match lines {
         Some(n) => vec![
             ("overflow", "hidden".to_string()),
             ("display", "-webkit-box".to_string()),
             ("-webkit-box-orient", "vertical".to_string()),
-            ("-webkit-line-clamp", n.to_string()),
+            ("-webkit-line-clamp", n.css()),
         ],
         None => vec![
             ("overflow", "visible".to_string()),
@@ -217,7 +218,7 @@ fn is_mask_gradient(prop: &StyleProperty) -> bool {
         prop,
         StyleProperty::MaskStopColor(..)
             | StyleProperty::MaskStopPosition(..)
-            | StyleProperty::MaskAngle(..)
+            | StyleProperty::MaskSlotArgument(..)
             | StyleProperty::MaskRadialShape(_)
             | StyleProperty::MaskRadialSize(_)
             | StyleProperty::MaskRadialPosition(_)
@@ -231,7 +232,13 @@ struct MaskGradient {
     from_position: Option<String>,
     to_color: Option<String>,
     to_position: Option<String>,
-    angle: Option<f64>,
+    angle: Option<Angle>,
+}
+
+/// A mask gradient's angle, defaulting to the `0deg` Tailwind's
+/// `--tw-mask-*-position` register starts at.
+fn mask_angle(angle: &Option<Angle>) -> String {
+    angle.as_ref().map_or_else(|| "0deg".to_string(), Angle::css)
 }
 
 impl MaskGradient {
@@ -302,7 +309,7 @@ fn mask_declarations(props: &[&StyleProperty], theme: &Theme) -> Vec<(&'static s
                     MaskStop::From => g.from_position = Some(dimension_value(d, theme)),
                     MaskStop::To => g.to_position = Some(dimension_value(d, theme)),
                 },
-                StyleProperty::MaskAngle(s, degrees) if *s == slot => g.angle = Some(*degrees),
+                StyleProperty::MaskSlotArgument(s, degrees) if *s == slot => g.angle = Some(degrees.clone()),
                 _ => {}
             }
         }
@@ -345,14 +352,19 @@ fn mask_declarations(props: &[&StyleProperty], theme: &Theme) -> Vec<(&'static s
     } else {
         layers.push(match (linear.is_set(), linear.has_stops()) {
             (false, _) => MASK_OPAQUE.to_string(),
-            (true, false) => format!("linear-gradient({}deg)", linear.angle.unwrap_or(0.0)),
+            (true, false) => format!("linear-gradient({})", mask_angle(&linear.angle)),
             (true, true) => {
-                format!("linear-gradient({}deg, {})", linear.angle.unwrap_or(0.0), linear.stops())
+                format!("linear-gradient({}, {})", mask_angle(&linear.angle), linear.stops())
             }
         });
     }
 
-    layers.push(if radial.is_set() {
+    layers.push(if radial.is_set() && !radial.has_stops() {
+        // An arbitrary size with nothing to shape: the size *is* the
+        // gradient, the same way an angle alone is for the other two
+        // slots.
+        format!("radial-gradient({})", mask_angle(&radial.angle))
+    } else if radial.is_set() {
         format!(
             "radial-gradient({} {} at {}, {})",
             keyword(
@@ -362,13 +374,16 @@ fn mask_declarations(props: &[&StyleProperty], theme: &Theme) -> Vec<(&'static s
                 },
                 "ellipse"
             ),
-            keyword(
-                |p| match p {
-                    StyleProperty::MaskRadialSize(v) => Some(*v),
+            // Not through `keyword`, which returns `&'static str`: this
+            // one carries an arbitrary size (`mask-radial-[10px]`) and so
+            // has to be owned.
+            props
+                .iter()
+                .find_map(|p| match p {
+                    StyleProperty::MaskRadialSize(v) => Some(v.clone()),
                     _ => None,
-                },
-                "farthest-corner"
-            ),
+                })
+                .unwrap_or_else(|| "farthest-corner".to_string()),
             keyword(
                 |p| match p {
                     StyleProperty::MaskRadialPosition(v) => Some(*v),
@@ -384,9 +399,9 @@ fn mask_declarations(props: &[&StyleProperty], theme: &Theme) -> Vec<(&'static s
 
     layers.push(match (conic.is_set(), conic.has_stops()) {
         (false, _) => MASK_OPAQUE.to_string(),
-        (true, false) => format!("conic-gradient({}deg)", conic.angle.unwrap_or(0.0)),
+        (true, false) => format!("conic-gradient({})", mask_angle(&conic.angle)),
         (true, true) => {
-            format!("conic-gradient(from {}deg, {})", conic.angle.unwrap_or(0.0), conic.stops())
+            format!("conic-gradient(from {}, {})", mask_angle(&conic.angle), conic.stops())
         }
     });
 
@@ -481,22 +496,22 @@ fn scale_value(props: &[&StyleProperty]) -> Option<String> {
     if props.is_empty() {
         return None;
     }
-    let axis = |f: fn(&StyleProperty) -> Option<f64>| {
-        props.iter().find_map(|p| f(p)).map_or_else(|| "1".to_string(), |v| format!("{v}%"))
+    let axis = |f: fn(&StyleProperty) -> Option<&Scale>| {
+        props.iter().find_map(|p| f(p)).map_or_else(|| "1".to_string(), Scale::css)
     };
     let x = axis(|p| match p {
-        StyleProperty::ScaleX(v) => Some(*v),
+        StyleProperty::ScaleX(v) => Some(v),
         _ => None,
     });
     let y = axis(|p| match p {
-        StyleProperty::ScaleY(v) => Some(*v),
+        StyleProperty::ScaleY(v) => Some(v),
         _ => None,
     });
     if !props.iter().any(|p| matches!(p, StyleProperty::Scale3d)) {
         return Some(format!("{x} {y}"));
     }
     let z = axis(|p| match p {
-        StyleProperty::ScaleZ(v) => Some(*v),
+        StyleProperty::ScaleZ(v) => Some(v),
         _ => None,
     });
     Some(format!("{x} {y} {z}"))
@@ -512,7 +527,7 @@ fn transform_value(props: &[&StyleProperty]) -> Option<String> {
     let mut parts: Vec<String> = Vec::new();
     let mut push = |name: &str, angle: Option<&Angle>| {
         if let Some(a) = angle {
-            parts.push(format!("{name}({}deg)", a.degrees));
+            parts.push(format!("{name}({})", a.css()));
         }
     };
     let find = |f: fn(&StyleProperty) -> Option<&Angle>| props.iter().find_map(|p| f(p));
@@ -564,7 +579,7 @@ fn translate_value(props: &[&StyleProperty], theme: &Theme) -> Option<String> {
         _ => None,
     });
     let z = props.iter().find_map(|p| match p {
-        StyleProperty::TranslateZ(l) => Some(length_px(*l, theme)),
+        StyleProperty::TranslateZ(d) => Some(dimension_value(d, theme)),
         _ => None,
     });
     Some(match z {
@@ -580,21 +595,21 @@ fn border_spacing_value(props: &[&StyleProperty], theme: &Theme) -> Option<Strin
     if props.is_empty() {
         return None;
     }
-    let axis = |f: fn(&StyleProperty) -> Option<Length>| {
+    let axis = |f: fn(&StyleProperty) -> Option<&Dimension>| {
         props
             .iter()
             .find_map(|p| f(p))
-            .map(|l| length_px(l, theme))
+            .map(|d| dimension_value(d, theme))
             .unwrap_or_else(|| "0".to_string())
     };
     Some(format!(
         "{} {}",
         axis(|p| match p {
-            StyleProperty::BorderSpacingX(l) => Some(*l),
+            StyleProperty::BorderSpacingX(d) => Some(d),
             _ => None,
         }),
         axis(|p| match p {
-            StyleProperty::BorderSpacingY(l) => Some(*l),
+            StyleProperty::BorderSpacingY(d) => Some(d),
             _ => None,
         }),
     ))
@@ -819,7 +834,7 @@ pub fn property_and_value<'a>(prop: &'a StyleProperty, theme: &Theme) -> (&'a st
         // out before this runs.
         StyleProperty::MaskStopColor(..)
         | StyleProperty::MaskStopPosition(..)
-        | StyleProperty::MaskAngle(..)
+        | StyleProperty::MaskSlotArgument(..)
         | StyleProperty::MaskRadialShape(_)
         | StyleProperty::MaskRadialSize(_)
         | StyleProperty::MaskRadialPosition(_)
@@ -979,7 +994,7 @@ pub fn property_and_value<'a>(prop: &'a StyleProperty, theme: &Theme) -> (&'a st
         // them -- the `transform` shorthand isn't used on either side.
         // Tailwind writes both axes explicitly for scale/translate, so
         // these do the same rather than relying on one-value expansion.
-        StyleProperty::Rotate(a) => ("rotate", format!("{}deg", a.degrees)),
+        StyleProperty::Rotate(a) => ("rotate", a.css()),
         // Composed, not emitted here -- see `scale_value` / `transform_value`.
         StyleProperty::ScaleX(_)
         | StyleProperty::ScaleY(_)
@@ -1311,7 +1326,7 @@ pub fn render_rule(
         }
         for prop in &line_clamp_props {
             if let StyleProperty::LineClamp(lines) = prop {
-                for (name, value) in line_clamp_declarations(*lines) {
+                for (name, value) in line_clamp_declarations(lines.as_ref()) {
                     body.push_str(&format!("  {name}: {value};
 "));
                 }
@@ -1390,10 +1405,10 @@ fn space_declarations(prop: &StyleProperty, theme: &Theme) -> Vec<(&'static str,
     match prop {
         StyleProperty::SpaceX(l) => vec![
             ("margin-inline-start", "0".to_string()),
-            ("margin-inline-end", length_px(*l, theme)),
+            ("margin-inline-end", dimension_value(l, theme)),
         ],
         StyleProperty::SpaceY(l) => {
-            vec![("margin-top", "0".to_string()), ("margin-bottom", length_px(*l, theme))]
+            vec![("margin-top", "0".to_string()), ("margin-bottom", dimension_value(l, theme))]
         }
         // Tailwind writes both edges, zeroing the leading one, so that
         // `divide-x-reverse` can flip which edge carries the border without
@@ -1401,13 +1416,13 @@ fn space_declarations(prop: &StyleProperty, theme: &Theme) -> Vec<(&'static str,
         StyleProperty::DivideX(l) => vec![
             ("border-inline-style", "solid".to_string()),
             ("border-inline-start-width", "0".to_string()),
-            ("border-inline-end-width", length_px(*l, theme)),
+            ("border-inline-end-width", dimension_value(l, theme)),
         ],
         StyleProperty::DivideY(l) => vec![
             ("border-bottom-style", "solid".to_string()),
             ("border-top-style", "solid".to_string()),
             ("border-top-width", "0".to_string()),
-            ("border-bottom-width", length_px(*l, theme)),
+            ("border-bottom-width", dimension_value(l, theme)),
         ],
         StyleProperty::DivideColor(c) => vec![("border-color", color_var(c))],
         StyleProperty::DivideStyle(s) => {

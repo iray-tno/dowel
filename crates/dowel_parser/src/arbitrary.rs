@@ -21,8 +21,9 @@
 //! contained none of this.
 
 use dowel_ir::{
-    BorderStyle, Color, Dimension, GridTracks, Length, LengthUnit, LetterSpacing, LineHeight,
-    Edge, Radius,
+    Angle, BorderStyle, Clamp, Color, Dimension, FilterFunction, GridSpan, GridTracks, Length,
+    LengthUnit, LetterSpacing, LineHeight,
+    Edge, MaskSlot, MaskStop, Radius, Scale,
     StyleProperty,
 };
 
@@ -421,6 +422,76 @@ fn is_color(value: &str, hint: Option<&str>) -> bool {
     }
 }
 
+/// Whether a value really is a CSS `<color>`.
+///
+/// The opposite question to `is_color`, and both are needed. `text-[…]`
+/// asks "is this a length?" and calls everything else a colour, which is
+/// what Tailwind does there. A gradient or mask stop asks this one instead:
+/// a stop is a *position* unless the value is genuinely a colour, so
+/// `mask-t-from-[nonsense]` is a stop at `nonsense` and
+/// `mask-t-from-[red]` is a red one.
+///
+/// Which means the keyword list has to be the real one. Recognising only
+/// `#` and the colour functions would put `rebeccapurple` in the position
+/// slot -- a gradient that silently stops somewhere impossible instead of
+/// being purple. It is CSS Color 4's named set plus the system colours,
+/// and Tailwind knows all of them, `Canvas` included.
+fn looks_like_color(value: &str, hint: Option<&str>) -> bool {
+    if let Some(hint) = hint {
+        return hint == "color";
+    }
+    if value.starts_with('#') {
+        return true;
+    }
+    if let Some((function, _)) = value.split_once('(') {
+        return COLOR_FUNCTIONS.contains(&function.to_ascii_lowercase().as_str());
+    }
+    let lower = value.to_ascii_lowercase();
+    NAMED_COLORS.contains(&lower.as_str()) || SYSTEM_COLORS.contains(&lower.as_str())
+}
+
+const COLOR_FUNCTIONS: &[&str] = &[
+    "rgb", "rgba", "hsl", "hsla", "hwb", "lab", "lch", "oklab", "oklch", "color", "color-mix",
+    "light-dark", "device-cmyk",
+];
+
+/// CSS Color 4's named colours, plus the two keywords that behave like
+/// them. Transcribed from the specification's table rather than trimmed to
+/// the ones anyone uses: the list decides a *type*, and a missing entry
+/// puts a colour in a length's slot.
+const NAMED_COLORS: &[&str] = &[
+    "aliceblue", "antiquewhite", "aqua", "aquamarine", "azure", "beige", "bisque", "black",
+    "blanchedalmond", "blue", "blueviolet", "brown", "burlywood", "cadetblue", "chartreuse",
+    "chocolate", "coral", "cornflowerblue", "cornsilk", "crimson", "cyan", "darkblue", "darkcyan",
+    "darkgoldenrod", "darkgray", "darkgreen", "darkgrey", "darkkhaki", "darkmagenta",
+    "darkolivegreen", "darkorange", "darkorchid", "darkred", "darksalmon", "darkseagreen",
+    "darkslateblue", "darkslategray", "darkslategrey", "darkturquoise", "darkviolet", "deeppink",
+    "deepskyblue", "dimgray", "dimgrey", "dodgerblue", "firebrick", "floralwhite", "forestgreen",
+    "fuchsia", "gainsboro", "ghostwhite", "gold", "goldenrod", "gray", "green", "greenyellow",
+    "grey", "honeydew", "hotpink", "indianred", "indigo", "ivory", "khaki", "lavender",
+    "lavenderblush", "lawngreen", "lemonchiffon", "lightblue", "lightcoral", "lightcyan",
+    "lightgoldenrodyellow", "lightgray", "lightgreen", "lightgrey", "lightpink", "lightsalmon",
+    "lightseagreen", "lightskyblue", "lightslategray", "lightslategrey", "lightsteelblue",
+    "lightyellow", "lime", "limegreen", "linen", "magenta", "maroon", "mediumaquamarine",
+    "mediumblue", "mediumorchid", "mediumpurple", "mediumseagreen", "mediumslateblue",
+    "mediumspringgreen", "mediumturquoise", "mediumvioletred", "midnightblue", "mintcream",
+    "mistyrose", "moccasin", "navajowhite", "navy", "oldlace", "olive", "olivedrab", "orange",
+    "orangered", "orchid", "palegoldenrod", "palegreen", "paleturquoise", "palevioletred",
+    "papayawhip", "peachpuff", "peru", "pink", "plum", "powderblue", "purple", "rebeccapurple",
+    "red", "rosybrown", "royalblue", "saddlebrown", "salmon", "sandybrown", "seagreen", "seashell",
+    "sienna", "silver", "skyblue", "slateblue", "slategray", "slategrey", "snow", "springgreen",
+    "steelblue", "tan", "teal", "thistle", "tomato", "turquoise", "violet", "wheat", "white",
+    "whitesmoke", "yellow", "yellowgreen",
+    "transparent", "currentcolor",
+];
+
+/// The UI colours, which look like ordinary identifiers and are not.
+const SYSTEM_COLORS: &[&str] = &[
+    "accentcolor", "accentcolortext", "activetext", "buttonborder", "buttonface", "buttontext",
+    "canvas", "canvastext", "field", "fieldtext", "graytext", "highlight", "highlighttext",
+    "linktext", "mark", "marktext", "selecteditem", "selecteditemtext", "visitedtext",
+];
+
 fn is_percentage(value: &str) -> bool {
     value.strip_suffix('%').is_some_and(|n| n.parse::<f64>().is_ok())
 }
@@ -478,6 +549,7 @@ fn from_prefix(prefix: &str, value: &str, hint: Option<&str>) -> Option<Vec<Styl
     let length = || parse_length(value);
     let dimension = || parse_dimension(value);
     let color = || Color::Css(value.to_string());
+    let angle = || Angle::Css(value.to_string());
     let number = || value.parse::<f64>().ok();
     let integer = || value.parse::<i32>().ok();
     let one = |property: StyleProperty| Some(vec![property]);
@@ -489,6 +561,18 @@ fn from_prefix(prefix: &str, value: &str, hint: Option<&str>) -> Option<Vec<Styl
         return Some(properties);
     }
     if let Some(properties) = spacing(prefix, value) {
+        return Some(properties);
+    }
+    if let Some(properties) = scroll_offset(prefix, value) {
+        return Some(properties);
+    }
+    if let Some(properties) = corner_radius(prefix, value) {
+        return Some(properties);
+    }
+    if let Some(properties) = filter(prefix, value) {
+        return Some(properties);
+    }
+    if let Some(properties) = mask_stop(prefix, value, hint) {
         return Some(properties);
     }
 
@@ -644,26 +728,6 @@ fn from_prefix(prefix: &str, value: &str, hint: Option<&str>) -> Option<Vec<Styl
             value,
             length().map(|l| StyleProperty::BorderRadius(Radius::Length(l))),
         )),
-        "rounded-t" => Some(vec![
-            StyleProperty::BorderTopLeftRadius(Radius::Length(length()?)),
-            StyleProperty::BorderTopRightRadius(Radius::Length(length()?)),
-        ]),
-        "rounded-b" => Some(vec![
-            StyleProperty::BorderBottomLeftRadius(Radius::Length(length()?)),
-            StyleProperty::BorderBottomRightRadius(Radius::Length(length()?)),
-        ]),
-        "rounded-l" => Some(vec![
-            StyleProperty::BorderTopLeftRadius(Radius::Length(length()?)),
-            StyleProperty::BorderBottomLeftRadius(Radius::Length(length()?)),
-        ]),
-        "rounded-r" => Some(vec![
-            StyleProperty::BorderTopRightRadius(Radius::Length(length()?)),
-            StyleProperty::BorderBottomRightRadius(Radius::Length(length()?)),
-        ]),
-        "rounded-tl" => one(StyleProperty::BorderTopLeftRadius(Radius::Length(length()?))),
-        "rounded-tr" => one(StyleProperty::BorderTopRightRadius(Radius::Length(length()?))),
-        "rounded-bl" => one(StyleProperty::BorderBottomLeftRadius(Radius::Length(length()?))),
-        "rounded-br" => one(StyleProperty::BorderBottomRightRadius(Radius::Length(length()?))),
 
         // Plain numbers, each with the same escape: Tailwind emits
         // `z-index: abc` for `z-[abc]` rather than nothing, so refusing
@@ -718,9 +782,136 @@ fn from_prefix(prefix: &str, value: &str, hint: Option<&str>) -> Option<Vec<Styl
         // number that looks deliberate and isn't the one written. Refused
         // rather than rounded: emitting nothing is visible, emitting the
         // wrong count is not.
-        "line-clamp" => one(StyleProperty::LineClamp(Some(
-            value.parse::<u32>().ok()?,
-        ))),
+        // Integers stay integers, because React Native's `numberOfLines`
+        // takes one and rounding `1.5` to `1` would be a clamp that looks
+        // deliberate. Anything else is still the four declarations
+        // Tailwind writes, with the value untouched.
+        "line-clamp" => one(StyleProperty::LineClamp(Some(match value.parse::<u32>() {
+            Ok(lines) => Clamp::Lines(lines),
+            Err(_) => Clamp::Css(value.to_string()),
+        }))),
+
+        // The transform functions. Held as text rather than parsed into
+        // degrees: `rotate-x-[1.5em]` is not an angle, and Tailwind emits
+        // `rotateX(1.5em)` for it rather than refusing -- see
+        // `dowel_ir::Angle` for why the text has to live in the type
+        // instead of escaping to a raw declaration.
+        "rotate-x" => one(StyleProperty::RotateX(angle())),
+        "rotate-y" => one(StyleProperty::RotateY(angle())),
+        "rotate-z" => one(StyleProperty::RotateZ(angle())),
+        "skew-x" => one(StyleProperty::SkewX(angle())),
+        "skew-y" => one(StyleProperty::SkewY(angle())),
+        // An arbitrary scale is a ratio, not the percentage the named
+        // scale is: `scale-x-[1.5]` is `scale: 1.5`, where `scale-x-150`
+        // is `scale: 150%`.
+        "scale-x" => one(StyleProperty::ScaleX(Scale::Css(value.to_string()))),
+        "scale-y" => one(StyleProperty::ScaleY(Scale::Css(value.to_string()))),
+        // Writing the z axis also switches the declaration to its
+        // three-value form -- see `StyleProperty::Scale3d`.
+        "scale-z" => Some(vec![
+            StyleProperty::ScaleZ(Scale::Css(value.to_string())),
+            StyleProperty::Scale3d,
+        ]),
+        "translate-z" => one(StyleProperty::TranslateZ(dimension())),
+
+        // Both axes of `border-spacing`, which is one declaration taking
+        // two values, so each utility writes half of it.
+        "border-spacing-x" => one(StyleProperty::BorderSpacingX(dimension())),
+        "border-spacing-y" => one(StyleProperty::BorderSpacingY(dimension())),
+
+        // The mask gradient slots' own arguments: an angle for two of
+        // them, a size for the third. All three become the gradient's
+        // whole argument when no stop utility supplied one -- see
+        // `StyleProperty::MaskSlotArgument`.
+        "mask-linear" => one(StyleProperty::MaskSlotArgument(MaskSlot::Linear, angle())),
+        "mask-conic" => one(StyleProperty::MaskSlotArgument(MaskSlot::Conic, angle())),
+        "mask-radial" => one(StyleProperty::MaskSlotArgument(MaskSlot::Radial, angle())),
+
+        // The logical border sides. Same width-or-colour decision the
+        // physical ones make; the only difference is which longhand it
+        // lands in, and that the width form has no typed colour sibling
+        // for values `Length` can't hold.
+        "border-s" | "border-e" | "border-bs" | "border-be"
+            if hint != Some("color") && is_line_width(value) =>
+        {
+            let edge = match prefix {
+                "border-s" => Edge::InlineStart,
+                "border-e" => Edge::InlineEnd,
+                "border-bs" => Edge::BlockStart,
+                _ => Edge::BlockEnd,
+            };
+            Some(vec![
+                StyleProperty::BorderLogicalStyle(edge, BorderStyle::Solid),
+                match length() {
+                    Some(l) => StyleProperty::BorderLogicalWidth(edge, l),
+                    None => StyleProperty::Arbitrary(
+                        format!("{}-width", logical_side(edge)),
+                        value.to_string(),
+                    ),
+                },
+            ])
+        }
+        "border-s" => one(StyleProperty::BorderInlineStartColor(color())),
+        "border-e" => one(StyleProperty::BorderInlineEndColor(color())),
+        "border-bs" => one(StyleProperty::BorderBlockStartColor(color())),
+        "border-be" => one(StyleProperty::BorderBlockEndColor(color())),
+
+        // `block-[…]`/`inline-[…]` are sizes on the logical axes, not the
+        // display keywords the same two words name elsewhere. The bracket
+        // is what tells them apart, which is why they only appear here.
+        "block" => one(StyleProperty::BlockSize(dimension())),
+        "inline" => one(StyleProperty::InlineSize(dimension())),
+
+        // A span is written to both edges, so the item spans n tracks
+        // wherever it lands rather than being pinned to a line. Integers
+        // go through typed; anything else is still the declaration
+        // Tailwind writes, which is where `span nonsense / span nonsense`
+        // comes from.
+        "col-span" | "row-span" => {
+            let property = if prefix == "col-span" { "grid-column" } else { "grid-row" };
+            Some(match value.parse::<u32>().ok() {
+                Some(n) if prefix == "col-span" => vec![StyleProperty::GridColumn(GridSpan::Span(n))],
+                Some(n) => vec![StyleProperty::GridRow(GridSpan::Span(n))],
+                None => vec![StyleProperty::Arbitrary(
+                    property.to_string(),
+                    format!("span {value} / span {value}"),
+                )],
+            })
+        }
+
+        // The shadow layers, carried as the CSS text they are:
+        // `shadow-[0_0_4px_red]` is a whole `box-shadow` value, and
+        // parsing it into offsets would only be printing it back.
+        //
+        // No colour arm here on purpose. `shadow-<colour>` sets a register
+        // that paints nothing on its own, so Tailwind's own output for it
+        // isn't a declaration and the harness classes it as
+        // composition-only -- there is nothing here for it to be measured
+        // against, and inventing a variant would be inventing meaning.
+        "shadow" => one(StyleProperty::BoxShadow(value.to_string())),
+        // Tailwind writes the `inset` keyword itself rather than expecting
+        // it in the value, so an author's `inset-shadow-[0_0_4px_red]`
+        // becomes `inset 0 0 4px red`.
+        "inset-shadow" => one(StyleProperty::InsetShadow(format!("inset {value}"))),
+        "inset-ring" if is_color(value, hint) => one(StyleProperty::InsetRingColor(color())),
+        "inset-ring" => one(StyleProperty::InsetRingWidth(length()?)),
+
+        // `scrollbar-color` takes both halves at once, so these two
+        // utilities compose in the backend rather than each emitting a
+        // declaration.
+        "scrollbar-thumb" => one(StyleProperty::ScrollbarThumbColor(color())),
+        "scrollbar-track" => one(StyleProperty::ScrollbarTrackColor(color())),
+
+        // A bare `mask-[…]` is a size, a position or an image, decided the
+        // same way `bg-[…]` is -- and with the same surprise: a length is
+        // a *position*, while the keyword `auto` is a size.
+        "mask" if hint == Some("bg-size") || value == "auto" => {
+            one(StyleProperty::Arbitrary("mask-size".to_string(), value.to_string()))
+        }
+        "mask" if hint == Some("position") || length().is_some() || is_percentage(value) => {
+            one(StyleProperty::Arbitrary("mask-position".to_string(), value.to_string()))
+        }
+        "mask" => one(StyleProperty::Arbitrary("mask-image".to_string(), value.to_string())),
 
         // The long tail, where the prefix names one CSS property and the
         // value goes through untouched. Everything here is Web-only by
@@ -748,6 +939,10 @@ fn from_prefix(prefix: &str, value: &str, hint: Option<&str>) -> Option<Vec<Styl
 /// property name here is not a silent gap, it is an immediate mismatch
 /// against the reference engine.
 const PASSTHROUGH: &[(&str, &str)] = &[
+    // Not a variant here, despite the `@`: `@container-[…]` sets the
+    // property, where `@container/main:` and `@lg:` are the query forms.
+    // The bracket is what separates them.
+    ("@container", "container-type"),
     ("align", "vertical-align"),
     ("animate", "animation"),
     ("auto-cols", "grid-auto-columns"),
@@ -793,11 +988,187 @@ const PASSTHROUGH: &[(&str, &str)] = &[
     ("scale", "scale"),
     ("skew", "transform"),
     ("tab", "tab-size"),
+    ("text-shadow", "text-shadow"),
     ("transform", "transform"),
     ("translate", "translate"),
     ("will-change", "will-change"),
     ("zoom", "zoom"),
 ];
+
+/// The CSS longhand family a logical edge names, without its suffix.
+fn logical_side(edge: Edge) -> &'static str {
+    match edge {
+        Edge::InlineStart => "border-inline-start",
+        Edge::InlineEnd => "border-inline-end",
+        Edge::BlockStart => "border-block-start",
+        _ => "border-block-end",
+    }
+}
+
+/// `scroll-m*` and `scroll-p*`: eleven edges each, all mechanical.
+///
+/// Written as a table rather than match arms because the only thing that
+/// varies is the edge, and the CSS property name is derived from it in
+/// `dowel_web` rather than repeated here.
+fn scroll_offset(prefix: &str, value: &str) -> Option<Vec<StyleProperty>> {
+    let (family, rest) = if let Some(rest) = prefix.strip_prefix("scroll-m") {
+        ("scroll-margin", rest)
+    } else if let Some(rest) = prefix.strip_prefix("scroll-p") {
+        ("scroll-padding", rest)
+    } else {
+        return None;
+    };
+    let edge = match rest {
+        "" => Edge::All,
+        "t" => Edge::Top,
+        "r" => Edge::Right,
+        "b" => Edge::Bottom,
+        "l" => Edge::Left,
+        "x" => Edge::Inline,
+        "y" => Edge::Block,
+        "s" => Edge::InlineStart,
+        "e" => Edge::InlineEnd,
+        "bs" => Edge::BlockStart,
+        "be" => Edge::BlockEnd,
+        _ => return None,
+    };
+    let Some(length) = parse_length(value) else {
+        // The property name has to be spelled out for the untyped case,
+        // since `Length` has no text variant to carry it.
+        let suffix = match edge {
+            Edge::All => "",
+            Edge::Top => "-top",
+            Edge::Right => "-right",
+            Edge::Bottom => "-bottom",
+            Edge::Left => "-left",
+            Edge::Inline => "-inline",
+            Edge::Block => "-block",
+            Edge::InlineStart => "-inline-start",
+            Edge::InlineEnd => "-inline-end",
+            Edge::BlockStart => "-block-start",
+            Edge::BlockEnd => "-block-end",
+        };
+        return Some(vec![StyleProperty::Arbitrary(
+            format!("{family}{suffix}"),
+            value.to_string(),
+        )]);
+    };
+    Some(vec![if family == "scroll-margin" {
+        StyleProperty::ScrollMargin(edge, length)
+    } else {
+        StyleProperty::ScrollPadding(edge, length)
+    }])
+}
+
+/// The corners each `rounded-*` prefix writes.
+///
+/// Typed where `Radius` can hold the value and the plain declaration
+/// otherwise, which is not a rare case here: `rounded-b-[50%]` is a
+/// percentage radius -- valid CSS, and not a `Length`. Before this, every
+/// one of those compiled to nothing.
+fn corner_radius(prefix: &str, value: &str) -> Option<Vec<StyleProperty>> {
+    type Corner = (fn(Radius) -> StyleProperty, &'static str);
+    const TL: Corner = (StyleProperty::BorderTopLeftRadius, "border-top-left-radius");
+    const TR: Corner = (StyleProperty::BorderTopRightRadius, "border-top-right-radius");
+    const BL: Corner = (StyleProperty::BorderBottomLeftRadius, "border-bottom-left-radius");
+    const BR: Corner = (StyleProperty::BorderBottomRightRadius, "border-bottom-right-radius");
+    const SS: Corner = (StyleProperty::BorderStartStartRadius, "border-start-start-radius");
+    const SE: Corner = (StyleProperty::BorderStartEndRadius, "border-start-end-radius");
+    const ES: Corner = (StyleProperty::BorderEndStartRadius, "border-end-start-radius");
+    const EE: Corner = (StyleProperty::BorderEndEndRadius, "border-end-end-radius");
+
+    let corners: &[Corner] = match prefix {
+        "rounded-t" => &[TL, TR],
+        "rounded-b" => &[BL, BR],
+        "rounded-l" => &[TL, BL],
+        "rounded-r" => &[TR, BR],
+        "rounded-tl" => &[TL],
+        "rounded-tr" => &[TR],
+        "rounded-bl" => &[BL],
+        "rounded-br" => &[BR],
+        // The logical corners, which follow writing direction: `rounded-s`
+        // is the two on the inline-start side, whichever those are.
+        "rounded-s" => &[SS, ES],
+        "rounded-e" => &[SE, EE],
+        "rounded-ss" => &[SS],
+        "rounded-se" => &[SE],
+        "rounded-es" => &[ES],
+        "rounded-ee" => &[EE],
+        _ => return None,
+    };
+    let length = parse_length(value);
+    Some(
+        corners
+            .iter()
+            .map(|(variant, property)| match length {
+                Some(l) => variant(Radius::Length(l)),
+                None => StyleProperty::Arbitrary(property.to_string(), value.to_string()),
+            })
+            .collect(),
+    )
+}
+
+/// One function of the `filter`/`backdrop-filter` chain.
+///
+/// The argument goes through untouched because Tailwind's does:
+/// `grayscale-[nonsense]` is `grayscale(nonsense)` there, not a refusal.
+/// `Filter` already carries its argument as text, so nothing needed
+/// widening for this -- the whole family was simply unrouted.
+fn filter(prefix: &str, value: &str) -> Option<Vec<StyleProperty>> {
+    let (backdrop, name) = match prefix.strip_prefix("backdrop-") {
+        Some(rest) => (true, rest),
+        None => (false, prefix),
+    };
+    let function = match name {
+        "blur" => FilterFunction::Blur,
+        "brightness" => FilterFunction::Brightness,
+        "contrast" => FilterFunction::Contrast,
+        "grayscale" => FilterFunction::Grayscale,
+        "hue-rotate" => FilterFunction::HueRotate,
+        "invert" => FilterFunction::Invert,
+        "saturate" => FilterFunction::Saturate,
+        "sepia" => FilterFunction::Sepia,
+        "drop-shadow" => FilterFunction::DropShadow,
+        // `opacity-[…]` is the opacity *property*; the filter register of
+        // the same name is only reachable through `backdrop-opacity-*`.
+        "opacity" if backdrop => FilterFunction::Opacity,
+        _ => return None,
+    };
+    let css = format!("{name}({value})");
+    Some(vec![if backdrop {
+        StyleProperty::BackdropFilter(function, css)
+    } else {
+        StyleProperty::Filter(function, css)
+    }])
+}
+
+/// `mask-t-from-[…]` and the seventeen other slot/stop combinations.
+///
+/// The colour-or-position decision is `text-`'s again, and so is its
+/// polarity: a value that reads as a size is a position, and everything
+/// else -- including text neither side can resolve -- is a colour.
+fn mask_stop(prefix: &str, value: &str, hint: Option<&str>) -> Option<Vec<StyleProperty>> {
+    let rest = prefix.strip_prefix("mask-")?;
+    let (axis, stop) = rest.rsplit_once('-')?;
+    let stop = match stop {
+        "from" => MaskStop::From,
+        "to" => MaskStop::To,
+        _ => return None,
+    };
+    let slots = crate::tailwind::mask_slots(axis)?;
+    Some(
+        slots
+            .iter()
+            .map(|slot| {
+                if looks_like_color(value, hint) {
+                    StyleProperty::MaskStopColor(*slot, stop, Color::Css(value.to_string()))
+                } else {
+                    StyleProperty::MaskStopPosition(*slot, stop, parse_dimension(value))
+                }
+            })
+            .collect(),
+    )
+}
 
 /// The size families: one prefix, one property, a `Dimension` value.
 fn sizing(prefix: &str, value: &str) -> Option<Vec<StyleProperty>> {
@@ -918,17 +1289,18 @@ fn spacing(prefix: &str, value: &str) -> Option<Vec<StyleProperty>> {
         "gap" => "gap",
         "gap-x" => "column-gap",
         "gap-y" => "row-gap",
-        // `space-*`/`divide-*` style the element's children through a
+        // `space-*`/`divide-*` style the element's *children* through a
         // separate rule, so there is no single declaration to fall back
-        // to. A value they can't read is refused instead.
-        "space-x" | "space-y" | "divide-x" | "divide-y" => "",
+        // to. They don't need one: they carry a `Dimension`, which has a
+        // text case of its own, so the escape happens one level down.
+        "space-x" => return Some(vec![StyleProperty::SpaceX(parse_dimension(value))]),
+        "space-y" => return Some(vec![StyleProperty::SpaceY(parse_dimension(value))]),
+        "divide-x" => return Some(vec![StyleProperty::DivideX(parse_dimension(value))]),
+        "divide-y" => return Some(vec![StyleProperty::DivideY(parse_dimension(value))]),
         _ => return None,
     };
 
     let Some(l) = parse_length(value) else {
-        if css_property.is_empty() {
-            return None;
-        }
         return Some(vec![StyleProperty::Arbitrary(
             css_property.to_string(),
             value.to_string(),
@@ -953,10 +1325,10 @@ fn spacing(prefix: &str, value: &str) -> Option<Vec<StyleProperty>> {
         "gap" => vec![StyleProperty::Gap(l)],
         "gap-x" => vec![StyleProperty::ColumnGap(l)],
         "gap-y" => vec![StyleProperty::RowGap(l)],
-        "space-x" => vec![StyleProperty::SpaceX(l)],
-        "space-y" => vec![StyleProperty::SpaceY(l)],
-        "divide-x" => vec![StyleProperty::DivideX(l)],
-        "divide-y" => vec![StyleProperty::DivideY(l)],
+        "space-x" => vec![StyleProperty::SpaceX(Dimension::Length(l))],
+        "space-y" => vec![StyleProperty::SpaceY(Dimension::Length(l))],
+        "divide-x" => vec![StyleProperty::DivideX(Dimension::Length(l))],
+        "divide-y" => vec![StyleProperty::DivideY(Dimension::Length(l))],
         _ => return None,
     })
 }
@@ -1156,5 +1528,129 @@ mod tests {
         // The one case shape cannot decide: identical text, two meanings.
         assert!(is_color("var(--c)", Some("color")));
         assert!(!is_color("var(--c)", Some("length")));
+    }
+
+    #[test]
+    fn a_gradient_stop_asks_the_opposite_question() {
+        // `is_color` above says "not a length, so a colour". A stop can't
+        // work that way: a position is the *default*, so the colour test
+        // has to be a real one. `mask-t-from-[nonsense]` is a stop at
+        // `nonsense`, not a nonsense-coloured gradient.
+        assert!(!looks_like_color("nonsense", None));
+        assert!(!looks_like_color("var(--x)", None));
+        assert!(!looks_like_color("50%", None));
+        assert!(looks_like_color("#abc", None));
+        assert!(looks_like_color("rgb(0 0 0)", None));
+        // The reason the named list has to be the full one.
+        assert!(looks_like_color("rebeccapurple", None));
+        assert!(looks_like_color("currentColor", None));
+        // And why the system colours are in it: they look like any other
+        // identifier.
+        assert!(looks_like_color("Canvas", None));
+    }
+
+    #[test]
+    fn a_mask_stop_lands_in_the_slot_its_value_names() {
+        assert_eq!(
+            properties("mask-t-from-[50%]"),
+            Some(vec![StyleProperty::MaskStopPosition(
+                dowel_ir::MaskSlot::Top,
+                MaskStop::From,
+                Dimension::Percent(50.0),
+            )])
+        );
+        assert_eq!(
+            properties("mask-t-from-[red]"),
+            Some(vec![StyleProperty::MaskStopColor(
+                dowel_ir::MaskSlot::Top,
+                MaskStop::From,
+                Color::Css("red".to_string()),
+            )])
+        );
+        // An axis names two slots, and both get the stop.
+        assert_eq!(properties("mask-x-to-[10px]").unwrap().len(), 2);
+    }
+
+    #[test]
+    fn a_filter_keeps_its_argument_verbatim() {
+        // Tailwind validates none of this, so neither can Dowel: the
+        // argument is whatever was written, wrapped in the function the
+        // prefix names.
+        assert_eq!(
+            properties("blur-[10px]"),
+            Some(vec![StyleProperty::Filter(FilterFunction::Blur, "blur(10px)".to_string())])
+        );
+        assert_eq!(
+            properties("backdrop-grayscale-[nonsense]"),
+            Some(vec![StyleProperty::BackdropFilter(
+                FilterFunction::Grayscale,
+                "grayscale(nonsense)".to_string(),
+            )])
+        );
+    }
+
+    #[test]
+    fn a_scroll_offset_types_a_length_and_carries_anything_else() {
+        assert_eq!(
+            properties("scroll-mt-[10px]"),
+            Some(vec![StyleProperty::ScrollMargin(Edge::Top, Length::Px(10.0))])
+        );
+        assert_eq!(
+            properties("scroll-px-[50%]"),
+            Some(vec![StyleProperty::Arbitrary(
+                "scroll-padding-inline".to_string(),
+                "50%".to_string(),
+            )])
+        );
+    }
+
+    #[test]
+    fn a_percentage_radius_is_still_a_radius() {
+        // `Radius` holds a `Length`, and a percentage isn't one -- so this
+        // used to compile to nothing at all rather than to the declaration
+        // Tailwind writes.
+        assert_eq!(
+            properties("rounded-b-[50%]"),
+            Some(vec![
+                StyleProperty::Arbitrary("border-bottom-left-radius".to_string(), "50%".to_string()),
+                StyleProperty::Arbitrary(
+                    "border-bottom-right-radius".to_string(),
+                    "50%".to_string()
+                ),
+            ])
+        );
+        // The logical corners follow writing direction; `rounded-s` is the
+        // two on the inline-start side.
+        assert_eq!(
+            properties("rounded-s-[10px]"),
+            Some(vec![
+                StyleProperty::BorderStartStartRadius(Radius::Length(Length::Px(10.0))),
+                StyleProperty::BorderEndStartRadius(Radius::Length(Length::Px(10.0))),
+            ])
+        );
+    }
+
+    #[test]
+    fn an_arbitrary_scale_is_a_ratio_and_a_named_one_is_a_percentage() {
+        // `scale-x-[1.5]` is `scale: 1.5`. Reading it as the percentage
+        // `scale-x-150` means would print `1.5%`, a scale of one
+        // sixty-sixth that renders as nothing.
+        assert_eq!(
+            properties("scale-x-[1.5]"),
+            Some(vec![StyleProperty::ScaleX(Scale::Css("1.5".to_string()))])
+        );
+    }
+
+    #[test]
+    fn a_clamp_that_is_not_a_count_stays_text() {
+        assert_eq!(
+            properties("line-clamp-[3]"),
+            Some(vec![StyleProperty::LineClamp(Some(Clamp::Lines(3)))])
+        );
+        // Not a clamp of one, which is what `as u32` used to make of it.
+        assert_eq!(
+            properties("line-clamp-[1.5]"),
+            Some(vec![StyleProperty::LineClamp(Some(Clamp::Css("1.5".to_string())))])
+        );
     }
 }

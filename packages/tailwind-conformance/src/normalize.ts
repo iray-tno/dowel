@@ -135,7 +135,12 @@ function canonicalizeValue(value: string): string {
   // which was every unit the named catalogue could produce and three of
   // the two dozen an arbitrary value can. `space-x-[1.5em]` reported a
   // mismatch between `0em` and `0`, which are the same length.
-  out = out.replace(/(^|\s)(-?0)[a-z]+(\s|$)/g, '$1$2$3')
+  //
+  // `%` is spelled separately because it isn't a letter, and widening the
+  // list to `[a-z]+` silently dropped it: `space-x-[50%]` went back to
+  // reporting `0%` against `0`. Zero is zero there too -- a percentage of
+  // anything is nothing when the percentage is none of it.
+  out = out.replace(/(^|\s)(-?0)([a-z]+|%)(\s|$)/g, '$1$2$4')
   // Trim pointless decimals: 16.0px -> 16px
   out = out.replace(/(-?\d+)\.0+(?=px|%|\s|$)/g, '$1')
   return out.trim()

@@ -7,6 +7,8 @@ import { loadFullCatalog, namespaceOf } from './catalog.ts'
 import { reactNativeCssProperties, reactNativeVersion } from './native-surface.ts'
 import { compareCandidate, type Comparison, type Verdict } from './compare.ts'
 import { compareNativeCandidate, type NativeComparison, type NativeVerdict } from './native.ts'
+import { typeCheckStyles } from './typecheck.ts'
+import { compileNative } from '@dowel/compiler'
 import { buildOracle } from './oracle.ts'
 import { loadThemeVars, tailwindVersion } from './theme.ts'
 
@@ -331,5 +333,53 @@ if (partials.length > 0) {
   console.log('\nPartial -- refusing the whole utility is defensible, but note what is reachable:')
   for (const audit of partials) {
     console.log(`  ${audit.candidate}: can hold ${audit.expressible.join(', ')}; cannot hold ${audit.inexpressible.join(', ')}`)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Native output, checked by React Native
+// ---------------------------------------------------------------------------
+//
+// The refusal audit above checks the denominator. This checks the
+// numerator, which nothing did until 2026-08-16: for every style Dowel
+// actually emits, `tsc` asks React Native's own declarations whether it
+// would be accepted. Same check an app would get, rather than this repo's
+// regex reading of the same file.
+
+console.log('\n\n== Native output (React Native type-checks what we emit) ==')
+
+const emitted: { candidate: string; style: string }[] = []
+for (const candidate of catalog) {
+  const expected = fullOracle.rules.get(candidate)
+  if (expected === undefined) continue
+  if (compareCandidate(candidate, expected, fullVars).verdict !== 'MATCH') continue
+  for (const context of ['View', 'Text']) {
+    const source =
+      `import { ${context} } from '@dowel/core'\n` +
+      `export function C() { return <${context} className="${candidate}">x</${context}> }\n`
+    const [result] = compileNative(source)
+    if (!result) continue
+    for (const match of result.styles.matchAll(/^ {2}(\w+): (\{\n[\s\S]*?^ {2}\}),/gm)) {
+      const body = match[2].replace(/^ {2}/gm, '')
+      if (body.replace(/\s/g, '') !== '{}') emitted.push({ candidate, style: body })
+    }
+  }
+}
+
+const typeErrors = typeCheckStyles(emitted)
+console.log(
+  `Entries:     ${emitted.length} style objects, from every candidate that matches on Web\n` +
+    `Rejected:    ${typeErrors.length}   (by react-native ${reactNativeVersion()}'s own declarations)`,
+)
+if (typeErrors.length > 0) {
+  const byCandidate = new Map<string, string>()
+  for (const error of typeErrors) {
+    if (!byCandidate.has(error.candidate ?? '?')) {
+      byCandidate.set(error.candidate ?? '?', error.message)
+    }
+  }
+  console.log('\nRejected, one line per candidate:')
+  for (const [candidate, message] of byCandidate) {
+    console.log(`  ${candidate}: ${message}`)
   }
 }

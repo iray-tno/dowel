@@ -283,7 +283,7 @@ fn border_style_literal(style: &BorderStyle) -> String {
 fn resolve_color(color: &Color) -> String {
     let token = match color {
         Color::Token(token) => token,
-        Color::Keyword(keyword) => return format!("'{keyword}'"),
+        Color::Keyword(keyword) => return js_string(keyword),
     };
     match dowel_ir::resolve_color_token(token) {
         Some(resolved) => format!("'{}'", resolved.hex),
@@ -294,6 +294,18 @@ fn resolve_color(color: &Color) -> String {
 /// Whether a property styles the element's *children* rather than the
 /// element itself. These don't belong in the element's own style entry; see
 /// `child_property_and_value`.
+/// A JavaScript string literal for `value`.
+///
+/// Not `js_string(value)`: a CSS value can contain the quote
+/// character, and a font stack routinely does
+/// (`-apple-system, 'Segoe UI', ...`). Wrapping that unescaped produced a
+/// generated file that didn't parse -- 76 of them, found by type-checking
+/// the output against React Native rather than by anything reading it.
+pub fn js_string(value: &str) -> String {
+    let escaped = value.replace('\\', "\\\\").replace('\'', "\\'");
+    format!("'{escaped}'")
+}
+
 /// A placeholder colour as `placeholderTextColor` wants it -- the same
 /// resolution every other colour gets, since it is an ordinary colour that
 /// happens to travel as a prop.
@@ -414,6 +426,14 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
             }
             .to_string(),
         )],
+        // `stretch` is legal on alignContent and not on justifyContent, and
+        // `baseline` on neither -- so which values are allowed is decided
+        // here, per property, rather than inside `justify_literal`, which
+        // can't see which of the two it is serving. Both are refused
+        // upstream; emitting them anyway would put a value in the
+        // StyleSheet that React Native's own types reject.
+        StyleProperty::AlignContent(Justify::Baseline) => Vec::new(),
+        StyleProperty::JustifyContent(Justify::Stretch | Justify::Baseline) => Vec::new(),
         StyleProperty::AlignContent(justify) => vec![("alignContent", justify_literal(justify))],
         StyleProperty::JustifyContent(justify) => vec![("justifyContent", justify_literal(justify))],
         StyleProperty::Gap(l) => vec![("gap", number(*l))],
@@ -463,36 +483,46 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
         // RN's `cursor` takes `auto` and `pointer`; every other keyword is
         // refused upstream by `unsupported_on_native`, so anything reaching
         // here is one of the two.
-        StyleProperty::Cursor(keyword) => vec![("cursor", format!("'{keyword}'"))],
+        // Only the two RN has; the rest are refused upstream, and emitting
+        // them anyway would put a value in the StyleSheet that RN's own
+        // types reject -- which is the convention every other refused
+        // value here already follows.
+        StyleProperty::Cursor(keyword) => match keyword.as_str() {
+            "auto" | "pointer" => vec![("cursor", js_string(keyword))],
+            _ => Vec::new(),
+        },
         // RN has `mixBlendMode` and takes the same keywords;
         // `background-blend-mode` is refused upstream.
         // Only the three React Native has; the rest are refused upstream by
         // name. The key is the camelCase of the CSS property, which is how
         // RN spells all three.
         StyleProperty::Keyword("user-select", value) => {
-            vec![("userSelect", format!("'{value}'"))]
+            vec![("userSelect", js_string(value))]
         }
-        StyleProperty::Keyword("vertical-align", value) => {
-            vec![("verticalAlign", format!("'{value}'"))]
-        }
+        StyleProperty::Keyword("vertical-align", value) => match *value {
+            "auto" | "top" | "bottom" | "middle" => {
+                vec![("verticalAlign", js_string(value))]
+            }
+            _ => Vec::new(),
+        },
         StyleProperty::Keyword("transform-origin", value) => {
-            vec![("transformOrigin", format!("'{value}'"))]
+            vec![("transformOrigin", js_string(value))]
         }
         // The camelCase of the CSS name, which is how RN spells each of
         // these. `font-family` keeps the whole stack: RN takes one family
         // name, but a stack is a legal string there and the platform picks
         // the first it has, which is the same behaviour.
         StyleProperty::Keyword("backface-visibility", v) => {
-            vec![("backfaceVisibility", format!("'{v}'"))]
+            vec![("backfaceVisibility", js_string(v))]
         }
-        StyleProperty::Keyword("box-sizing", v) => vec![("boxSizing", format!("'{v}'"))],
-        StyleProperty::Keyword("isolation", v) => vec![("isolation", format!("'{v}'"))],
+        StyleProperty::Keyword("box-sizing", v) => vec![("boxSizing", js_string(v))],
+        StyleProperty::Keyword("isolation", v) => vec![("isolation", js_string(v))],
         StyleProperty::Keyword("pointer-events", v) => {
-            vec![("pointerEvents", format!("'{v}'"))]
+            vec![("pointerEvents", js_string(v))]
         }
-        StyleProperty::Keyword("font-style", v) => vec![("fontStyle", format!("'{v}'"))],
-        StyleProperty::Keyword("font-family", v) => vec![("fontFamily", format!("'{v}'"))],
-        StyleProperty::Keyword("flex-wrap", v) => vec![("flexWrap", format!("'{v}'"))],
+        StyleProperty::Keyword("font-style", v) => vec![("fontStyle", js_string(v))],
+        StyleProperty::Keyword("font-family", v) => vec![("fontFamily", js_string(v))],
+        StyleProperty::Keyword("flex-wrap", v) => vec![("flexWrap", js_string(v))],
         // RN has `objectFit` with the same five keywords, `userSelect`, and
         // `textDecorationLine` with all but `overline`. The per-axis
         // overflows are refused upstream -- RN has only the combined one.
@@ -536,15 +566,21 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
             Some(n) => vec![("aspectRatio", n)],
             None => Vec::new(),
         },
-        StyleProperty::ObjectFit(v) => vec![("objectFit", format!("'{v}'"))],
-        StyleProperty::UserSelect(v) => vec![("userSelect", format!("'{v}'"))],
-        StyleProperty::TextDecorationLine(v) => vec![("textDecorationLine", format!("'{v}'"))],
+        StyleProperty::ObjectFit(v) => vec![("objectFit", js_string(v))],
+        StyleProperty::UserSelect(v) => vec![("userSelect", js_string(v))],
+        // Underline, line-through and their combination; `overline` is
+        // Web-only and refused upstream.
+        StyleProperty::TextDecorationLine("overline") => Vec::new(),
+        StyleProperty::TextDecorationLine(v) => vec![("textDecorationLine", js_string(v))],
         StyleProperty::OverflowX(_) | StyleProperty::OverflowY(_) => Vec::new(),
         StyleProperty::Keyword(..) => Vec::new(),
         // Every one of these is a vendor-prefixed Web property or a text
         // shaping control React Native doesn't have; refused upstream.
         StyleProperty::KeywordPair(..) => Vec::new(),
-        StyleProperty::MixBlendMode(m) => vec![("mixBlendMode", format!("'{m}'"))],
+        StyleProperty::MixBlendMode(m) => match *m {
+            "plus-darker" => Vec::new(),
+            _ => vec![("mixBlendMode", js_string(m))],
+        },
         StyleProperty::BackgroundBlendMode(_) => Vec::new(),
         // Both refused upstream: Yoga has no flex `order`, and React Native
         // has no multi-column layout.
@@ -769,7 +805,7 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
                 TextAlign::Left => "'left'",
                 TextAlign::Center => "'center'",
                 TextAlign::Right => "'right'",
-                TextAlign::Css(v) => return vec![("textAlign", format!("'{v}'"))],
+                TextAlign::Css(v) => return vec![("textAlign", js_string(v))],
             }
             .to_string(),
         )],

@@ -1036,6 +1036,21 @@ impl StyleProperty {
             StyleProperty::KeywordPair(_, _, property, _) => {
                 Some(format!("`{property}`: React Native has no such style"))
             }
+            // Two keyword properties React Native has but narrower than CSS.
+            // Found by type-checking the emitted styles against RN rather
+            // than by reading its docs -- the allowlist above only asked
+            // whether the *property* exists.
+            StyleProperty::Keyword("vertical-align", value)
+                if !matches!(*value, "auto" | "top" | "bottom" | "middle") =>
+            {
+                Some(format!(
+                    "`align-{value}`: React Native's verticalAlign is auto, top, bottom or middle"
+                ))
+            }
+            StyleProperty::MixBlendMode("plus-darker") => Some(
+                "`mix-blend-plus-darker`: React Native's blend modes have plus-lighter and not \n                 plus-darker"
+                    .to_string(),
+            ),
             StyleProperty::Keyword(property, _)
                 if !matches!(*property, 
                     "user-select"

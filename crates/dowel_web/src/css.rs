@@ -75,6 +75,18 @@ fn justify_keyword(justify: &Justify) -> &'static str {
         Justify::Between => "space-between",
         Justify::Around => "space-around",
         Justify::Evenly => "space-evenly",
+        Justify::Stretch => "stretch",
+        Justify::Baseline => "baseline",
+        Justify::Css(v) => v,
+    }
+}
+
+fn overflow_keyword(overflow: &Overflow) -> &'static str {
+    match overflow {
+        Overflow::Visible => "visible",
+        Overflow::Hidden => "hidden",
+        Overflow::Scroll => "scroll",
+        Overflow::Css(v) => v,
     }
 }
 
@@ -613,6 +625,7 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
                 Align::End => "flex-end",
                 Align::Stretch => "stretch",
                 Align::Baseline => "baseline",
+                Align::Css(v) => v,
             }
             .to_string(),
         ),
@@ -625,6 +638,7 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
                 AlignSelf::End => "flex-end",
                 AlignSelf::Stretch => "stretch",
                 AlignSelf::Baseline => "baseline",
+                AlignSelf::Css(v) => v,
             }
             .to_string(),
         ),
@@ -783,6 +797,12 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
             },
         ),
         StyleProperty::TextUnderlineOffset(d) => ("text-underline-offset", dimension_value(*d)),
+        StyleProperty::OverflowX(o) => ("overflow-x", overflow_keyword(o).to_string()),
+        StyleProperty::OverflowY(o) => ("overflow-y", overflow_keyword(o).to_string()),
+        StyleProperty::ObjectFit(v) => ("object-fit", v.to_string()),
+        // Composed above: it writes the -webkit- prefix too.
+        StyleProperty::UserSelect(_) => ("user-select", String::new()),
+        StyleProperty::TextDecorationLine(v) => ("text-decoration-line", v.to_string()),
         StyleProperty::Keyword(property, value) => (property, value.to_string()),
         StyleProperty::MixBlendMode(m) => ("mix-blend-mode", m.to_string()),
         StyleProperty::BackgroundBlendMode(m) => ("background-blend-mode", m.to_string()),
@@ -800,15 +820,7 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
             LetterSpacing::Em(Em(v)) => format!("{v}em"),
             LetterSpacing::Px(l) => length_px(*l),
         }),
-        StyleProperty::Overflow(o) => (
-            "overflow",
-            match o {
-                Overflow::Visible => "visible",
-                Overflow::Hidden => "hidden",
-                Overflow::Scroll => "scroll",
-            }
-            .to_string(),
-        ),
+        StyleProperty::Overflow(o) => ("overflow", overflow_keyword(o).to_string()),
         StyleProperty::TextOverflow(t) => (
             "text-overflow",
             match t {
@@ -822,6 +834,7 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
             match w {
                 WhiteSpace::Normal => "normal",
                 WhiteSpace::NoWrap => "nowrap",
+                WhiteSpace::Css(v) => v,
             }
             .to_string(),
         ),
@@ -1062,6 +1075,8 @@ pub fn render_rule(class_name: &str, condition: &Condition, props: &[StyleProper
         rest.into_iter().partition(|p| is_scrollbar_color(p));
     let (translate_props, rest): (Vec<&StyleProperty>, Vec<&StyleProperty>) =
         rest.into_iter().partition(|p| is_translate(p));
+    let (user_select_props, rest): (Vec<&StyleProperty>, Vec<&StyleProperty>) =
+        rest.into_iter().partition(|p| matches!(p, StyleProperty::UserSelect(_)));
     let (filter_props, rest): (Vec<&StyleProperty>, Vec<&StyleProperty>) =
         rest.into_iter().partition(|p| is_filter(p));
     let (scale_props, rest): (Vec<&StyleProperty>, Vec<&StyleProperty>) =
@@ -1077,6 +1092,7 @@ pub fn render_rule(class_name: &str, condition: &Condition, props: &[StyleProper
         || !mask_props.is_empty()
         || !scrollbar_props.is_empty()
         || !translate_props.is_empty()
+        || !user_select_props.is_empty()
         || !filter_props.is_empty()
         || !scale_props.is_empty()
         || !transform_props.is_empty()
@@ -1111,6 +1127,17 @@ pub fn render_rule(class_name: &str, condition: &Condition, props: &[StyleProper
 "));
             body.push_str(&format!("  backdrop-filter: {value};
 "));
+        }
+        // Safari still needs the prefix for user-select, and Tailwind emits
+        // both, so this is one utility writing two declarations rather than
+        // a value formatting choice.
+        for prop in &user_select_props {
+            if let StyleProperty::UserSelect(value) = prop {
+                body.push_str(&format!("  -webkit-user-select: {value};
+"));
+                body.push_str(&format!("  user-select: {value};
+"));
+            }
         }
         if let Some(value) = scale_value(&scale_props) {
             body.push_str(&format!("  scale: {value};\n"));

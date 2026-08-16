@@ -287,6 +287,21 @@ pub enum StyleProperty {
     /// `columns-*`. CSS multi-column layout, which React Native has no
     /// equivalent for at all.
     Columns(ColumnCount),
+    /// `overflow-x-*` / `overflow-y-*`. Separate properties from
+    /// `Overflow`, matching CSS -- React Native has only the combined one,
+    /// so the per-axis forms are refused there.
+    OverflowX(Overflow),
+    OverflowY(Overflow),
+    /// `object-*`. React Native has `objectFit` and takes the same five
+    /// keywords, so the text is shared.
+    ObjectFit(&'static str),
+    /// `select-*`. Two declarations on Web (the -webkit- prefix is still
+    /// load-bearing in Safari), one `userSelect` on React Native.
+    UserSelect(&'static str),
+    /// `underline`/`overline`/`line-through`/`no-underline`. React Native
+    /// has `textDecorationLine` and takes underline, line-through and their
+    /// combination; `overline` is Web-only.
+    TextDecorationLine(&'static str),
     /// `underline-offset-*`. A length rather than a keyword, so it takes a
     /// real property: the negative forms have to go through `negated`,
     /// which has nothing sensible to do with a `Keyword`.
@@ -665,6 +680,9 @@ pub enum Align {
     End,
     Stretch,
     Baseline,
+    /// The values React Native's alignment unions don't have: `normal`,
+    /// and the `safe` overflow-alignment forms.
+    Css(&'static str),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -675,6 +693,13 @@ pub enum Justify {
     Between,
     Around,
     Evenly,
+    /// `align-content` takes these and `justify-content` doesn't, on both
+    /// platforms -- the two share this enum, so which one is legal is
+    /// decided per property in `unsupported_on_native`.
+    Stretch,
+    Baseline,
+    /// See `Align::Css`.
+    Css(&'static str),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -775,6 +800,46 @@ impl StyleProperty {
             StyleProperty::Columns(_) => {
                 Some("`columns-*`: React Native has no multi-column layout".to_string())
             }
+            // A CSS value React Native's union for that property doesn't
+            // have. Each one is a genuine keyword there is no equivalent
+            // for -- `overflow: clip`, `justify-content: safe center` --
+            // rather than a spelling difference, so approximating would
+            // change the layout rather than the text.
+            StyleProperty::Overflow(Overflow::Css(value)) => Some(format!(
+                "`overflow: {value}`: React Native's overflow is visible, hidden or scroll"
+            )),
+            StyleProperty::AlignItems(Align::Css(value))
+            | StyleProperty::AlignContent(Justify::Css(value))
+            | StyleProperty::JustifyContent(Justify::Css(value)) => Some(format!(
+                "`{value}` alignment: React Native's alignment values don't include it"
+            )),
+            // RN's alignContent has stretch but not baseline; its
+            // justifyContent has neither. The two share `Justify`, so the
+            // legality is per property rather than per value.
+            StyleProperty::AlignContent(Justify::Baseline) => Some(
+                "`content-baseline`: React Native's alignContent has no baseline".to_string(),
+            ),
+            StyleProperty::JustifyContent(Justify::Stretch | Justify::Baseline) => Some(
+                "`justify-stretch`/`justify-baseline`: React Native's justifyContent has neither"
+                    .to_string(),
+            ),
+            StyleProperty::AlignSelf(AlignSelf::Css(value)) => Some(format!(
+                "`self-{value}`: React Native's alignSelf values don't include it"
+            )),
+            StyleProperty::WhiteSpace(WhiteSpace::Css(value)) => Some(format!(
+                "`white-space: {value}`: React Native's Text has no white-space control beyond \
+                 wrapping"
+            )),
+            // React Native has only the combined `overflow`.
+            StyleProperty::OverflowX(_) | StyleProperty::OverflowY(_) => Some(
+                "`overflow-x-*`/`overflow-y-*`: React Native has one `overflow` for both axes"
+                    .to_string(),
+            ),
+            StyleProperty::TextDecorationLine("overline") => Some(
+                "`overline`: React Native's textDecorationLine has underline and line-through, \
+                 not overline"
+                    .to_string(),
+            ),
             // The long tail. React Native has three of these properties and
             // none of the rest -- checked against its own StyleSheet types
             // rather than assumed, the same way the refusal audit checks
@@ -1175,6 +1240,9 @@ pub enum Overflow {
     Visible,
     Hidden,
     Scroll,
+    /// `auto` and `clip`. React Native's overflow union has neither,
+    /// so these are refused there rather than approximated.
+    Css(&'static str),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1187,6 +1255,9 @@ pub enum TextOverflow {
 pub enum WhiteSpace {
     Normal,
     NoWrap,
+    /// `pre`, `pre-line`, `pre-wrap`, `break-spaces`. React Native's Text
+    /// has no white-space control beyond wrapping, so these are refused.
+    Css(&'static str),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1207,6 +1278,8 @@ pub enum AlignSelf {
     End,
     Stretch,
     Baseline,
+    /// See `Align::Css`.
+    Css(&'static str),
 }
 
 // ---------------------------------------------------------------------------

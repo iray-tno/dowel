@@ -1407,6 +1407,105 @@ fn parse_cursor(token: &str) -> Option<&str> {
 /// the conformance report rather than caught by it: a candidate Tailwind
 /// produces no rule for leaves the denominator, so Dowel accepting a class
 /// Tailwind rejects is exactly the shape of error that report can't see.
+/// The values of already-modelled properties that Dowel didn't cover.
+///
+/// These can't join `KEYWORD_UTILITIES`: their property already has a
+/// variant, and a property reachable both ways stops deduping against
+/// itself (see `StyleProperty::Keyword`). So each one extends its own
+/// enum instead, through the `Css` fallthrough those enums carry for
+/// exactly this -- values that are a keyword and nothing more, which the
+/// Web writes verbatim and React Native has no equivalent for.
+fn parse_extended_value(token: &str) -> Option<StyleProperty> {
+    fn overflow(value: &str) -> Option<Overflow> {
+        Some(match value {
+            "visible" => Overflow::Visible,
+            "hidden" => Overflow::Hidden,
+            "scroll" => Overflow::Scroll,
+            "auto" => Overflow::Css("auto"),
+            "clip" => Overflow::Css("clip"),
+            _ => return None,
+        })
+    }
+    if let Some(rest) = token.strip_prefix("overflow-x-") {
+        return overflow(rest).map(StyleProperty::OverflowX);
+    }
+    if let Some(rest) = token.strip_prefix("overflow-y-") {
+        return overflow(rest).map(StyleProperty::OverflowY);
+    }
+    if let Some(rest) = token.strip_prefix("overflow-") {
+        return overflow(rest).map(StyleProperty::Overflow);
+    }
+
+    // `content-*` is align-content, `justify-*` is justify-content. Both
+    // take the same extra values, and `safe` is a prefix on the alignment
+    // rather than a keyword of its own.
+    let alignment = |rest: &str| -> Option<&'static str> {
+        Some(match rest {
+            "normal" => "normal",
+            "center-safe" => "safe center",
+            "end-safe" => "safe flex-end",
+            _ => return None,
+        })
+    };
+    // `baseline` and `stretch` have real variants -- routing them through
+    // `Css` would refuse them on Native, where RN's alignment unions do
+    // have both. The refusal audit caught exactly that.
+    match token {
+        "items-baseline" => return Some(StyleProperty::AlignItems(Align::Baseline)),
+        "items-stretch" => return Some(StyleProperty::AlignItems(Align::Stretch)),
+        "self-baseline" => return Some(StyleProperty::AlignSelf(AlignSelf::Baseline)),
+        "self-stretch" => return Some(StyleProperty::AlignSelf(AlignSelf::Stretch)),
+        "content-stretch" => return Some(StyleProperty::AlignContent(Justify::Stretch)),
+        "content-baseline" => return Some(StyleProperty::AlignContent(Justify::Baseline)),
+        "justify-stretch" => return Some(StyleProperty::JustifyContent(Justify::Stretch)),
+        "justify-baseline" => return Some(StyleProperty::JustifyContent(Justify::Baseline)),
+        _ => {}
+    }
+    if let Some(rest) = token.strip_prefix("content-") {
+        return alignment(rest).map(|v| StyleProperty::AlignContent(Justify::Css(v)));
+    }
+    if let Some(rest) = token.strip_prefix("justify-") {
+        return alignment(rest).map(|v| StyleProperty::JustifyContent(Justify::Css(v)));
+    }
+    if let Some(rest) = token.strip_prefix("items-") {
+        return alignment(rest).map(|v| StyleProperty::AlignItems(Align::Css(v)));
+    }
+    if let Some(rest) = token.strip_prefix("self-") {
+        return alignment(rest).map(|v| StyleProperty::AlignSelf(AlignSelf::Css(v)));
+    }
+
+    if let Some(rest) = token.strip_prefix("object-") {
+        if let Some(fit) = ["contain", "cover", "fill", "none", "scale-down"]
+            .into_iter()
+            .find(|f| *f == rest)
+        {
+            return Some(StyleProperty::ObjectFit(fit));
+        }
+    }
+    if let Some(rest) = token.strip_prefix("select-") {
+        if let Some(value) =
+            ["all", "auto", "none", "text"].into_iter().find(|v| *v == rest)
+        {
+            return Some(StyleProperty::UserSelect(value));
+        }
+    }
+    if let Some(rest) = token.strip_prefix("whitespace-") {
+        if let Some(value) = ["pre", "pre-line", "pre-wrap", "break-spaces"]
+            .into_iter()
+            .find(|v| *v == rest)
+        {
+            return Some(StyleProperty::WhiteSpace(WhiteSpace::Css(value)));
+        }
+    }
+    match token {
+        "underline" => Some(StyleProperty::TextDecorationLine("underline")),
+        "overline" => Some(StyleProperty::TextDecorationLine("overline")),
+        "line-through" => Some(StyleProperty::TextDecorationLine("line-through")),
+        "no-underline" => Some(StyleProperty::TextDecorationLine("none")),
+        _ => None,
+    }
+}
+
 /// The utilities that are exactly one CSS declaration with a fixed value.
 ///
 /// Ninety-odd properties whose whole content is a closed list of keywords
@@ -2016,6 +2115,10 @@ fn negated(prop: StyleProperty) -> Option<StyleProperty> {
             StyleProperty::OutlineOffset(Length::Px(signed(v, true)))
         }
         StyleProperty::ZIndex(z) => StyleProperty::ZIndex(-z),
+        // A marker rather than a value: negating `scale-z-50` must keep the
+        // three-value form, so this negates to itself. Without an arm here
+        // `negated` returned None and dropped the whole utility.
+        StyleProperty::Scale3d => StyleProperty::Scale3d,
         StyleProperty::Order(n) => StyleProperty::Order(-n),
         // A negative grid line counts back from the end of the explicit
         // grid, so these negate rather than being rejected.
@@ -2120,6 +2223,9 @@ fn expand_base_utility(token: &str) -> Vec<StyleProperty> {
         return vec![prop];
     }
     if let Some(prop) = keyword_utility(token) {
+        return vec![prop];
+    }
+    if let Some(prop) = parse_extended_value(token) {
         return vec![prop];
     }
     if let Some(prop) = expand_scrollbar(token) {
@@ -2532,6 +2638,41 @@ mod tests {
             expand_utility("translate-x-2"),
             (Condition::Always, vec![StyleProperty::TranslateX(Dimension::Length(Length::Px(8.0)))])
         );
+    }
+
+    #[test]
+    fn extra_values_use_the_real_variant_when_one_exists() {
+        // The refusal audit caught this: routing every new alignment value
+        // through `Css` refused `items-baseline` and `items-stretch` on
+        // Native, where React Native's alignItems has both. A `Css`
+        // fallthrough is for values the platform genuinely lacks, not a
+        // shortcut past the variants that already exist.
+        assert_eq!(
+            expand_utility("items-baseline").1,
+            vec![StyleProperty::AlignItems(Align::Baseline)]
+        );
+        assert_eq!(
+            expand_utility("self-stretch").1,
+            vec![StyleProperty::AlignSelf(AlignSelf::Stretch)]
+        );
+        assert!(StyleProperty::AlignItems(Align::Baseline).unsupported_on_native().is_none());
+
+        // `safe` is an overflow-alignment prefix, and the flexbox spelling
+        // of the edge comes with it: `safe flex-end`, not `safe end`.
+        assert_eq!(
+            expand_utility("justify-end-safe").1,
+            vec![StyleProperty::JustifyContent(Justify::Css("safe flex-end"))]
+        );
+
+        // align-content and justify-content share `Justify`, so which
+        // values React Native accepts is decided per property: it has
+        // stretch on alignContent and on neither for justifyContent.
+        assert!(StyleProperty::AlignContent(Justify::Stretch)
+            .unsupported_on_native()
+            .is_none());
+        assert!(StyleProperty::JustifyContent(Justify::Stretch)
+            .unsupported_on_native()
+            .is_some());
     }
 
     #[test]

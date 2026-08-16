@@ -241,6 +241,10 @@ fn justify_literal(justify: &Justify) -> String {
         Justify::Between => "'space-between'",
         Justify::Around => "'space-around'",
         Justify::Evenly => "'space-evenly'",
+        Justify::Stretch => "'stretch'",
+        Justify::Baseline => "'baseline'",
+        // Refused upstream: none of these are in RN's alignment unions.
+        Justify::Css(_) => "",
     }
     .to_string()
 }
@@ -365,6 +369,7 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
                 Align::End => "'flex-end'",
                 Align::Stretch => "'stretch'",
                 Align::Baseline => "'baseline'",
+            Align::Css(_) => "",
             }
             .to_string(),
         )],
@@ -377,6 +382,7 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
                 AlignSelf::End => "'flex-end'",
                 AlignSelf::Stretch => "'stretch'",
                 AlignSelf::Baseline => "'baseline'",
+            AlignSelf::Css(_) => "",
             }
             .to_string(),
         )],
@@ -443,6 +449,13 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
         StyleProperty::Keyword("transform-origin", value) => {
             vec![("transformOrigin", format!("'{value}'"))]
         }
+        // RN has `objectFit` with the same five keywords, `userSelect`, and
+        // `textDecorationLine` with all but `overline`. The per-axis
+        // overflows are refused upstream -- RN has only the combined one.
+        StyleProperty::ObjectFit(v) => vec![("objectFit", format!("'{v}'"))],
+        StyleProperty::UserSelect(v) => vec![("userSelect", format!("'{v}'"))],
+        StyleProperty::TextDecorationLine(v) => vec![("textDecorationLine", format!("'{v}'"))],
+        StyleProperty::OverflowX(_) | StyleProperty::OverflowY(_) => Vec::new(),
         StyleProperty::Keyword(..) => Vec::new(),
         StyleProperty::MixBlendMode(m) => vec![("mixBlendMode", format!("'{m}'"))],
         StyleProperty::BackgroundBlendMode(_) => Vec::new(),
@@ -565,6 +578,8 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
                 Overflow::Visible => "'visible'",
                 Overflow::Hidden => "'hidden'",
                 Overflow::Scroll => "'scroll'",
+                // Refused upstream: RN's overflow has no auto or clip.
+                Overflow::Css(_) => "",
             }
             .to_string(),
         )],

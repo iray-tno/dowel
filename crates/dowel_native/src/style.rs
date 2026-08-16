@@ -462,6 +462,21 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
         StyleProperty::Keyword("transform-origin", value) => {
             vec![("transformOrigin", format!("'{value}'"))]
         }
+        // The camelCase of the CSS name, which is how RN spells each of
+        // these. `font-family` keeps the whole stack: RN takes one family
+        // name, but a stack is a legal string there and the platform picks
+        // the first it has, which is the same behaviour.
+        StyleProperty::Keyword("backface-visibility", v) => {
+            vec![("backfaceVisibility", format!("'{v}'"))]
+        }
+        StyleProperty::Keyword("box-sizing", v) => vec![("boxSizing", format!("'{v}'"))],
+        StyleProperty::Keyword("isolation", v) => vec![("isolation", format!("'{v}'"))],
+        StyleProperty::Keyword("pointer-events", v) => {
+            vec![("pointerEvents", format!("'{v}'"))]
+        }
+        StyleProperty::Keyword("font-style", v) => vec![("fontStyle", format!("'{v}'"))],
+        StyleProperty::Keyword("font-family", v) => vec![("fontFamily", format!("'{v}'"))],
+        StyleProperty::Keyword("flex-wrap", v) => vec![("flexWrap", format!("'{v}'"))],
         // RN has `objectFit` with the same five keywords, `userSelect`, and
         // `textDecorationLine` with all but `overline`. The per-axis
         // overflows are refused upstream -- RN has only the combined one.

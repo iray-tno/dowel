@@ -1563,6 +1563,27 @@ fn parse_extended_value(token: &str) -> Option<StyleProperty> {
 /// `keyword_table_avoids_the_modelled_properties` is the test that holds
 /// the line.
 const KEYWORD_UTILITIES: &[(&str, &str, &str)] = &[
+        ("backface-hidden", "backface-visibility", "hidden"),
+        ("backface-visible", "backface-visibility", "visible"),
+        ("bg-none", "background-image", "none"),
+        ("box-border", "box-sizing", "border-box"),
+        ("box-content", "box-sizing", "content-box"),
+        ("content-none", "content", "none"),
+        ("flex-nowrap", "flex-wrap", "nowrap"),
+        ("flex-wrap-reverse", "flex-wrap", "wrap-reverse"),
+        ("flex-wrap", "flex-wrap", "wrap"),
+        ("italic", "font-style", "italic"),
+        ("not-italic", "font-style", "normal"),
+        ("isolate", "isolation", "isolate"),
+        ("isolation-auto", "isolation", "auto"),
+        ("pointer-events-auto", "pointer-events", "auto"),
+        ("pointer-events-none", "pointer-events", "none"),
+        ("collapse", "visibility", "collapse"),
+        ("invisible", "visibility", "hidden"),
+        ("visible", "visibility", "visible"),
+        ("font-mono", "font-family", "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace"),
+        ("font-sans", "font-family", "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', 'Noto Sans', Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji'"),
+        ("font-serif", "font-family", "ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif"),
         ("align-baseline", "vertical-align", "baseline"),
         ("align-bottom", "vertical-align", "bottom"),
         ("align-middle", "vertical-align", "middle"),
@@ -2778,8 +2799,12 @@ mod tests {
         // safe direction.
         let emitter = include_str!("../../dowel_web/src/css.rs");
         for (token, property, _) in KEYWORD_UTILITIES {
+            // The quoted name anywhere, not `("name",`: a wide match arm
+            // puts the property on its own line, so anchoring on the paren
+            // silently missed every multi-line one -- which is most of the
+            // interesting ones (`align-items`, `position`, `text-align`).
             assert!(
-                !emitter.contains(&format!("(\"{property}\",")),
+                !emitter.contains(&format!("\"{property}\"")),
                 "`{token}` sets `{property}`, which dowel_web also writes from a variant: \
                  give it a property of its own instead of a Keyword"
             );

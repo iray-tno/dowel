@@ -71,6 +71,10 @@ function expressible(property: string, value: string): { ok: boolean; reason?: s
  * hide again.
  */
 const ACKNOWLEDGED_REFUSALS: Record<string, string> = {
+  'bg-none': `\`backgroundImage\` is typed \`ReadonlyArray<BackgroundImageValue> | string\`,
+    which a string can satisfy -- but React Native's value there is a list of
+    gradients, and \`none\` is not one of them. Dowel emits no gradients on
+    Native either, so there is nothing for this to clear.`,
   'aspect-auto': `\`aspectRatio\` is typed \`number | string\`, so the types can't rule out
     \`auto\` -- but React Native has no auto aspect ratio, and passing the
     string makes it ignore the style rather than fall back to content size.`,

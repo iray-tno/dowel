@@ -876,7 +876,18 @@ impl StyleProperty {
             // rather than assumed, the same way the refusal audit checks
             // everything else here.
             StyleProperty::Keyword(property, _)
-                if !matches!(*property, "user-select" | "vertical-align" | "transform-origin") =>
+                if !matches!(*property, 
+                    "user-select"
+                        | "vertical-align"
+                        | "transform-origin"
+                        | "backface-visibility"
+                        | "box-sizing"
+                        | "isolation"
+                        | "pointer-events"
+                        | "font-style"
+                        | "font-family"
+                        | "flex-wrap"
+                ) =>
             {
                 Some(format!("`{property}`: React Native has no such style"))
             }

@@ -48,6 +48,14 @@ pub enum Severity {
 pub enum DiagnosticCode {
     /// Interactive Pressable/Button with no accessible role (proposal §10.2).
     A11yInteractiveWithoutRole,
+    /// A `TextInput` with no accessible name (proposal §10.2).
+    ///
+    /// Separate from the role diagnostic because the fix is different and
+    /// the wrong fix is so common: a `placeholder` looks like a label,
+    /// and is not one. Screen readers may not announce it, and it
+    /// vanishes the moment the user types -- which is exactly when they
+    /// would want to check what the field was for.
+    A11yInputWithoutLabel,
     /// A prop spread appears after a statically compiled className/style and
     /// could silently override it at runtime; that node's className is not
     /// compiled and falls back instead of failing silently.
@@ -105,6 +113,11 @@ pub enum Primitive {
     Text,
     Pressable,
     Button,
+    /// A single-line text field. `<input>` on Web, `TextInput` on React
+    /// Native -- and the reason `placeholder-*` can lower at all, since
+    /// React Native carries that colour as a prop on this component
+    /// rather than as a style on anything.
+    TextInput,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -199,6 +212,18 @@ pub struct PropSet {
     /// Explicit override; `None` means derive the role from `Primitive`
     /// (e.g. `Button` -> `AccessibilityRole::Button`).
     pub accessibility_role: Option<AccessibilityRole>,
+    /// A `TextInput`'s accessible name, from `aria-label`/
+    /// `accessibilityLabel`. Modelled rather than passed through because
+    /// its *absence* is the diagnosis (proposal §10.2): a field with no
+    /// name is unusable with a screen reader, and `placeholder` is the
+    /// classic thing people reach for instead -- it disappears on first
+    /// keystroke and is not announced as a label.
+    pub accessibility_label: Option<ExprRef>,
+    /// Whether a `TextInput` was given a `placeholder`. Only whether, not
+    /// what: the value is passed through untouched, and all the compiler
+    /// needs to know is that a name-less field has one, which is the case
+    /// worth naming.
+    pub has_placeholder: bool,
     /// Props Dowel doesn't model explicitly -- re-emitted unchanged, in
     /// source order (which JSX's last-wins duplicate resolution depends on).
     pub passthrough: Vec<PassthroughProp>,
@@ -824,12 +849,11 @@ impl StyleProperty {
     /// the node.
     pub fn not_wired_on_native(&self) -> Option<String> {
         match self {
-            StyleProperty::PlaceholderColor(_) => Some(
-                "`placeholder-*`: React Native carries this as `TextInput`'s \
-                 `placeholderTextColor` prop rather than as a style, and Dowel has no `TextInput` \
-                 primitive to put it on yet. Nothing about the platform prevents it."
-                    .to_string(),
-            ),
+            // `placeholder-*` used to live here. It lowers now: React Native
+            // carries that colour as `placeholderTextColor` on `TextInput`,
+            // and `TextInput` exists. What remains is the case where it is
+            // written on something that isn't one, which `dowel_native`
+            // decides because it can see the node.
             _ => None,
         }
     }

@@ -43,7 +43,32 @@ pub fn native_component(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'st
             }
             ("Pressable", props)
         }
+        // Same diagnosis as the Web backend, which is the point: the
+        // accessibility question doesn't change between platforms even
+        // though the prop names do.
+        Primitive::TextInput => ("TextInput", missing_label(node, diagnostics)),
     }
+}
+
+/// Diagnoses a text field with no accessible name (proposal §10.2). The
+/// Web counterpart carries the reasoning; this is the same check with
+/// React Native's prop names in the message.
+fn missing_label(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> Vec<(&'static str, String)> {
+    if node.props.accessibility_label.is_none() {
+        diagnostics.push(Diagnostic {
+            code: DiagnosticCode::A11yInputWithoutLabel,
+            severity: Severity::Warning,
+            message: if node.props.has_placeholder {
+                "TextInput has a placeholder but no accessible name. A placeholder is not a \n                 label: it may not be announced as one, and it disappears as soon as the user \n                 types. Add `accessibilityLabel`."
+                    .to_string()
+            } else {
+                "TextInput has no accessible name, so a screen reader announces only that it is \n                 a text field. Add `accessibilityLabel`."
+                    .to_string()
+            },
+            span: node.span,
+        });
+    }
+    Vec::new()
 }
 
 #[cfg(test)]
@@ -81,6 +106,8 @@ mod tests {
                 on_press: Some(ExprRef(empty_span())),
                 disabled: None,
                 accessibility_role: None,
+                accessibility_label: None,
+                has_placeholder: false,
                 passthrough: Vec::new(),
             },
             children: Vec::new(),

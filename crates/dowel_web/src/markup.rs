@@ -45,7 +45,40 @@ pub fn element_shape(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'stati
             }
             ("div", attrs)
         }
+        Primitive::TextInput => ("input", missing_label(node, diagnostics)),
     }
+}
+
+/// Diagnoses a text field with no accessible name (proposal §10.2).
+///
+/// Returns no attributes -- the label itself is passed through from source,
+/// since Dowel never invents an accessible name. Guessing one from a
+/// `placeholder` or a nearby heading is how a field ends up announced as
+/// something it isn't, which is worse than being announced as nothing.
+///
+/// A `placeholder` in place of a label is called out specifically because
+/// it is the common wrong answer: it is not reliably announced as a name,
+/// and it disappears on the first keystroke -- exactly when someone would
+/// want to check what the field was for.
+fn missing_label(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> Vec<(&'static str, String)> {
+    if node.props.accessibility_label.is_none() {
+        diagnostics.push(Diagnostic {
+            code: DiagnosticCode::A11yInputWithoutLabel,
+            severity: Severity::Warning,
+            message: if node.props.has_placeholder {
+                "TextInput has a placeholder but no accessible name. A placeholder is not a \
+                 label: it may not be announced as one, and it disappears as soon as the user \
+                 types. Add `accessibilityLabel`, or associate a visible <label>."
+                    .to_string()
+            } else {
+                "TextInput has no accessible name, so a screen reader announces only that it is \
+                 a text field. Add `accessibilityLabel`, or associate a visible <label>."
+                    .to_string()
+            },
+            span: node.span,
+        });
+    }
+    Vec::new()
 }
 
 pub fn html_escape(text: &str) -> String {
@@ -87,6 +120,8 @@ mod tests {
                 on_press: Some(ExprRef(empty_span())),
                 disabled: None,
                 accessibility_role: None,
+                accessibility_label: None,
+                has_placeholder: false,
                 passthrough: Vec::new(),
             },
             children: Vec::new(),
@@ -110,6 +145,8 @@ mod tests {
                 on_press: Some(ExprRef(empty_span())),
                 disabled: None,
                 accessibility_role: Some(AccessibilityRole::Button),
+                accessibility_label: None,
+                has_placeholder: false,
                 passthrough: Vec::new(),
             },
             children: Vec::new(),

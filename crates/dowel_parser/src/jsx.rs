@@ -187,6 +187,7 @@ fn primitive_for_name(name: &str) -> Option<Primitive> {
         "View" => Some(Primitive::View),
         "Text" => Some(Primitive::Text),
         "Pressable" => Some(Primitive::Pressable),
+        "TextInput" => Some(Primitive::TextInput),
         "Button" => Some(Primitive::Button),
         _ => None,
     }
@@ -291,6 +292,36 @@ fn build_node(
                     .passthrough
                     .push(PassthroughProp { span: to_expr_ref(attr.span()), is_spread: false }),
             },
+            // Both spellings are accepted and neither is passed through:
+            // the two platforms name this prop differently, so the value is
+            // captured here and each backend writes it under its own name.
+            // Re-emitting the source spelling verbatim would put
+            // `accessibilityLabel` on a DOM `<input>`, where React drops it
+            // and the field ends up with no accessible name at all -- the
+            // exact failure the diagnostic exists to prevent.
+            //
+            // The *value* is never touched. Dowel diagnoses the absence of
+            // a name and never invents or rewrites one: a name guessed from
+            // a placeholder or a nearby heading is how a field comes to be
+            // announced as something it isn't, which is worse than being
+            // announced as nothing.
+            "accessibilityLabel" | "aria-label" => match &attr.value {
+                Some(JSXAttributeValue::ExpressionContainer(container)) => {
+                    props.accessibility_label = Some(to_expr_ref(container.expression.span()));
+                }
+                Some(JSXAttributeValue::StringLiteral(literal)) => {
+                    props.accessibility_label = Some(to_expr_ref(literal.span));
+                }
+                _ => props
+                    .passthrough
+                    .push(PassthroughProp { span: to_expr_ref(attr.span()), is_spread: false }),
+            },
+            "placeholder" => {
+                props.has_placeholder = true;
+                props
+                    .passthrough
+                    .push(PassthroughProp { span: to_expr_ref(attr.span()), is_spread: false });
+            }
             "accessibilityRole" => {
                 props.accessibility_role = accessibility_role_from_value(&attr.value);
                 if props.accessibility_role.is_none() {

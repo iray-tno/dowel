@@ -62,3 +62,6 @@ export function Button({ className, children, onPress, disabled }: ButtonProps) 
     </button>
   )
 }
+cargo test 2>&1 | grep -E "^---- |panicked|^error" | head -5
+
+export { TextInput, type TextInputProps } from './text-input.tsx'

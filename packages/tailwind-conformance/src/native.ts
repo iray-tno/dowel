@@ -90,6 +90,21 @@ const PROBE_CONTEXTS = [
       `export function C() {\n  return <Text className="${candidate}">x</Text>\n}\n`,
   },
   {
+    // `placeholder-*` only means anything where a placeholder exists, and
+    // React Native carries that colour as a prop on this component rather
+    // than as a style on anything -- so a probe set without a TextInput
+    // can only ever report those 291 as unusable.
+    //
+    // Labelled, because the compiler warns about a field with no
+    // accessible name and the probe should be testing the utility rather
+    // than tripping that.
+    name: 'TextInput',
+    render: (candidate: string) =>
+      `import { TextInput } from '@dowel/core'\n` +
+      `export function C() {\n` +
+      `  return <TextInput className="${candidate}" accessibilityLabel="Field" />\n}\n`,
+  },
+  {
     name: 'first child',
     render: (candidate: string) =>
       `import { View } from '@dowel/core'\n` +

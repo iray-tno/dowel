@@ -294,6 +294,13 @@ fn resolve_color(color: &Color) -> String {
 /// Whether a property styles the element's *children* rather than the
 /// element itself. These don't belong in the element's own style entry; see
 /// `child_property_and_value`.
+/// A placeholder colour as `placeholderTextColor` wants it -- the same
+/// resolution every other colour gets, since it is an ordinary colour that
+/// happens to travel as a prop.
+pub fn placeholder_color(color: &Color) -> String {
+    resolve_color(color)
+}
+
 pub fn is_child_scoped(prop: &StyleProperty) -> bool {
     matches!(
         prop,

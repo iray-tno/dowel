@@ -376,6 +376,10 @@ fn render_node(
     // they're absorbed before the refusal check below -- otherwise the
     // thing that *does* express them would be reported as impossible.
     let truncation = truncation_props(node);
+    // Same shape as truncation: a CSS concept React Native keeps on a prop,
+    // absorbed before the refusal check so the thing that *does* express it
+    // isn't reported as impossible.
+    let placeholder = placeholder_props(node);
 
     // `leading-tight`/`tracking-wide` are relative to the font size, which
     // React Native's equivalents aren't. Resolved here, before the refusal
@@ -385,6 +389,15 @@ fn render_node(
     for declaration in &style {
         if truncation.is_some() && is_truncation_declaration(&declaration.property) {
             continue;
+        }
+        if matches!(declaration.property, StyleProperty::PlaceholderColor(_)) {
+            if placeholder.is_some() {
+                continue;
+            }
+            if let Some(reason) = placeholder_only_reason(&declaration.property) {
+                diagnostics.push(unwired_variant(node, &reason, Severity::Error));
+                continue;
+            }
         }
         if let Some(reason) = truncation_only_reason(&declaration.property) {
             diagnostics.push(Diagnostic {
@@ -499,12 +512,18 @@ fn render_node(
     }
     // Styles that RN expresses as props (see `truncation_props`).
     // `numberOfLines` takes a number, so it's braced rather than quoted.
+    for (key, value) in placeholder.into_iter().flatten() {
+        props_text.push_str(&format!(" {key}={{{value}}}"));
+    }
     for (key, value) in truncation.into_iter().flatten() {
         if value.parse::<u32>().is_ok() {
             props_text.push_str(&format!(" {key}={{{value}}}"));
         } else {
             props_text.push_str(&format!(r#" {key}="{value}""#));
         }
+    }
+    if let Some(label) = node.props.accessibility_label {
+        props_text.push_str(&format!(" accessibilityLabel={{{}}}", source_text(source, label)));
     }
     if let Some(on_press) = node.props.on_press {
         props_text.push_str(&format!(" onPress={{{}}}", source_text(source, on_press)));
@@ -597,6 +616,10 @@ fn render_node(
         runtime,
     );
 
+    // React Native's TextInput takes no children either.
+    if component == "TextInput" {
+        return format!("<{component}{props_text} />");
+    }
     format!("<{component}{props_text}>{inner}</{component}>")
 }
 
@@ -1146,6 +1169,28 @@ fn viewport_object(props: &[StyleProperty]) -> Option<String> {
         }
     }
     (!pairs.is_empty()).then(|| format!("{{ {} }}", pairs.join(", ")))
+}
+
+/// `placeholder-*` as React Native carries it: a prop on `TextInput`,
+/// not a style on anything.
+///
+/// Lives here rather than in `unsupported_on_native` because the answer
+/// depends on the node -- on a `TextInput` it lowers, anywhere else there
+/// is no placeholder for it to colour.
+fn placeholder_props(node: &Node) -> Option<Vec<(&'static str, String)>> {
+    let colour = node.style.iter().find_map(|d| match &d.property {
+        StyleProperty::PlaceholderColor(c) => Some(c),
+        _ => None,
+    })?;
+    (node.primitive == Primitive::TextInput)
+        .then(|| vec![("placeholderTextColor", style::placeholder_color(colour))])
+}
+
+fn placeholder_only_reason(property: &StyleProperty) -> Option<String> {
+    matches!(property, StyleProperty::PlaceholderColor(_)).then(|| {
+        "`placeholder-*`: React Native carries this as `TextInput`'s `placeholderTextColor` \n         prop, so it only means something on a TextInput"
+            .to_string()
+    })
 }
 
 /// React Native expresses text truncation as props on `Text` --
@@ -1835,6 +1880,67 @@ export function Login() {
         let output = lower(&parsed.roots[0].node, source);
         assert!(output.diagnostics.is_empty());
         assert!(!output.jsx.contains("numberOfLines"));
+    }
+
+    #[test]
+    fn placeholder_colour_lowers_to_the_prop_that_carries_it() {
+        // 291 candidates were refused for want of a `TextInput` to put this
+        // on. React Native keeps the colour as a prop rather than a style,
+        // which is why it needed a primitive rather than a style arm.
+        let source = r#"
+            import { TextInput } from '@dowel/core'
+            const el = <TextInput className="placeholder-red-500" accessibilityLabel="Email" />
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source);
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert!(output.jsx.contains("placeholderTextColor={'#fb2c36'}"), "{}", output.jsx);
+        // No children, so no closing tag to put them between.
+        assert!(output.jsx.ends_with("/>"), "{}", output.jsx);
+    }
+
+    #[test]
+    fn placeholder_colour_on_something_that_has_no_placeholder_is_refused() {
+        // The colour is only meaningful where a placeholder exists. On a
+        // View it has nothing to colour, and saying so beats emitting a
+        // style React Native would ignore.
+        let source = r#"
+            import { View } from '@dowel/core'
+            const el = <View className="placeholder-red-500" />
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source);
+        assert_eq!(output.diagnostics.len(), 1, "{:?}", output.diagnostics);
+        assert_eq!(output.diagnostics[0].code, DiagnosticCode::NotWiredOnNative);
+    }
+
+    #[test]
+    fn a_text_input_without_an_accessible_name_is_diagnosed() {
+        // The whole reason `TextInput` was added with a rule attached: a
+        // placeholder reads like a label and isn't one.
+        let source = r#"
+            import { TextInput } from '@dowel/core'
+            const el = <TextInput placeholder="you@example.com" />
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source);
+        let warning = output
+            .diagnostics
+            .iter()
+            .find(|d| d.code == DiagnosticCode::A11yInputWithoutLabel)
+            .expect("a nameless field must be diagnosed");
+        assert!(warning.message.contains("placeholder is not a"), "{}", warning.message);
+
+        // ...and the label, however it was spelled in source, is written
+        // under React Native's name for it.
+        let named = r#"
+            import { TextInput } from '@dowel/core'
+            const el = <TextInput aria-label="Email" />
+            "#;
+        let parsed = dowel_parser::parse_tsx(named);
+        let output = lower(&parsed.roots[0].node, named);
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert!(output.jsx.contains(r#"accessibilityLabel={"Email"}"#), "{}", output.jsx);
     }
 
     #[test]

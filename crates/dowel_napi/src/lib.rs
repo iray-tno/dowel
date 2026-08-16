@@ -24,6 +24,7 @@ pub struct CompileDiagnostic {
 fn diagnostic_code_str(code: DiagnosticCode) -> &'static str {
     match code {
         DiagnosticCode::A11yInteractiveWithoutRole => "A11Y_INTERACTIVE_WITHOUT_ROLE",
+        DiagnosticCode::A11yInputWithoutLabel => "A11Y_INPUT_WITHOUT_LABEL",
         DiagnosticCode::UnsafePropSpreadAfterStyle => "UNSAFE_PROP_SPREAD_AFTER_STYLE",
         DiagnosticCode::WebOnlyPropertyOnNative => "WEB_ONLY_PROPERTY_ON_NATIVE",
         DiagnosticCode::DynamicClassNameNotResolved => "DYNAMIC_CLASS_NAME_NOT_RESOLVED",

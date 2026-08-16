@@ -212,6 +212,12 @@ fn render_node(
         attrs.push_str(&format!(r#" {key}="{value}""#));
     }
 
+    // Written under the DOM's name for it. See the parser: the source may
+    // spell this either way, and re-emitting `accessibilityLabel` here
+    // would leave the field with no accessible name at all.
+    if let Some(label) = node.props.accessibility_label {
+        attrs.push_str(&format!(" aria-label={{{}}}", source_text(source, label)));
+    }
     if let Some(on_press) = node.props.on_press {
         attrs.push_str(&format!(" onClick={{{}}}", source_text(source, on_press)));
     }
@@ -271,6 +277,12 @@ fn render_node(
         })
         .collect();
 
+    // `<input>` is a void element: HTML forbids a closing tag and React
+    // throws on children. Nothing can be inside one, so there is no inner
+    // to lose by self-closing.
+    if tag == "input" {
+        return format!("<{tag}{attrs} />");
+    }
     format!("<{tag}{attrs}>{inner}</{tag}>")
 }
 

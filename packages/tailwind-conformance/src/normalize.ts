@@ -189,6 +189,32 @@ function evaluateArithmetic(expr: string): string | null {
   return unit ? `${result}${unit}` : `${result}`
 }
 
+/**
+ * `color-mix(in <space>, X 100%, transparent)` is X.
+ *
+ * An identity, not a tolerance: all of the weight is on one colour and
+ * none on the other. Tailwind writes shadow colours through a `color-mix`
+ * so that its `/50` opacity modifier has somewhere to go, and at the
+ * default 100% that wrapper carries no information. Folding it here rather
+ * than reproducing it in the compiler keeps the workaround on the side
+ * that has the reason for it -- Dowel has no `--tw-shadow-alpha` register
+ * to defer to, so it just writes the colour.
+ *
+ * Only the exact 100% case. Any other percentage is a real alpha change
+ * and folding it would be inventing a value.
+ */
+function foldFullColorMix(value: string): string {
+  let out = value
+  for (let i = 0; i < 8; i += 1) {
+    const match = /color-mix\(\s*in [a-z0-9-]+\s*,\s*([^,]*?)\s+100%\s*,\s*transparent\s*\)/i.exec(
+      out,
+    )
+    if (!match) break
+    out = out.replace(match[0], match[1])
+  }
+  return out
+}
+
 function remToPx(value: string): string {
   return value.replace(/(-?[\d.]+)rem/g, (_, n: string) => `${parseFloat(n) * ROOT_FONT_SIZE_PX}px`)
 }
@@ -196,6 +222,7 @@ function remToPx(value: string): string {
 /** Canonicalizes an already-resolved value's spelling. */
 function canonicalizeValue(value: string): string {
   let out = value.trim().toLowerCase().replace(/\s+/g, ' ')
+  out = foldFullColorMix(out)
   out = remToPx(out)
   // 0 is 0 regardless of unit. Any unit -- the list used to be `px|rem|%`,
   // which was every unit the named catalogue could produce and three of

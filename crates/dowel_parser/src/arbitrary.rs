@@ -23,7 +23,7 @@
 use dowel_ir::{
     Angle, BorderStyle, Clamp, Color, Dimension, FilterFunction, GridSpan, GridTracks, Length,
     LengthUnit, LetterSpacing, LineHeight,
-    Edge, MaskSlot, MaskStop, Radius, Scale,
+    Edge, GradientKind, GradientStop, MaskSlot, MaskStop, Radius, Scale,
     StyleProperty,
 };
 
@@ -823,6 +823,28 @@ fn from_prefix(prefix: &str, value: &str, hint: Option<&str>) -> Option<Vec<Styl
         // them, a size for the third. All three become the gradient's
         // whole argument when no stop utility supplied one -- see
         // `StyleProperty::MaskSlotArgument`.
+        // The gradient constructors' arbitrary form. Tailwind puts the
+        // value straight into `--tw-gradient-position`, so it is the
+        // gradient's whole prelude -- `bg-radial-[at_top]` is
+        // `radial-gradient(at top, …)`, with no interpolation clause
+        // appended. Writing one would be adding a colour space the author
+        // didn't ask for.
+        "bg-linear" => one(StyleProperty::Gradient(GradientKind::Linear, value.to_string())),
+        "bg-radial" => one(StyleProperty::Gradient(GradientKind::Radial, value.to_string())),
+        "bg-conic" => one(StyleProperty::Gradient(GradientKind::Conic, value.to_string())),
+        "from" if looks_like_color(value, hint) => {
+            one(StyleProperty::GradientStopColor(GradientStop::From, color()))
+        }
+        "from" => one(StyleProperty::GradientStopPosition(GradientStop::From, dimension())),
+        "via" if looks_like_color(value, hint) => {
+            one(StyleProperty::GradientStopColor(GradientStop::Via, color()))
+        }
+        "via" => one(StyleProperty::GradientStopPosition(GradientStop::Via, dimension())),
+        "to" if looks_like_color(value, hint) => {
+            one(StyleProperty::GradientStopColor(GradientStop::To, color()))
+        }
+        "to" => one(StyleProperty::GradientStopPosition(GradientStop::To, dimension())),
+
         "mask-linear" => one(StyleProperty::MaskSlotArgument(MaskSlot::Linear, angle())),
         "mask-conic" => one(StyleProperty::MaskSlotArgument(MaskSlot::Conic, angle())),
         "mask-radial" => one(StyleProperty::MaskSlotArgument(MaskSlot::Radial, angle())),

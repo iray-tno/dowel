@@ -296,6 +296,9 @@ fn style_pairs<'a>(props: &'a [StyleProperty], theme: &Theme) -> Vec<(&'a str, S
     if let Some(shadow) = style::box_shadow_entry(props, theme) {
         emitted.push(shadow);
     }
+    if let Some(gradient) = style::background_image_entry(props, theme) {
+        emitted.push(gradient);
+    }
     emitted
 }
 

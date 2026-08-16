@@ -20,6 +20,7 @@
 
 use dowel_ir::{
     Align, AlignSelf, BorderStyle, Color, DecorationStyle, Dimension, Display, FilterFunction,
+    GradientKind, GradientStop,
     Edge,
     FlexDirection,
     LetterSpacing,
@@ -173,6 +174,84 @@ fn scale_y(prop: &StyleProperty) -> Option<f64> {
     }
 }
 
+/// A gradient as React Native's `backgroundImage`, which takes CSS
+/// gradient syntax as a string.
+///
+/// One approximation, and it is visible rather than structural: the
+/// interpolation clause is dropped. Tailwind v4 ramps colours through
+/// Oklab, so a red-to-blue gradient stays saturated in the middle;
+/// React Native's parser doesn't accept `in oklab` and would reject the
+/// whole value, so the string it gets interpolates in sRGB and passes
+/// through grey. Endpoints are identical, the middle is not.
+///
+/// Conic gradients are refused by name in
+/// `StyleProperty::native_gap` rather than approximated here --
+/// `BackgroundImageValue` is `LinearGradientValue | RadialGradientValue`
+/// and there is no third one to fall back to.
+pub fn background_image_entry(
+    props: &[StyleProperty],
+    theme: &Theme,
+) -> Option<(&'static str, String)> {
+    // Last wins between a gradient and `bg-none`, the same scan the Web
+    // backend does for the same reason.
+    let latest = props.iter().rev().find_map(|p| match p {
+        StyleProperty::Gradient(kind, prelude) => Some(Some((*kind, prelude.as_str()))),
+        StyleProperty::BackgroundImageNone => Some(None),
+        _ => None,
+    })?;
+    let Some((kind, prelude)) = latest else {
+        return Some(("backgroundImage", "'none'".to_string()));
+    };
+    if kind == GradientKind::Conic {
+        return None;
+    }
+    // Everything up to the interpolation clause: `to right in oklab` is a
+    // direction React Native understands followed by one it doesn't.
+    let direction = match prelude.find(" in ") {
+        Some(cut) => &prelude[..cut],
+        None if prelude.starts_with("in ") => "",
+        None => prelude,
+    };
+
+    let color = |stop: GradientStop| {
+        props.iter().find_map(|p| match p {
+            StyleProperty::GradientStopColor(s, c) if *s == stop => Some(resolve_theme_color(c, theme)),
+            _ => None,
+        })
+    };
+    let position = |stop: GradientStop| {
+        props
+            .iter()
+            .find_map(|p| match p {
+                StyleProperty::GradientStopPosition(s, d) if *s == stop => match d {
+                    Dimension::Percent(pct) => Some(format!("{pct}%")),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .unwrap_or_else(|| stop.default_position().to_string())
+    };
+    let stop = |s: GradientStop| {
+        // `resolve_theme_color` returns a quoted JS string; this one goes
+        // inside a larger string, so the quotes come off.
+        let color = color(s).unwrap_or_else(|| "'#0000'".to_string());
+        format!("{} {}", color.trim_matches('\''), position(s))
+    };
+
+    let mut stops = vec![stop(GradientStop::From)];
+    if color(GradientStop::Via).is_some() {
+        stops.push(stop(GradientStop::Via));
+    }
+    stops.push(stop(GradientStop::To));
+
+    let args = if direction.is_empty() {
+        stops.join(", ")
+    } else {
+        format!("{direction}, {}", stops.join(", "))
+    };
+    Some(("backgroundImage", js_string(&format!("{}({args})", kind.css()))))
+}
+
 /// Joins whichever filter utilities a rule carries into one `filter`
 /// string, in `FilterFunction` order -- the same order the Web backend
 /// uses, so the two platforms compose identically. React Native 0.76+
@@ -230,24 +309,56 @@ pub fn box_shadow_entry(props: &[StyleProperty], theme: &Theme) -> Option<(&'sta
         c.map_or("currentcolor".to_string(), |c| resolve_color(c).trim_matches('\'').to_string())
     };
 
+    let ring_offset = props.iter().find_map(|p| match p {
+        StyleProperty::RingOffsetWidth(Length::Px(v)) => Some(*v),
+        _ => None,
+    });
+    let color_of = |find: fn(&StyleProperty) -> Option<&Color>| {
+        props.iter().find_map(find).map(|c| resolve_color(c).trim_matches('\'').to_string())
+    };
+    let shadow_color = color_of(|p| match p {
+        StyleProperty::ShadowColor(c) => Some(c),
+        _ => None,
+    });
+    let inset_shadow_color = color_of(|p| match p {
+        StyleProperty::InsetShadowColor(c) => Some(c),
+        _ => None,
+    });
+
     let mut layers: Vec<String> = Vec::new();
     if let Some(shadow) = props.iter().find_map(|p| match p {
         StyleProperty::InsetShadow(s) => Some(s.clone()),
         _ => None,
     }) {
-        layers.push(shadow);
+        layers.push(repaint_shadow(&shadow, inset_shadow_color.as_deref()));
     }
     if let Some(width) = inset_ring {
         layers.push(format!("inset 0 0 0 {width}px {}", paint(inset_ring_color)));
     }
+    // Under the ring and pushing it outwards, the same as on Web. The
+    // register default is white.
+    if let Some(width) = ring_offset {
+        layers.push(format!(
+            "0 0 0 {width}px {}",
+            color_of(|p| match p {
+                StyleProperty::RingOffsetColor(c) => Some(c),
+                _ => None,
+            })
+            .unwrap_or_else(|| "#fff".to_string()),
+        ));
+    }
     if let Some(width) = ring {
-        layers.push(format!("0 0 0 {width}px {}", paint(ring_color)));
+        layers.push(format!(
+            "0 0 0 {}px {}",
+            width + ring_offset.unwrap_or(0.0),
+            paint(ring_color)
+        ));
     }
     if let Some(shadow) = shadow {
         // See the Web backend: `shadow-none` clears the shadow layer, not
         // the ring beside it.
         if shadow != "none" {
-            layers.push(shadow);
+            layers.push(repaint_shadow(&shadow, shadow_color.as_deref()));
         } else if layers.is_empty() {
             return Some(("boxShadow", "'none'".to_string()));
         }
@@ -395,6 +506,12 @@ pub fn property_and_value<'a>(prop: &'a StyleProperty, theme: &Theme) -> Vec<(&'
         // and inventing a camelCase spelling would turn a build error into
         // a style that silently does nothing on a device.
         StyleProperty::Arbitrary(..) => Vec::new(),
+        // Composed into one `backgroundImage` by `background_image_entry`,
+        // the same way the transform axes are.
+        StyleProperty::BackgroundImageNone
+        | StyleProperty::Gradient(..)
+        | StyleProperty::GradientStopColor(..)
+        | StyleProperty::GradientStopPosition(..) => Vec::new(),
         StyleProperty::Display(d) => match d {
             Display::Flex => vec![("display", "'flex'".to_string())],
             Display::None => vec![("display", "'none'".to_string())],
@@ -854,6 +971,10 @@ pub fn property_and_value<'a>(prop: &'a StyleProperty, theme: &Theme) -> Vec<(&'
         | StyleProperty::RingWidth(_)
         | StyleProperty::RingColor(_)
         | StyleProperty::InsetRingWidth(_)
+        | StyleProperty::RingOffsetWidth(_)
+        | StyleProperty::RingOffsetColor(_)
+        | StyleProperty::ShadowColor(_)
+        | StyleProperty::InsetShadowColor(_)
         | StyleProperty::InsetRingColor(_)
         | StyleProperty::InsetShadow(_) => vec![],
         // Composed, not emitted here -- see `filter_entry`. `BackdropFilter`
@@ -921,4 +1042,19 @@ mod tests {
             vec![("color", "'dowel-unresolved:brand-primary'".to_string())]
         );
     }
+}
+
+/// Repaints a shadow's layers in `color`. The Web backend's `repaint_shadow`
+/// with the same reasoning and the same cut: the colour is the tail of each
+/// layer, and the shadow table it reads from is in this repository.
+fn repaint_shadow(shadow: &str, color: Option<&str>) -> String {
+    let Some(paint) = color else { return shadow.to_string() };
+    shadow
+        .split(',')
+        .map(|layer| match layer.rfind("rgb(") {
+            Some(cut) => format!("{}{paint}", &layer[..cut]),
+            None => layer.trim().to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }

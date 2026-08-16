@@ -18,7 +18,8 @@ use dowel_ir::{
     Align, AlignSelf, Angle, BorderStyle, Breakpoint, Clamp, Color, Condition, ConditionExpr,
     FilterFunction, Scale,
     DecorationStyle,
-    ColumnCount, Dimension, Display, Edge, GridLine, GridSpan, GridTracks, MaskSlot, MaskStop,
+    ColumnCount, Dimension, Display, Edge, GradientStop, GridLine, GridSpan, GridTracks, MaskSlot,
+    MaskStop,
     Em, FlexDirection, LetterSpacing, FlexShorthand, Justify, Length, LineHeight, Overflow, Position, Radius,
     StyleProperty, TextAlign, TextOverflow, TextTransform, Theme, WhiteSpace,
 };
@@ -456,6 +457,96 @@ fn filter_value(props: &[&StyleProperty], backdrop: bool) -> Option<String> {
     Some(chain.join(" "))
 }
 
+fn is_gradient(prop: &StyleProperty) -> bool {
+    matches!(
+        prop,
+        StyleProperty::Gradient(..)
+            | StyleProperty::GradientStopColor(..)
+            | StyleProperty::GradientStopPosition(..)
+            | StyleProperty::BackgroundImageNone
+    )
+}
+
+/// The `background-image` a gradient constructor and its stops make.
+///
+/// `None` without a constructor, which is the whole reason the stops are
+/// separate properties: `from-red-500` alone paints nothing in Tailwind
+/// either -- it fills a register that no `background-image` reads until a
+/// `bg-linear-*` writes one.
+///
+/// Unwritten halves fall back to the `initial-value`s of Tailwind's own
+/// registers: a missing colour is `#0000` and a missing position is
+/// 0%/50%/100%. So `bg-linear-to-r from-red-500` really is a red-to-
+/// transparent ramp rather than a half-specified gradient.
+///
+/// One difference from Tailwind, deliberate: it writes the prelude twice,
+/// once plain and once inside `@supports (background-image:
+/// linear-gradient(in lab, red, red))`, so an engine without colour-space
+/// interpolation still gets a gradient. Dowel emits only the modern form,
+/// the same call `Radius::Full` makes with `calc(infinity * 1px)`.
+fn gradient_value(props: &[&StyleProperty], theme: &Theme) -> Option<String> {
+    // `bg-none` and a gradient constructor write the same declaration, so
+    // whichever came last wins -- which means scanning from the end. The
+    // inner `Option` is the answer, the outer one is "did anything here
+    // set a background image at all".
+    let latest = props.iter().rev().find_map(|p| match p {
+        StyleProperty::Gradient(kind, prelude) => Some(Some((*kind, prelude.clone()))),
+        StyleProperty::BackgroundImageNone => Some(None),
+        _ => None,
+    })?;
+    let Some((kind, prelude)) = latest else { return Some("none".to_string()) };
+
+    let color = |stop: GradientStop| {
+        props.iter().find_map(|p| match p {
+            StyleProperty::GradientStopColor(s, c) if *s == stop => Some(resolve_theme_color(c, theme)),
+            _ => None,
+        })
+    };
+    let position = |stop: GradientStop| {
+        props
+            .iter()
+            .find_map(|p| match p {
+                StyleProperty::GradientStopPosition(s, d) if *s == stop => {
+                    Some(dimension_value(d, theme))
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| stop.default_position().to_string())
+    };
+    let stop = |s: GradientStop| {
+        format!("{} {}", color(s).unwrap_or_else(|| "#0000".to_string()), position(s))
+    };
+
+    // No stop *colour* anywhere means no stop list at all -- the prelude
+    // is the whole value. That is Tailwind's register model rather than a
+    // shortcut: only a `from-*`/`via-*`/`to-*` colour writes
+    // `--tw-gradient-stops`, so a lone `bg-conic-[10px]` really is
+    // `conic-gradient(10px)`, and a lone `bg-linear-to-r` really is a
+    // gradient with nothing in it that the browser then drops.
+    //
+    // A stop *position* doesn't count, which is why the check is on
+    // colours: `via-30%` sets a position for a stop that isn't in the
+    // list, and changes nothing in Tailwind either.
+    let stops: Vec<String> = if [GradientStop::From, GradientStop::Via, GradientStop::To]
+        .iter()
+        .all(|s| color(*s).is_none())
+    {
+        Vec::new()
+    } else {
+        let mut stops = vec![stop(GradientStop::From)];
+        if color(GradientStop::Via).is_some() {
+            stops.push(stop(GradientStop::Via));
+        }
+        stops.push(stop(GradientStop::To));
+        stops
+    };
+
+    if stops.is_empty() {
+        return Some(format!("{}({prelude})", kind.css()));
+    }
+    Some(format!("{}({prelude}, {})", kind.css(), stops.join(", ")))
+}
+
 fn is_filter(prop: &StyleProperty) -> bool {
     matches!(prop, StyleProperty::Filter(..) | StyleProperty::BackdropFilter(..))
 }
@@ -830,6 +921,11 @@ pub fn property_and_value<'a>(prop: &'a StyleProperty, theme: &Theme) -> (&'a st
         StyleProperty::ScrollbarThumbColor(_) | StyleProperty::ScrollbarTrackColor(_) => {
             ("scrollbar-color", String::new())
         }
+        // Composed by `gradient_value`, partitioned out before this runs.
+        StyleProperty::BackgroundImageNone
+        | StyleProperty::Gradient(..)
+        | StyleProperty::GradientStopColor(..)
+        | StyleProperty::GradientStopPosition(..) => ("background-image", String::new()),
         // Composed by `mask_declarations`; `render_rule` partitions these
         // out before this runs.
         StyleProperty::MaskStopColor(..)
@@ -1031,6 +1127,10 @@ pub fn property_and_value<'a>(prop: &'a StyleProperty, theme: &Theme) -> (&'a st
         StyleProperty::RingWidth(_)
         | StyleProperty::RingColor(_)
         | StyleProperty::InsetRingWidth(_)
+        | StyleProperty::RingOffsetWidth(_)
+        | StyleProperty::RingOffsetColor(_)
+        | StyleProperty::ShadowColor(_)
+        | StyleProperty::InsetShadowColor(_)
         | StyleProperty::InsetRingColor(_)
         | StyleProperty::InsetShadow(_) => ("box-shadow", String::new()),
         // Composed, not emitted here -- see `filter_value`.
@@ -1145,6 +1245,10 @@ fn is_shadow_layer(prop: &StyleProperty) -> bool {
             | StyleProperty::RingWidth(_)
             | StyleProperty::RingColor(_)
             | StyleProperty::InsetRingWidth(_)
+            | StyleProperty::RingOffsetWidth(_)
+            | StyleProperty::RingOffsetColor(_)
+            | StyleProperty::ShadowColor(_)
+            | StyleProperty::InsetShadowColor(_)
             | StyleProperty::InsetRingColor(_)
     )
 }
@@ -1158,6 +1262,54 @@ fn is_shadow_layer(prop: &StyleProperty) -> bool {
 ///
 /// A ring colour with no width contributes nothing, which is correct --
 /// `ring-blue-500` alone has nothing to paint, exactly as in Tailwind.
+/// Repaints every layer of a shadow in `color`, or leaves it alone if no
+/// `shadow-<colour>` was written.
+///
+/// The shadow's layers carry a default colour each (`rgb(0 0 0 / 0.1)` and
+/// friends), and a colour utility replaces all of them at once -- which is
+/// what makes `shadow-lg shadow-blue-500` one blue shadow rather than a
+/// black one with a colour beside it. Tailwind does the same substitution
+/// through `--tw-shadow-color`.
+///
+/// The colour is the tail of each layer, so it is cut at the last `rgb(`
+/// rather than parsed. That holds because the table this reads from is in
+/// this repository: every shadow Dowel knows is written with an `rgb()`
+/// colour last. An arbitrary `shadow-[…]` has no default colour to
+/// replace and is left as written.
+fn repaint_shadow(shadow: &str, color: Option<&Color>, theme: &Theme) -> String {
+    let Some(color) = color else { return shadow.to_string() };
+    let paint = resolve_theme_color(color, theme);
+    split_layers(shadow)
+        .into_iter()
+        .map(|layer| match layer.rfind("rgb(") {
+            Some(cut) => format!("{}{paint}", &layer[..cut]),
+            None => layer.to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// A comma-separated shadow list, split on the commas *between* layers --
+/// `rgb(0 0 0 / 0.1)` has none, but `color-mix(in oklab, …)` does.
+fn split_layers(value: &str) -> Vec<&str> {
+    let mut layers = Vec::new();
+    let mut depth = 0usize;
+    let mut start = 0usize;
+    for (index, ch) in value.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                layers.push(value[start..index].trim());
+                start = index + 1;
+            }
+            _ => {}
+        }
+    }
+    layers.push(value[start..].trim());
+    layers
+}
+
 fn box_shadow_value(props: &[&StyleProperty], theme: &Theme) -> Option<String> {
     let find_length = |f: fn(&StyleProperty) -> Option<Length>| props.iter().find_map(|p| f(p));
     let find_color = |f: fn(&StyleProperty) -> Option<&Color>| props.iter().find_map(|p| f(p));
@@ -1193,24 +1345,59 @@ fn box_shadow_value(props: &[&StyleProperty], theme: &Theme) -> Option<String> {
         _ => None,
     });
 
+    let ring_offset = find_length(|p| match p {
+        StyleProperty::RingOffsetWidth(l) => Some(*l),
+        _ => None,
+    });
+    let ring_offset_color = find_color(|p| match p {
+        StyleProperty::RingOffsetColor(c) => Some(c),
+        _ => None,
+    });
+    let shadow_color = find_color(|p| match p {
+        StyleProperty::ShadowColor(c) => Some(c),
+        _ => None,
+    });
+    let inset_shadow_color = find_color(|p| match p {
+        StyleProperty::InsetShadowColor(c) => Some(c),
+        _ => None,
+    });
+
     let mut layers: Vec<String> = Vec::new();
     // Innermost first, matching the order Tailwind splices its registers:
-    // inset shadow, inset ring, ring, outer shadow.
+    // inset shadow, inset ring, ring offset, ring, outer shadow.
     if let Some(shadow) = inset_shadow {
-        layers.push(shadow);
+        layers.push(repaint_shadow(&shadow, inset_shadow_color, theme));
     }
     if let Some(width) = inset_ring {
         layers.push(format!("inset 0 0 0 {} {}", length_px(width, theme), paint(inset_ring_color)));
     }
+    // The offset is drawn *under* the ring, in the page's own colour, and
+    // pushes the ring outwards by its own width. Tailwind's register
+    // default is white, which is the assumption that the element sits on
+    // a white page -- inherited here rather than second-guessed.
+    if let Some(width) = ring_offset {
+        layers.push(format!(
+            "0 0 0 {} {}",
+            length_px(width, theme),
+            ring_offset_color
+                .map_or_else(|| "#fff".to_string(), |color| resolve_theme_color(color, theme)),
+        ));
+    }
     if let Some(width) = ring {
-        layers.push(format!("0 0 0 {} {}", length_px(width, theme), paint(ring_color)));
+        // The ring's spread includes the offset: the two layers are
+        // concentric, so the outer one has to clear the inner.
+        let spread = match ring_offset {
+            Some(offset) => length_px(Length::Px(width.px(theme) + offset.px(theme)), theme),
+            None => length_px(width, theme),
+        };
+        layers.push(format!("0 0 0 {spread} {}", paint(ring_color)));
     }
     if let Some(shadow) = shadow {
         // `shadow-none` removes the *shadow* layer, not the whole
         // declaration -- `shadow-none ring-2` still draws the ring, which is
         // what Tailwind does by clearing only its `--tw-shadow` register.
         if shadow != "none" {
-            layers.push(shadow);
+            layers.push(repaint_shadow(&shadow, shadow_color, theme));
         } else if layers.is_empty() {
             return Some("none".to_string());
         }
@@ -1253,6 +1440,8 @@ pub fn render_rule(
         own_props.into_iter().partition(|p| is_shadow_layer(p));
     let (mask_props, rest): (Vec<&StyleProperty>, Vec<&StyleProperty>) =
         rest.into_iter().partition(|p| is_mask_gradient(p));
+    let (gradient_props, rest): (Vec<&StyleProperty>, Vec<&StyleProperty>) =
+        rest.into_iter().partition(|p| is_gradient(p));
     let (scrollbar_props, rest): (Vec<&StyleProperty>, Vec<&StyleProperty>) =
         rest.into_iter().partition(|p| is_scrollbar_color(p));
     let (translate_props, rest): (Vec<&StyleProperty>, Vec<&StyleProperty>) =
@@ -1276,6 +1465,7 @@ pub fn render_rule(
     if !own_props.is_empty()
         || !shadow_props.is_empty()
         || !mask_props.is_empty()
+        || !gradient_props.is_empty()
         || !scrollbar_props.is_empty()
         || !translate_props.is_empty()
         || !keyword_pair_props.is_empty()
@@ -1293,6 +1483,10 @@ pub fn render_rule(
         }
         if let Some(value) = box_shadow_value(&shadow_props, theme) {
             body.push_str(&format!("  box-shadow: {value};\n"));
+        }
+        if let Some(value) = gradient_value(&gradient_props, theme) {
+            body.push_str(&format!("  background-image: {value};
+"));
         }
         for (name, value) in mask_declarations(&mask_props, theme) {
             body.push_str(&format!("  {name}: {value};\n"));

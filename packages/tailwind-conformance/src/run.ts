@@ -4,6 +4,7 @@
 import { auditRefusal, type RefusalAudit, type RefusalVerdict } from './audit.ts'
 import { CANDIDATE_GROUPS, ALL_CANDIDATES, stripVariant } from './candidates.ts'
 import { buildArbitraryCatalog } from './arbitrary-catalog.ts'
+import { buildCompositionCatalog } from './compositions.ts'
 import { loadFullCatalog, namespaceOf } from './catalog.ts'
 import { reactNativeCssProperties, reactNativeVersion } from './native-surface.ts'
 import { compareCandidate, type Comparison, type Verdict } from './compare.ts'
@@ -453,4 +454,39 @@ console.log(
 )
 for (const mismatch of arbitraryMismatches) {
   console.log(`  ${mismatch.candidate.padEnd(34)} ${mismatch.detail ?? ''}`)
+}
+
+// == Compositions =========================================================
+//
+// The third denominator, and the one that measures what the other two
+// can't. Every section above compares one utility at a time, which is
+// exactly wrong for the families Tailwind builds out of several: the
+// gradient constructors and their stops, the ring and shadow layers, the
+// filter chain, the transform axes. All of those come back
+// COMPOSITION_ONLY one at a time -- a true verdict that leaves 971
+// gradient entries alone unmeasured.
+//
+// Hand-written rather than derived, unlike the other two, because there
+// is nothing to derive it from: Tailwind enumerates its utilities and
+// not the interactions between them. See `compositions.ts`.
+const compositions = await buildCompositionCatalog()
+const compositionVars = new Map([...loadThemeVars(), ...compositions.registerDefaults])
+const compositionResults = compositions.candidates.map((candidate) =>
+  compareCandidate(candidate, compositions.expected.get(candidate), compositionVars),
+)
+const compositionCount = (verdict: Verdict) =>
+  compositionResults.filter((result) => result.verdict === verdict).length
+console.log(
+  `\n\n== Compositions (${compositions.candidates.length} combinations) ==\n` +
+    'Several utilities reaching one declaration, which a one-utility comparison\n' +
+    'reports as composition-only and never checks.\n\n' +
+    `Match:       ${compositionCount('MATCH')}\n` +
+    `Mismatch:    ${compositionCount('MISMATCH')}\n` +
+    `Unsupported: ${compositionCount('UNSUPPORTED')}\n` +
+    `Skipped:     ${compositionCount('SKIPPED')}   (one side unresolvable; no claim made)\n` +
+    `Inert:       ${compositionCount('COMPOSITION_ONLY')}   (still paints nothing even combined)`,
+)
+for (const result of compositionResults) {
+  if (result.verdict === 'MATCH') continue
+  console.log(`  ${result.verdict.padEnd(17)} ${result.candidate}\n    ${result.detail ?? ''}`)
 }

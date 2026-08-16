@@ -636,6 +636,23 @@ pub enum StyleProperty {
     InsetShadow(String),
     InsetRingWidth(Length),
     InsetRingColor(Color),
+    /// `ring-offset-*`: a gap between the element and its ring, drawn as a
+    /// fifth layer in the same `box-shadow` rather than as a property of
+    /// the ring. It also widens the ring's own spread by the same amount,
+    /// which is why the two are composed together in
+    /// `dowel_web::css::box_shadow_value` rather than each emitting text.
+    RingOffsetWidth(Length),
+    RingOffsetColor(Color),
+    /// `shadow-<colour>` / `inset-shadow-<colour>`: the colour every layer
+    /// of the matching shadow is painted in.
+    ///
+    /// Separate from `BoxShadow` because they are separate utilities that
+    /// must combine -- `shadow-lg shadow-blue-500` is one blue shadow, not
+    /// a shadow and a colour. Which means the shadow's own text has to
+    /// keep its layers' default colours *replaceable*, and it does: see
+    /// `dowel_web::css::repaint_shadow`.
+    ShadowColor(Color),
+    InsetShadowColor(Color),
     /// One function of the `filter` chain, and its already-formatted CSS
     /// argument (`blur(12px)` is `Blur` + `"blur(12px)"`).
     ///
@@ -695,6 +712,34 @@ pub enum StyleProperty {
     ///
     /// One variant per CSS property, though, so `dedupe_last_wins` still
     /// resolves `mask-clip-border mask-clip-content` correctly.
+    /// `bg-none`: no background image.
+    ///
+    /// A property rather than a `Keyword("background-image", "none")`,
+    /// because the gradient utilities now write that same property from
+    /// their own variant -- and a `Keyword` sharing a property with a
+    /// variant is exactly the collision that stopped `z-auto` and `z-10`
+    /// overriding each other. `dedupe_last_wins` keys on the variant, so
+    /// the two have to be the same one to resolve.
+    BackgroundImageNone,
+    /// A background gradient: which function, and everything before the
+    /// stops.
+    ///
+    /// The prelude is one string rather than a direction plus an
+    /// interpolation space, because Tailwind writes it as one
+    /// (`--tw-gradient-position: to right in oklab`) and one utility sets
+    /// all of it -- the space is a *modifier* on the same class,
+    /// `bg-linear-to-r/srgb`. Splitting it would be two properties that
+    /// can never be written apart.
+    ///
+    /// Paints nothing without stops, exactly as in Tailwind: this is the
+    /// gradient's shape and `GradientStopColor` supplies its colours.
+    Gradient(GradientKind, String),
+    /// `from-*` / `via-*` / `to-*`. Colour and position are separate
+    /// properties for the same reason ring width and colour are: they are
+    /// separate utilities that must combine, and `from-red-500 from-20%`
+    /// sets both halves of one stop.
+    GradientStopColor(GradientStop, Color),
+    GradientStopPosition(GradientStop, Dimension),
     MaskClip(&'static str),
     MaskOrigin(&'static str),
     MaskMode(&'static str),
@@ -1058,6 +1103,15 @@ impl StyleProperty {
                 "`line-clamp-[{value}]`: React Native's numberOfLines is a line count, and this \
                  isn't one"
             )),
+            // React Native's `backgroundImage` parses CSS gradient syntax,
+            // but only the linear and radial functions -- `BackgroundImageValue`
+            // is `LinearGradientValue | RadialGradientValue` and there is no
+            // conic one.
+            StyleProperty::Gradient(GradientKind::Conic, _) => Some(
+                "`bg-conic-*`: React Native's backgroundImage has linear and radial gradients \
+                 and no conic one"
+                    .to_string(),
+            ),
             StyleProperty::ZIndex(None) => Some(
                 "`z-auto`: React Native's zIndex is a number and has no auto".to_string(),
             ),
@@ -1962,6 +2016,48 @@ pub enum Condition {
     Expr(ConditionExpr),
 }
 
+/// Which gradient function a `bg-*` gradient utility starts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GradientKind {
+    Linear,
+    Radial,
+    Conic,
+}
+
+impl GradientKind {
+    pub fn css(self) -> &'static str {
+        match self {
+            GradientKind::Linear => "linear-gradient",
+            GradientKind::Radial => "radial-gradient",
+            GradientKind::Conic => "conic-gradient",
+        }
+    }
+}
+
+/// Which stop of a gradient a `from-*`/`via-*`/`to-*` utility describes.
+///
+/// Declaration order is the order they appear in the value, which is what
+/// `GradientStop as u32` is used for in `dedupe_key`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GradientStop {
+    From,
+    Via,
+    To,
+}
+
+impl GradientStop {
+    /// The position CSS uses when no `from-<n>%` was written. These are
+    /// the `initial-value`s of Tailwind's own `--tw-gradient-*-position`
+    /// registers.
+    pub fn default_position(self) -> &'static str {
+        match self {
+            GradientStop::From => "0%",
+            GradientStop::Via => "50%",
+            GradientStop::To => "100%",
+        }
+    }
+}
+
 /// One slot in Tailwind's `mask-image` layer list.
 ///
 /// The four sides compose into the first slot as a nested list, which is
@@ -2109,6 +2205,9 @@ impl StyleProperty {
                 *edge as u32
             }
             StyleProperty::MaskSlotArgument(slot, _) => *slot as u32,
+            StyleProperty::GradientStopColor(stop, _) | StyleProperty::GradientStopPosition(stop, _) => {
+                *stop as u32
+            }
             StyleProperty::Filter(function, _) | StyleProperty::BackdropFilter(function, _) => {
                 *function as u32
             }

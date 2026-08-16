@@ -24,7 +24,7 @@ use dowel_ir::{
     FlexDirection,
     LetterSpacing,
     FlexShorthand, Justify,
-    Length, LineHeight, Overflow, Position, Radius, StyleProperty, TextAlign, TextTransform,
+    Length, LineHeight, Overflow, Position, Radius, StyleProperty, TextAlign, TextTransform, Theme,
 };
 
 fn radius_number(radius: &Radius) -> String {
@@ -194,7 +194,8 @@ pub fn filter_entry(props: &[StyleProperty]) -> Option<(&'static str, String)> {
 /// React Native 0.81 accepts a CSS-like string for `boxShadow`, so the
 /// composed value is the same shape as the Web one -- only the quoting and
 /// the unitless-number convention differ.
-pub fn box_shadow_entry(props: &[StyleProperty]) -> Option<(&'static str, String)> {
+pub fn box_shadow_entry(props: &[StyleProperty], theme: &Theme) -> Option<(&'static str, String)> {
+    let resolve_color = |color: &Color| resolve_theme_color(color, theme);
     let ring = props.iter().find_map(|p| match p {
         StyleProperty::RingWidth(Length::Px(v)) => Some(*v),
         _ => None,
@@ -280,13 +281,16 @@ fn border_style_literal(style: &BorderStyle) -> String {
 /// docs); otherwise falls back to a marker string deliberately not
 /// real-color-shaped, so a missed resolution fails loudly instead of
 /// rendering a plausible-but-wrong color.
-fn resolve_color(color: &Color) -> String {
+fn resolve_theme_color(color: &Color, theme: &Theme) -> String {
     let token = match color {
         Color::Token(token) => token,
         Color::Keyword(keyword) => return js_string(keyword),
     };
-    match dowel_ir::resolve_color_token(token) {
-        Some(resolved) => format!("'{}'", resolved.hex),
+    match theme.color(token) {
+        Some(resolved) => js_string(&resolved.hex),
+        // Not in the project's theme either. Still deliberately not
+        // colour-shaped, so a missed resolution fails loudly rather than
+        // rendering something plausible.
         None => format!("'dowel-unresolved:{token}'"),
     }
 }
@@ -309,8 +313,8 @@ pub fn js_string(value: &str) -> String {
 /// A placeholder colour as `placeholderTextColor` wants it -- the same
 /// resolution every other colour gets, since it is an ordinary colour that
 /// happens to travel as a prop.
-pub fn placeholder_color(color: &Color) -> String {
-    resolve_color(color)
+pub fn placeholder_color(color: &Color, theme: &Theme) -> String {
+    resolve_theme_color(color, theme)
 }
 
 pub fn is_child_scoped(prop: &StyleProperty) -> bool {
@@ -334,7 +338,8 @@ pub fn is_child_scoped(prop: &StyleProperty) -> bool {
 /// style at all -- only `borderStyle` -- so the style is written once. That
 /// is not a loss here: only one edge is given a width, so which edges the
 /// style nominally applies to makes no visible difference.
-pub fn child_property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
+pub fn child_property_and_value(prop: &StyleProperty, theme: &Theme) -> Vec<(&'static str, String)> {
+    let resolve_color = |color: &Color| resolve_theme_color(color, theme);
     match prop {
         // Both edges are written, zeroing the leading one, matching what
         // Web emits -- a child with its own margin utility still overrides
@@ -369,7 +374,8 @@ pub fn child_property_and_value(prop: &StyleProperty) -> Vec<(&'static str, Stri
 /// Maps one `StyleProperty` to one or more `(rn-style-key, value)` pairs
 /// (plural because e.g. `FlexShorthand::Auto` has no single-number RN
 /// equivalent and must expand to two keys).
-pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
+pub fn property_and_value(prop: &StyleProperty, theme: &Theme) -> Vec<(&'static str, String)> {
+    let resolve_color = |color: &Color| resolve_theme_color(color, theme);
     match prop {
         StyleProperty::Display(d) => match d {
             Display::Flex => vec![("display", "'flex'".to_string())],
@@ -855,13 +861,13 @@ mod tests {
 
     #[test]
     fn numbers_have_no_unit_suffix() {
-        assert_eq!(property_and_value(&StyleProperty::PaddingTop(Length::Px(24.0))), vec![("paddingTop", "24".to_string())]);
+        assert_eq!(property_and_value(&StyleProperty::PaddingTop(Length::Px(24.0)), &Theme::default()), vec![("paddingTop", "24".to_string())]);
     }
 
     #[test]
     fn flex_grow_is_a_bare_number() {
         assert_eq!(
-            property_and_value(&StyleProperty::Flex(FlexShorthand::Grow(1.0))),
+            property_and_value(&StyleProperty::Flex(FlexShorthand::Grow(1.0)), &Theme::default()),
             vec![("flex", "1".to_string())]
         );
     }
@@ -869,7 +875,7 @@ mod tests {
     #[test]
     fn flex_auto_expands_to_two_keys() {
         assert_eq!(
-            property_and_value(&StyleProperty::Flex(FlexShorthand::Auto)),
+            property_and_value(&StyleProperty::Flex(FlexShorthand::Auto), &Theme::default()),
             vec![("flexGrow", "1".to_string()), ("flexShrink", "1".to_string())]
         );
     }
@@ -877,7 +883,7 @@ mod tests {
     #[test]
     fn font_weight_is_a_string() {
         assert_eq!(
-            property_and_value(&StyleProperty::FontWeight(dowel_ir::FontWeight(700))),
+            property_and_value(&StyleProperty::FontWeight(dowel_ir::FontWeight(700)), &Theme::default()),
             vec![("fontWeight", "'700'".to_string())]
         );
     }
@@ -885,7 +891,7 @@ mod tests {
     #[test]
     fn known_color_token_resolves_to_real_hex() {
         assert_eq!(
-            property_and_value(&StyleProperty::BackgroundColor(Color::Token("blue-500".to_string()))),
+            property_and_value(&StyleProperty::BackgroundColor(Color::Token("blue-500".to_string())), &Theme::default()),
             vec![("backgroundColor", "'#2b7fff'".to_string())]
         );
     }
@@ -893,7 +899,7 @@ mod tests {
     #[test]
     fn unknown_color_token_falls_back_to_a_marker_string() {
         assert_eq!(
-            property_and_value(&StyleProperty::TextColor(Color::Token("brand-primary".to_string()))),
+            property_and_value(&StyleProperty::TextColor(Color::Token("brand-primary".to_string())), &Theme::default()),
             vec![("color", "'dowel-unresolved:brand-primary'".to_string())]
         );
     }

@@ -9,6 +9,9 @@
 mod colors;
 pub use colors::{resolve_color_token, ResolvedColor};
 
+mod theme;
+pub use theme::{Theme, ThemeColor};
+
 // ---------------------------------------------------------------------------
 // Source spans / diagnostics
 // ---------------------------------------------------------------------------

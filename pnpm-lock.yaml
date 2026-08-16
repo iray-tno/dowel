@@ -110,7 +110,17 @@ importers:
         specifier: ^0.87.0
         version: 0.87.0(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.8)
 
-  packages/tailwind: {}
+  packages/tailwind:
+    dependencies:
+      '@dowel/compiler':
+        specifier: workspace:^
+        version: link:../compiler
+      culori:
+        specifier: ^4.0.2
+        version: 4.0.2
+      tailwindcss:
+        specifier: ^4.3.3
+        version: 4.3.3
 
   packages/tailwind-conformance:
     dependencies:
@@ -990,6 +1000,10 @@ packages:
 
   csstype@3.2.3:
     resolution: {integrity: sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==}
+
+  culori@4.0.2:
+    resolution: {integrity: sha512-1+BhOB8ahCn4O0cep0Sh2l9KCOfOdY+BXJnKMHFFzDEouSr/el18QwXEMRlOj9UY5nCeA8UN3a/82rUWRBeyBw==}
+    engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
 
   debug@2.6.9:
     resolution: {integrity: sha512-bC7ElrdJaJnPbAP+1EotYvqZsb3ecl5wi6Bfi6BJTUcNowp6cvspg0jXznRTKDjm/E7AdgFBVeAPVMNcKGsHMA==}
@@ -2355,9 +2369,7 @@ snapshots:
       metro-runtime: 0.87.0
     transitivePeerDependencies:
       - '@babel/core'
-      - bufferutil
       - supports-color
-      - utf-8-validate
 
   '@react-native/normalize-colors@0.87.0': {}
 
@@ -2670,6 +2682,8 @@ snapshots:
       which: 2.0.2
 
   csstype@3.2.3: {}
+
+  culori@4.0.2: {}
 
   debug@2.6.9:
     dependencies:

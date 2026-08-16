@@ -82,13 +82,14 @@ fn parser_diagnostics_for(
 /// per component's returned JSX, see `dowel_parser::parse_tsx`) to Web
 /// output. Returns one `CompiledComponent` per root found, in source order.
 #[napi]
-pub fn compile(source: String) -> Vec<CompiledComponent> {
+pub fn compile(source: String, theme: Option<JsTheme>) -> Vec<CompiledComponent> {
+    let theme = to_theme(theme);
     let parsed = dowel_parser::parse_tsx(&source);
     parsed
         .roots
         .iter()
         .map(|root| {
-            let output = dowel_web::lower(&root.node, &source);
+            let output = dowel_web::lower(&root.node, &source, &theme);
             let mut diagnostics = parser_diagnostics_for(&parsed, &root.node);
             diagnostics.extend(output.diagnostics.into_iter().map(to_js_diagnostic));
             CompiledComponent {
@@ -162,8 +163,8 @@ impl CandidateCache {
     /// classes' real Tailwind names so a runtime-produced string matches by
     /// itself -- no runtime resolution code involved.
     #[napi]
-    pub fn render_css(&self) -> String {
-        dowel_web::render_candidate_stylesheet(&self.inner.union())
+    pub fn render_css(&self, theme: Option<JsTheme>) -> String {
+        dowel_web::render_candidate_stylesheet(&self.inner.union(), &to_theme(theme))
     }
 
     /// The React Native counterpart of `renderCss`: a JS module holding a
@@ -173,8 +174,8 @@ impl CandidateCache {
     /// project builds for one platform at a time -- generating the module
     /// a Web build will never import would be wasted work.
     #[napi]
-    pub fn render_native_module(&self) -> String {
-        dowel_native::render_candidate_module(&self.inner.union())
+    pub fn render_native_module(&self, theme: Option<JsTheme>) -> String {
+        dowel_native::render_candidate_module(&self.inner.union(), &to_theme(theme))
     }
 
     /// Number of files tracked.
@@ -217,13 +218,14 @@ pub struct CompiledNativeComponent {
 /// docs for the current Phase 0 scope/limitations (non-Always conditions
 /// aren't wired into the rendered `style` prop yet).
 #[napi]
-pub fn compile_native(source: String) -> Vec<CompiledNativeComponent> {
+pub fn compile_native(source: String, theme: Option<JsTheme>) -> Vec<CompiledNativeComponent> {
+    let theme = to_theme(theme);
     let parsed = dowel_parser::parse_tsx(&source);
     parsed
         .roots
         .iter()
         .map(|root| {
-            let output = dowel_native::lower(&root.node, &source);
+            let output = dowel_native::lower(&root.node, &source, &theme);
             let mut diagnostics = parser_diagnostics_for(&parsed, &root.node);
             diagnostics.extend(output.diagnostics.into_iter().map(to_js_diagnostic));
             CompiledNativeComponent {
@@ -242,4 +244,42 @@ pub fn compile_native(source: String) -> Vec<CompiledNativeComponent> {
             }
         })
         .collect()
+}
+
+/// A project's design tokens, as `@dowel/tailwind` extracts them.
+///
+/// Colours only for now. The rest of the scales -- spacing, containers,
+/// fonts, breakpoints -- are resolved at parse time rather than at
+/// lowering, so they need the theme threaded through a different path and
+/// are a separate piece of work. Colours are the one that actually breaks
+/// a project today: a `--color-brand` in a `@theme` compiled to a CSS
+/// variable nothing defined.
+#[napi(object)]
+pub struct JsTheme {
+    /// Token name (`"brand"`, `"blue-500"`) to its two spellings. Web takes
+    /// the `oklch`, React Native the `hex`, which is why both are carried
+    /// rather than converting at the boundary.
+    pub colors: Vec<JsThemeColor>,
+}
+
+#[napi(object)]
+pub struct JsThemeColor {
+    pub token: String,
+    pub oklch: String,
+    pub hex: String,
+}
+
+fn to_theme(theme: Option<JsTheme>) -> dowel_ir::Theme {
+    let Some(theme) = theme else {
+        return dowel_ir::Theme::default();
+    };
+    dowel_ir::Theme::new(
+        theme
+            .colors
+            .into_iter()
+            .map(|color| {
+                (color.token, dowel_ir::ThemeColor { oklch: color.oklch, hex: color.hex })
+            })
+            .collect(),
+    )
 }

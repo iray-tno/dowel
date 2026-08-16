@@ -56,10 +56,10 @@ export interface CandidateCache {
   forget(path: string): boolean
   /// The Web stylesheet: rules under the classes' real Tailwind names, for
   /// the browser's own CSS engine to match.
-  renderCss(): string
+  renderCss(theme?: Theme): string
   /// The Native equivalent: a JS module exporting `dowelClasses`, a
   /// resolver bound to this project's class-name -> style-object map.
-  renderNativeModule(): string
+  renderNativeModule(theme?: Theme): string
   persist(): void
   readonly size: number
 }
@@ -92,16 +92,27 @@ function loadNative(): NativeBinding {
   return native
 }
 
-export function compile(source: string): CompiledComponent[] {
-  return loadNative().compile(source)
+/**
+ * A project's design tokens, as `@dowel/tailwind` extracts them.
+ *
+ * Optional everywhere: an absent theme means Tailwind's default palette,
+ * which is what every caller got before themes existed. Passing one only
+ * ever resolves more, never less.
+ */
+export interface Theme {
+  colors: { token: string; oklch: string; hex: string }[]
+}
+
+export function compile(source: string, theme?: Theme): CompiledComponent[] {
+  return loadNative().compile(source, theme)
 }
 
 // Not yet wired into a Metro transformer (@dowel/vite-plugin's Metro
 // counterpart doesn't exist yet -- Native was deliberately validated after
 // Web, per the A-phase decision). Exposed now so the binding layer mirrors
 // both backends; the transformer-side integration is separate future work.
-export function compileNative(source: string): CompiledNativeComponent[] {
-  return loadNative().compileNative(source)
+export function compileNative(source: string, theme?: Theme): CompiledNativeComponent[] {
+  return loadNative().compileNative(source, theme)
 }
 
 export function openCandidateCache(path?: string): CandidateCache {

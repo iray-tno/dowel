@@ -21,3 +21,5 @@ target/
 .render-*/
 .native-render-*/
 .tsx-*/
+.theme-test-*/
+.probe-*/

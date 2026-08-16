@@ -5,5 +5,13 @@
   "description": "Tailwind integration for Dowel's Style IR.",
   "license": "MIT",
   "type": "module",
-  "main": "./src/index.ts"
+  "main": "./src/index.ts",
+  "dependencies": {
+    "@dowel/compiler": "workspace:^",
+    "culori": "^4.0.2",
+    "tailwindcss": "^4.3.3"
+  },
+  "scripts": {
+    "test": "node --test src/*.test.ts"
+  }
 }

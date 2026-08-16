@@ -19,7 +19,7 @@ use dowel_ir::{
     DecorationStyle,
     ColumnCount, Dimension, Display, Edge, GridLine, GridSpan, GridTracks, MaskSlot, MaskStop,
     Em, FlexDirection, LetterSpacing, FlexShorthand, Justify, Length, LineHeight, Overflow, Position, Radius,
-    StyleProperty, TextAlign, TextOverflow, TextTransform, WhiteSpace,
+    StyleProperty, TextAlign, TextOverflow, TextTransform, Theme, WhiteSpace,
 };
 
 fn length_px(length: Length) -> String {
@@ -269,7 +269,8 @@ impl MaskGradient {
 /// single gradient. Using both kinds together is therefore
 /// order-dependent in Tailwind and resolved here as "sides win", which is
 /// the only case where the two can disagree.
-fn mask_declarations(props: &[&StyleProperty]) -> Vec<(&'static str, String)> {
+fn mask_declarations(props: &[&StyleProperty], theme: &Theme) -> Vec<(&'static str, String)> {
+    let color_var = |color: &Color| resolve_theme_color(color, theme);
     let slot_gradient = |slot: MaskSlot| {
         let mut g = MaskGradient {
             from_color: None,
@@ -591,9 +592,13 @@ fn is_scrollbar_color(prop: &StyleProperty) -> bool {
 /// `scrollbar-track-*` compose into one declaration. Tailwind's registers
 /// default to `#0000`, so an unset half is transparent rather than the UA
 /// default -- which is why writing only one still names both.
-fn scrollbar_color_value(props: &[&StyleProperty]) -> Option<String> {
+fn scrollbar_color_value(props: &[&StyleProperty], theme: &Theme) -> Option<String> {
     let find = |f: fn(&StyleProperty) -> Option<&Color>| {
-        props.iter().find_map(|p| f(p)).map(color_var).unwrap_or_else(|| "#0000".to_string())
+        props
+            .iter()
+            .find_map(|p| f(p))
+            .map(|color| resolve_theme_color(color, theme))
+            .unwrap_or_else(|| "#0000".to_string())
     };
     if props.is_empty() {
         return None;
@@ -621,14 +626,17 @@ fn side_keyword(slot: MaskSlot) -> &'static str {
     }
 }
 
-fn color_var(color: &Color) -> String {
+fn resolve_theme_color(color: &Color, theme: &Theme) -> String {
     let token = match color {
         Color::Token(token) => token,
         // Not a colour at all, so it does not go through the palette.
         Color::Keyword(keyword) => return keyword.to_string(),
     };
-    match dowel_ir::resolve_color_token(token) {
-        Some(resolved) => resolved.oklch.to_string(),
+    match theme.color(token) {
+        Some(resolved) => resolved.oklch,
+        // Not in the project's theme either. Still a reference rather than
+        // a guess: correct-but-unresolved, which is what this has always
+        // done for a token nothing defines.
         None => format!("var(--dowel-color-{token})"),
     }
 }
@@ -637,7 +645,11 @@ fn color_var(color: &Color) -> String {
 /// mirror Tailwind's own generated CSS where there's a choice (e.g.
 /// `align-items: flex-start` rather than the newer `start` keyword) so
 /// output stays recognizable to anyone used to reading Tailwind's CSS.
-pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
+pub fn property_and_value(prop: &StyleProperty, theme: &Theme) -> (&'static str, String) {
+    // Bound once, so the thirty-odd colour arms below read exactly as they
+    // did before a theme existed. Threading `theme` through each of them
+    // would add a word to thirty lines and say nothing at any of them.
+    let color_var = |color: &Color| resolve_theme_color(color, theme);
     match prop {
         StyleProperty::Display(d) => (
             "display",
@@ -1074,7 +1086,7 @@ fn is_shadow_layer(prop: &StyleProperty) -> bool {
 ///
 /// A ring colour with no width contributes nothing, which is correct --
 /// `ring-blue-500` alone has nothing to paint, exactly as in Tailwind.
-fn box_shadow_value(props: &[&StyleProperty]) -> Option<String> {
+fn box_shadow_value(props: &[&StyleProperty], theme: &Theme) -> Option<String> {
     let find_length = |f: fn(&StyleProperty) -> Option<Length>| props.iter().find_map(|p| f(p));
     let find_color = |f: fn(&StyleProperty) -> Option<&Color>| props.iter().find_map(|p| f(p));
 
@@ -1100,7 +1112,9 @@ fn box_shadow_value(props: &[&StyleProperty]) -> Option<String> {
     });
 
     // Tailwind's default ring colour is `currentcolor`.
-    let paint = |c: Option<&Color>| c.map_or("currentcolor".to_string(), color_var);
+    let paint = |c: Option<&Color>| {
+        c.map_or_else(|| "currentcolor".to_string(), |color| resolve_theme_color(color, theme))
+    };
 
     let inset_shadow = props.iter().find_map(|p| match p {
         StyleProperty::InsetShadow(s) => Some(s.clone()),
@@ -1132,7 +1146,12 @@ fn box_shadow_value(props: &[&StyleProperty]) -> Option<String> {
     (!layers.is_empty()).then(|| layers.join(", "))
 }
 
-pub fn render_rule(class_name: &str, condition: &Condition, props: &[StyleProperty]) -> String {
+pub fn render_rule(
+    class_name: &str,
+    condition: &Condition,
+    props: &[StyleProperty],
+    theme: &Theme,
+) -> String {
     let (media, suffix) = condition_shape(condition);
 
     // Some utilities target something other than the element itself, so
@@ -1196,16 +1215,16 @@ pub fn render_rule(class_name: &str, condition: &Condition, props: &[StyleProper
     {
         let mut body = String::new();
         for prop in own_props {
-            let (name, value) = property_and_value(prop);
+            let (name, value) = property_and_value(prop, theme);
             body.push_str(&format!("  {name}: {value};\n"));
         }
-        if let Some(value) = box_shadow_value(&shadow_props) {
+        if let Some(value) = box_shadow_value(&shadow_props, theme) {
             body.push_str(&format!("  box-shadow: {value};\n"));
         }
-        for (name, value) in mask_declarations(&mask_props) {
+        for (name, value) in mask_declarations(&mask_props, theme) {
             body.push_str(&format!("  {name}: {value};\n"));
         }
-        if let Some(value) = scrollbar_color_value(&scrollbar_props) {
+        if let Some(value) = scrollbar_color_value(&scrollbar_props, theme) {
             body.push_str(&format!("  scrollbar-color: {value};\n"));
         }
         if let Some(value) = translate_value(&translate_props) {
@@ -1265,7 +1284,7 @@ pub fn render_rule(class_name: &str, condition: &Condition, props: &[StyleProper
     if !child_props.is_empty() {
         let mut body = String::new();
         for prop in child_props {
-            for (name, value) in space_declarations(prop) {
+            for (name, value) in space_declarations(prop, theme) {
                 body.push_str(&format!("  {name}: {value};\n"));
             }
         }
@@ -1276,7 +1295,7 @@ pub fn render_rule(class_name: &str, condition: &Condition, props: &[StyleProper
     if !placeholder_props.is_empty() {
         let mut body = String::new();
         for prop in placeholder_props {
-            let (name, value) = property_and_value(prop);
+            let (name, value) = property_and_value(prop, theme);
             body.push_str(&format!("  {name}: {value};\n"));
         }
         rules.push(format!(".{class_name}{suffix}::placeholder {{\n{body}}}"));
@@ -1308,7 +1327,8 @@ pub fn escape_class_selector(class_name: &str) -> String {
 /// Both sides are written, not just the gap-bearing one, because Tailwind
 /// does the same -- its reverse-direction support needs the zero side to
 /// be explicit.
-fn space_declarations(prop: &StyleProperty) -> Vec<(&'static str, String)> {
+fn space_declarations(prop: &StyleProperty, theme: &Theme) -> Vec<(&'static str, String)> {
+    let color_var = |color: &Color| resolve_theme_color(color, theme);
     match prop {
         StyleProperty::SpaceX(l) => vec![
             ("margin-inline-start", "0".to_string()),
@@ -1399,7 +1419,7 @@ mod tests {
 
     #[test]
     fn known_color_token_resolves_to_real_oklch() {
-        let (name, value) = property_and_value(&StyleProperty::BackgroundColor(Color::Token("blue-500".to_string())));
+        let (name, value) = property_and_value(&StyleProperty::BackgroundColor(Color::Token("blue-500".to_string())), &Theme::default());
         assert_eq!(name, "background-color");
         assert_eq!(value, "oklch(62.3% 0.214 259.815)");
     }
@@ -1407,7 +1427,7 @@ mod tests {
     #[test]
     fn unknown_color_token_falls_back_to_a_css_custom_property() {
         let (_, value) =
-            property_and_value(&StyleProperty::TextColor(Color::Token("brand-primary".to_string())));
+            property_and_value(&StyleProperty::TextColor(Color::Token("brand-primary".to_string())), &Theme::default());
         assert_eq!(value, "var(--dowel-color-brand-primary)");
     }
 }

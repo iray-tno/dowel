@@ -9,7 +9,7 @@
 mod css;
 mod markup;
 
-use dowel_ir::{Diagnostic, Node, Primitive};
+use dowel_ir::{Diagnostic, Node, Primitive, Theme};
 
 pub struct LowerOutput {
     pub jsx: String,
@@ -47,13 +47,21 @@ impl ClassAllocator {
 /// CSS for classes that can only be known at runtime is *not* emitted
 /// here: candidates are a project-wide set, so their stylesheet is built
 /// once by `render_candidate_stylesheet` rather than per file.
-pub fn lower(root: &Node, source: &str) -> LowerOutput {
+pub fn lower(root: &Node, source: &str, theme: &Theme) -> LowerOutput {
     let mut allocator = ClassAllocator { next: 0 };
     let mut rules = String::new();
     let mut diagnostics = Vec::new();
     let mut uses_view_base = false;
 
-    let jsx = render_node(root, source, &mut allocator, &mut rules, &mut diagnostics, &mut uses_view_base);
+    let jsx = render_node(
+        root,
+        source,
+        theme,
+        &mut allocator,
+        &mut rules,
+        &mut diagnostics,
+        &mut uses_view_base,
+    );
 
     let mut css = String::new();
     if uses_view_base {
@@ -86,14 +94,14 @@ pub fn lower(root: &Node, source: &str) -> LowerOutput {
 /// Unrecognized names are skipped rather than reported. The candidate list
 /// comes from scanning, so it's expected to contain tokens that only
 /// looked like classes.
-pub fn render_candidate_stylesheet(class_names: &[String]) -> String {
+pub fn render_candidate_stylesheet(class_names: &[String], theme: &Theme) -> String {
     let mut out = String::new();
     for name in class_names {
         let Some(utility) = dowel_parser::resolve_class_name(name) else {
             continue;
         };
         let selector = css::escape_class_selector(&utility.class_name);
-        out.push_str(&css::render_rule(&selector, &utility.condition, &utility.properties));
+        out.push_str(&css::render_rule(&selector, &utility.condition, &utility.properties, theme));
         out.push_str("\n\n");
     }
     out
@@ -154,6 +162,7 @@ fn render_condition_expr(source: &str, expr: &dowel_ir::ConditionExpr) -> String
 fn render_node(
     node: &Node,
     source: &str,
+    theme: &Theme,
     allocator: &mut ClassAllocator,
     rules: &mut String,
     diagnostics: &mut Vec<Diagnostic>,
@@ -171,7 +180,7 @@ fn render_node(
         if props.is_empty() {
             continue;
         }
-        rules.push_str(&css::render_rule(&class_name, &condition, &props));
+        rules.push_str(&css::render_rule(&class_name, &condition, &props, theme));
         rules.push_str("\n\n");
     }
 
@@ -288,13 +297,14 @@ fn render_node(
         .iter()
         .map(|child| match child {
             dowel_ir::Child::Node(child_node) => {
-                render_node(child_node, source, allocator, rules, diagnostics, uses_view_base)
+                render_node(child_node, source, theme, allocator, rules, diagnostics, uses_view_base)
             }
             dowel_ir::Child::Text(text) => markup::html_escape(text),
             dowel_ir::Child::Verbatim { source: expr_ref, nested } => render_verbatim(
                 *expr_ref,
                 nested,
                 source,
+                theme,
                 allocator,
                 rules,
                 diagnostics,
@@ -324,6 +334,7 @@ fn render_verbatim(
     expr_ref: dowel_ir::ExprRef,
     nested: &[dowel_ir::NestedNode],
     source: &str,
+    theme: &Theme,
     allocator: &mut ClassAllocator,
     rules: &mut String,
     diagnostics: &mut Vec<Diagnostic>,
@@ -338,6 +349,7 @@ fn render_verbatim(
         out.push_str(&render_node(
             &entry.node,
             source,
+            theme,
             allocator,
             rules,
             diagnostics,
@@ -399,7 +411,7 @@ export function Login() {
     fn lowers_the_login_example_to_html_and_css() {
         let parsed = dowel_parser::parse_tsx(LOGIN_EXAMPLE);
         let root = &parsed.roots[0].node;
-        let output = lower(root, LOGIN_EXAMPLE);
+        let output = lower(root, LOGIN_EXAMPLE, &Theme::default());
 
         assert!(output.jsx.starts_with(r#"<div className="dowel-view dowel-0">"#));
         assert!(output.jsx.contains("<span className=\"dowel-1\">Welcome</span>"));
@@ -427,7 +439,7 @@ export function Login() {
             const el = <View className="hover:text-xl" />
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0].node, source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
         assert!(output.css.contains(".dowel-0:hover {"));
         assert!(output.css.contains("font-size: 20px;"));
     }
@@ -439,7 +451,7 @@ export function Login() {
             const el = <View className={classNameFromProps} />
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0].node, source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
 
         // The expression reaches the DOM instead of vanishing...
         assert!(output.jsx.contains("classNameFromProps"));
@@ -458,7 +470,7 @@ export function Login() {
         // can't see them, so the only thing that can match at runtime is
         // the name itself. No runtime code is involved: the browser's CSS
         // engine resolves it.
-        let css = render_candidate_stylesheet(&["p-8".to_string(), "p-2".to_string()]);
+        let css = render_candidate_stylesheet(&["p-8".to_string(), "p-2".to_string()], &Theme::default());
         assert!(css.contains(".p-8 {"));
         assert!(css.contains(".p-2 {"));
         assert!(css.contains("padding-top: 32px;"));
@@ -476,7 +488,7 @@ export function Login() {
             const el = <View className={cn('p-4', getDynamic())} />
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0].node, source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
         assert!(output.css.contains(".dowel-0 {"), "{}", output.css);
         assert!(!output.css.contains(".p-4 {"), "{}", output.css);
     }
@@ -485,7 +497,7 @@ export function Login() {
     fn candidate_variant_classes_are_escaped_in_the_selector() {
         // `hover:bg-blue-500` contains selector syntax and has to be
         // written `.hover\:bg-blue-500:hover` to match literally.
-        let css = render_candidate_stylesheet(&["hover:bg-blue-500".to_string()]);
+        let css = render_candidate_stylesheet(&["hover:bg-blue-500".to_string()], &Theme::default());
         assert!(css.contains(r".hover\:bg-blue-500:hover {"));
     }
 
@@ -493,7 +505,7 @@ export function Login() {
     fn unrecognized_candidates_are_skipped() {
         // Scanning is imprecise by design, so the stylesheet has to
         // tolerate tokens that only looked like classes.
-        let css = render_candidate_stylesheet(&["useState".to_string(), "p-4".to_string()]);
+        let css = render_candidate_stylesheet(&["useState".to_string(), "p-4".to_string()], &Theme::default());
         assert!(css.contains(".p-4 {"));
         assert!(!css.contains("useState"));
     }
@@ -517,7 +529,7 @@ export function Login() {
             }
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0].node, source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
 
         // Carried, not interpreted: the guard and the callback survive.
         assert!(output.jsx.contains("{show && "), "{}", output.jsx);
@@ -542,7 +554,7 @@ export function Login() {
             const el = <View className={cn('p-4', active && 'text-xl', getDynamic())} />
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0].node, source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
 
         assert!(output.css.contains("padding-top: 16px;"));
         assert!(output.css.contains("font-size: 20px;"));
@@ -561,7 +573,7 @@ export function Login() {
             const el = <View className="space-x-2" />
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0].node, source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
         assert!(output.css.contains(":where(.dowel-0 > :not(:last-child)) {"));
         assert!(output.css.contains("margin-inline-end: 8px;"));
         // Not on the element itself.
@@ -574,7 +586,7 @@ export function Login() {
             "import {{ View }} from '@dowel/core'\nconst el = <View className=\"{classes}\" />\n"
         );
         let parsed = dowel_parser::parse_tsx(&source);
-        lower(&parsed.roots[0].node, &source).css
+        lower(&parsed.roots[0].node, &source, &Theme::default()).css
     }
 
     #[test]
@@ -747,7 +759,7 @@ export function Login() {
             )
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0].node, source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
         assert!(output.css.contains("animation: spin 1s linear infinite;"));
         // An `animation` declaration is inert without its keyframes, and
         // two users of the same animation must not duplicate the block.
@@ -761,7 +773,7 @@ export function Login() {
             const el = <View className="p-4" {...rest} onLayout={onLayout} testID="row" />
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0].node, source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
         assert!(output.jsx.contains("{...rest}"));
         assert!(output.jsx.contains("onLayout={onLayout}"));
         assert!(output.jsx.contains(r#"testID="row""#));
@@ -774,7 +786,7 @@ export function Login() {
             const el = <Button className="pressed:opacity-50">Save</Button>
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0].node, source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
         assert!(output.css.contains(".dowel-0:active {"));
         assert!(output.css.contains("opacity: 0.5;"));
     }
@@ -790,7 +802,7 @@ export function Login() {
             const el = <Pressable onPress={handleTap}>Tap</Pressable>
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0].node, source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
         assert_eq!(output.diagnostics.len(), 1);
         assert_eq!(output.diagnostics[0].code, dowel_ir::DiagnosticCode::A11yInteractiveWithoutRole);
         assert!(!output.jsx.contains("role="));
@@ -807,7 +819,7 @@ export function Login() {
             )
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0].node, source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
         assert!(output.diagnostics.is_empty());
         assert!(output.jsx.contains(r#"role="button""#));
     }
@@ -819,7 +831,7 @@ export function Login() {
             const el = <Button disabled={isLoading}>Save</Button>
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0].node, source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
         assert!(output.jsx.contains("disabled={isLoading}"));
         assert!(!output.jsx.contains("aria-disabled"));
     }
@@ -833,7 +845,7 @@ export function Login() {
             const el = <Pressable disabled={isLoading} accessibilityRole="button">Save</Pressable>
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0].node, source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
         assert!(output.jsx.contains("aria-disabled={isLoading}"));
     }
 
@@ -845,7 +857,7 @@ export function Login() {
             const el = <View className={cn('p-4', active && 'text-xl')} />
             "#;
         let parsed = dowel_parser::parse_tsx(source);
-        let output = lower(&parsed.roots[0].node, source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
 
         // The guard is re-emitted verbatim, wired to toggle attribute
         // *presence* (not a literal "true"/"false" string, which would

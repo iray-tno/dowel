@@ -22,14 +22,17 @@ use dowel_ir::{
     StyleProperty, TextAlign, TextOverflow, TextTransform, Theme, WhiteSpace,
 };
 
-fn length_px(length: Length) -> String {
-    let Length::Px(value) = length;
-    format!("{value}px")
+/// A length as CSS text, against the project's spacing scale.
+///
+/// Takes the theme because a spacing step's width is the project's to
+/// decide -- see `Length::Spacing`.
+fn length_px(length: Length, theme: &Theme) -> String {
+    format!("{}px", length.px(theme))
 }
 
-fn dimension_value(dim: Dimension) -> String {
+fn dimension_value(dim: Dimension, theme: &Theme) -> String {
     match dim {
-        Dimension::Length(length) => length_px(length),
+        Dimension::Length(length) => length_px(length, theme),
         Dimension::Percent(pct) => format!("{pct}%"),
         Dimension::Auto => "auto".to_string(),
         Dimension::ViewportWidth(pct) => format!("{pct}vw"),
@@ -151,9 +154,9 @@ fn border_style_keyword(style: &BorderStyle) -> &'static str {
     }
 }
 
-fn radius_value(radius: &Radius) -> String {
+fn radius_value(radius: &Radius, theme: &Theme) -> String {
     match radius {
-        Radius::Length(l) => length_px(*l),
+        Radius::Length(l) => length_px(*l, theme),
         // Exactly what Tailwind emits -- CSS can state this, so there's no
         // reason to approximate it here.
         Radius::Full => "calc(infinity * 1px)".to_string(),
@@ -286,8 +289,8 @@ fn mask_declarations(props: &[&StyleProperty], theme: &Theme) -> Vec<(&'static s
                     MaskStop::To => g.to_color = Some(color_var(c)),
                 },
                 StyleProperty::MaskStopPosition(s, stop, d) if *s == slot => match stop {
-                    MaskStop::From => g.from_position = Some(dimension_value(*d)),
-                    MaskStop::To => g.to_position = Some(dimension_value(*d)),
+                    MaskStop::From => g.from_position = Some(dimension_value(*d, theme)),
+                    MaskStop::To => g.to_position = Some(dimension_value(*d, theme)),
                 },
                 StyleProperty::MaskAngle(s, degrees) if *s == slot => g.angle = Some(*degrees),
                 _ => {}
@@ -533,23 +536,25 @@ fn transform_value(props: &[&StyleProperty]) -> Option<String> {
 ///
 /// The z value is only written when present, matching Tailwind: the
 /// two-value form is what `translate-x-*`/`translate-y-*` produce.
-fn translate_value(props: &[&StyleProperty]) -> Option<String> {
+fn translate_value(props: &[&StyleProperty], theme: &Theme) -> Option<String> {
     if props.is_empty() {
         return None;
     }
-    let axis = |f: fn(&StyleProperty) -> Option<String>| {
+    // A trait object rather than a fn pointer: the closures below capture
+    // `theme` now, so they aren't plain functions any more.
+    let axis = |f: &dyn Fn(&StyleProperty) -> Option<String>| {
         props.iter().find_map(|p| f(p)).unwrap_or_else(|| "0".to_string())
     };
-    let x = axis(|p| match p {
-        StyleProperty::TranslateX(d) => Some(dimension_value(*d)),
+    let x = axis(&|p: &StyleProperty| match p {
+        StyleProperty::TranslateX(d) => Some(dimension_value(*d, theme)),
         _ => None,
     });
-    let y = axis(|p| match p {
-        StyleProperty::TranslateY(d) => Some(dimension_value(*d)),
+    let y = axis(&|p: &StyleProperty| match p {
+        StyleProperty::TranslateY(d) => Some(dimension_value(*d, theme)),
         _ => None,
     });
     let z = props.iter().find_map(|p| match p {
-        StyleProperty::TranslateZ(l) => Some(length_px(*l)),
+        StyleProperty::TranslateZ(l) => Some(length_px(*l, theme)),
         _ => None,
     });
     Some(match z {
@@ -561,12 +566,16 @@ fn translate_value(props: &[&StyleProperty]) -> Option<String> {
 /// `border-spacing` takes a horizontal and a vertical value in one
 /// declaration, so the two axes compose. An unset axis is `0`, matching
 /// what Tailwind writes for `border-spacing-x-*`.
-fn border_spacing_value(props: &[&StyleProperty]) -> Option<String> {
+fn border_spacing_value(props: &[&StyleProperty], theme: &Theme) -> Option<String> {
     if props.is_empty() {
         return None;
     }
     let axis = |f: fn(&StyleProperty) -> Option<Length>| {
-        props.iter().find_map(|p| f(p)).map(length_px).unwrap_or_else(|| "0".to_string())
+        props
+            .iter()
+            .find_map(|p| f(p))
+            .map(|l| length_px(l, theme))
+            .unwrap_or_else(|| "0".to_string())
     };
     Some(format!(
         "{} {}",
@@ -713,27 +722,27 @@ pub fn property_and_value(prop: &StyleProperty, theme: &Theme) -> (&'static str,
         StyleProperty::JustifyContent(justify) => {
             ("justify-content", justify_keyword(justify).to_string())
         }
-        StyleProperty::Gap(l) => ("gap", length_px(*l)),
-        StyleProperty::RowGap(l) => ("row-gap", length_px(*l)),
-        StyleProperty::ColumnGap(l) => ("column-gap", length_px(*l)),
-        StyleProperty::MarginTop(d) => ("margin-top", dimension_value(*d)),
-        StyleProperty::MarginRight(d) => ("margin-right", dimension_value(*d)),
-        StyleProperty::MarginBottom(d) => ("margin-bottom", dimension_value(*d)),
-        StyleProperty::MarginLeft(d) => ("margin-left", dimension_value(*d)),
-        StyleProperty::PaddingTop(l) => ("padding-top", length_px(*l)),
-        StyleProperty::PaddingRight(l) => ("padding-right", length_px(*l)),
-        StyleProperty::PaddingBottom(l) => ("padding-bottom", length_px(*l)),
-        StyleProperty::PaddingLeft(l) => ("padding-left", length_px(*l)),
-        StyleProperty::MarginInlineStart(d) => ("margin-inline-start", dimension_value(*d)),
-        StyleProperty::MarginInlineEnd(d) => ("margin-inline-end", dimension_value(*d)),
-        StyleProperty::PaddingInlineStart(l) => ("padding-inline-start", length_px(*l)),
-        StyleProperty::PaddingInlineEnd(l) => ("padding-inline-end", length_px(*l)),
-        StyleProperty::Width(d) => ("width", dimension_value(*d)),
-        StyleProperty::Height(d) => ("height", dimension_value(*d)),
-        StyleProperty::MinWidth(d) => ("min-width", dimension_value(*d)),
-        StyleProperty::MinHeight(d) => ("min-height", dimension_value(*d)),
-        StyleProperty::MaxWidth(d) => ("max-width", dimension_value(*d)),
-        StyleProperty::MaxHeight(d) => ("max-height", dimension_value(*d)),
+        StyleProperty::Gap(l) => ("gap", length_px(*l, theme)),
+        StyleProperty::RowGap(l) => ("row-gap", length_px(*l, theme)),
+        StyleProperty::ColumnGap(l) => ("column-gap", length_px(*l, theme)),
+        StyleProperty::MarginTop(d) => ("margin-top", dimension_value(*d, theme)),
+        StyleProperty::MarginRight(d) => ("margin-right", dimension_value(*d, theme)),
+        StyleProperty::MarginBottom(d) => ("margin-bottom", dimension_value(*d, theme)),
+        StyleProperty::MarginLeft(d) => ("margin-left", dimension_value(*d, theme)),
+        StyleProperty::PaddingTop(l) => ("padding-top", length_px(*l, theme)),
+        StyleProperty::PaddingRight(l) => ("padding-right", length_px(*l, theme)),
+        StyleProperty::PaddingBottom(l) => ("padding-bottom", length_px(*l, theme)),
+        StyleProperty::PaddingLeft(l) => ("padding-left", length_px(*l, theme)),
+        StyleProperty::MarginInlineStart(d) => ("margin-inline-start", dimension_value(*d, theme)),
+        StyleProperty::MarginInlineEnd(d) => ("margin-inline-end", dimension_value(*d, theme)),
+        StyleProperty::PaddingInlineStart(l) => ("padding-inline-start", length_px(*l, theme)),
+        StyleProperty::PaddingInlineEnd(l) => ("padding-inline-end", length_px(*l, theme)),
+        StyleProperty::Width(d) => ("width", dimension_value(*d, theme)),
+        StyleProperty::Height(d) => ("height", dimension_value(*d, theme)),
+        StyleProperty::MinWidth(d) => ("min-width", dimension_value(*d, theme)),
+        StyleProperty::MinHeight(d) => ("min-height", dimension_value(*d, theme)),
+        StyleProperty::MaxWidth(d) => ("max-width", dimension_value(*d, theme)),
+        StyleProperty::MaxHeight(d) => ("max-height", dimension_value(*d, theme)),
         StyleProperty::ZIndex(z) => (
             "z-index",
             z.map_or_else(|| "auto".to_string(), |z| z.to_string()),
@@ -756,21 +765,21 @@ pub fn property_and_value(prop: &StyleProperty, theme: &Theme) -> (&'static str,
             }
             .to_string(),
         ),
-        StyleProperty::InsetTop(d) => ("top", dimension_value(*d)),
-        StyleProperty::InsetRight(d) => ("right", dimension_value(*d)),
-        StyleProperty::InsetBottom(d) => ("bottom", dimension_value(*d)),
-        StyleProperty::InsetLeft(d) => ("left", dimension_value(*d)),
-        StyleProperty::InsetInlineStart(d) => ("inset-inline-start", dimension_value(*d)),
-        StyleProperty::InsetInlineEnd(d) => ("inset-inline-end", dimension_value(*d)),
-        StyleProperty::InsetInline(d) => ("inset-inline", dimension_value(*d)),
-        StyleProperty::InsetBlock(d) => ("inset-block", dimension_value(*d)),
-        StyleProperty::InsetBlockStart(d) => ("inset-block-start", dimension_value(*d)),
-        StyleProperty::InsetBlockEnd(d) => ("inset-block-end", dimension_value(*d)),
+        StyleProperty::InsetTop(d) => ("top", dimension_value(*d, theme)),
+        StyleProperty::InsetRight(d) => ("right", dimension_value(*d, theme)),
+        StyleProperty::InsetBottom(d) => ("bottom", dimension_value(*d, theme)),
+        StyleProperty::InsetLeft(d) => ("left", dimension_value(*d, theme)),
+        StyleProperty::InsetInlineStart(d) => ("inset-inline-start", dimension_value(*d, theme)),
+        StyleProperty::InsetInlineEnd(d) => ("inset-inline-end", dimension_value(*d, theme)),
+        StyleProperty::InsetInline(d) => ("inset-inline", dimension_value(*d, theme)),
+        StyleProperty::InsetBlock(d) => ("inset-block", dimension_value(*d, theme)),
+        StyleProperty::InsetBlockStart(d) => ("inset-block-start", dimension_value(*d, theme)),
+        StyleProperty::InsetBlockEnd(d) => ("inset-block-end", dimension_value(*d, theme)),
         StyleProperty::BackgroundColor(c) => ("background-color", color_var(c)),
         StyleProperty::Opacity(o) => ("opacity", format!("{o}")),
         StyleProperty::BorderColor(c) => ("border-color", color_var(c)),
-        StyleProperty::ScrollMargin(edge, l) => (scroll_margin_property(*edge), length_px(*l)),
-        StyleProperty::ScrollPadding(edge, l) => (scroll_padding_property(*edge), length_px(*l)),
+        StyleProperty::ScrollMargin(edge, l) => (scroll_margin_property(*edge), length_px(*l, theme)),
+        StyleProperty::ScrollPadding(edge, l) => (scroll_padding_property(*edge), length_px(*l, theme)),
         StyleProperty::ScrollBehavior(value) => ("scroll-behavior", value.to_string()),
         StyleProperty::MaskClip(v) => ("mask-clip", v.to_string()),
         StyleProperty::MaskOrigin(v) => ("mask-origin", v.to_string()),
@@ -813,13 +822,13 @@ pub fn property_and_value(prop: &StyleProperty, theme: &Theme) -> (&'static str,
             }
             .to_string(),
         ),
-        StyleProperty::TextDecorationThickness(l) => ("text-decoration-thickness", length_px(*l)),
+        StyleProperty::TextDecorationThickness(l) => ("text-decoration-thickness", length_px(*l, theme)),
         // Emitted into its own `::placeholder` rule by `render_rule`.
         StyleProperty::PlaceholderColor(c) => ("color", color_var(c)),
-        StyleProperty::OutlineWidth(l) => ("outline-width", length_px(*l)),
+        StyleProperty::OutlineWidth(l) => ("outline-width", length_px(*l, theme)),
         StyleProperty::OutlineStyle(s) => ("outline-style", border_style_keyword(s).to_string()),
         StyleProperty::OutlineColor(c) => ("outline-color", color_var(c)),
-        StyleProperty::OutlineOffset(l) => ("outline-offset", length_px(*l)),
+        StyleProperty::OutlineOffset(l) => ("outline-offset", length_px(*l, theme)),
         // Child-scoped; `render_rule` partitions these into their own rule
         // before this runs (see `space_declarations`).
         StyleProperty::DivideX(_)
@@ -838,10 +847,10 @@ pub fn property_and_value(prop: &StyleProperty, theme: &Theme) -> (&'static str,
         StyleProperty::BorderInlineEndColor(c) => ("border-inline-end-color", color_var(c)),
         StyleProperty::BorderBlockStartColor(c) => ("border-block-start-color", color_var(c)),
         StyleProperty::BorderBlockEndColor(c) => ("border-block-end-color", color_var(c)),
-        StyleProperty::BorderTopWidth(l) => ("border-top-width", length_px(*l)),
-        StyleProperty::BorderRightWidth(l) => ("border-right-width", length_px(*l)),
-        StyleProperty::BorderBottomWidth(l) => ("border-bottom-width", length_px(*l)),
-        StyleProperty::BorderLeftWidth(l) => ("border-left-width", length_px(*l)),
+        StyleProperty::BorderTopWidth(l) => ("border-top-width", length_px(*l, theme)),
+        StyleProperty::BorderRightWidth(l) => ("border-right-width", length_px(*l, theme)),
+        StyleProperty::BorderBottomWidth(l) => ("border-bottom-width", length_px(*l, theme)),
+        StyleProperty::BorderLeftWidth(l) => ("border-left-width", length_px(*l, theme)),
         StyleProperty::BorderTopStyle(s) => ("border-top-style", border_style_keyword(s).to_string()),
         StyleProperty::BorderRightStyle(s) => {
             ("border-right-style", border_style_keyword(s).to_string())
@@ -850,28 +859,28 @@ pub fn property_and_value(prop: &StyleProperty, theme: &Theme) -> (&'static str,
             ("border-bottom-style", border_style_keyword(s).to_string())
         }
         StyleProperty::BorderLeftStyle(s) => ("border-left-style", border_style_keyword(s).to_string()),
-        StyleProperty::BorderRadius(r) => ("border-radius", radius_value(r)),
-        StyleProperty::BorderTopLeftRadius(r) => ("border-top-left-radius", radius_value(r)),
-        StyleProperty::BorderTopRightRadius(r) => ("border-top-right-radius", radius_value(r)),
-        StyleProperty::BorderBottomRightRadius(r) => ("border-bottom-right-radius", radius_value(r)),
-        StyleProperty::BorderBottomLeftRadius(r) => ("border-bottom-left-radius", radius_value(r)),
-        StyleProperty::BorderStartStartRadius(r) => ("border-start-start-radius", radius_value(r)),
-        StyleProperty::BorderStartEndRadius(r) => ("border-start-end-radius", radius_value(r)),
-        StyleProperty::BorderEndStartRadius(r) => ("border-end-start-radius", radius_value(r)),
-        StyleProperty::BorderEndEndRadius(r) => ("border-end-end-radius", radius_value(r)),
-        StyleProperty::FontSize(l) => ("font-size", length_px(*l)),
+        StyleProperty::BorderRadius(r) => ("border-radius", radius_value(r, theme)),
+        StyleProperty::BorderTopLeftRadius(r) => ("border-top-left-radius", radius_value(r, theme)),
+        StyleProperty::BorderTopRightRadius(r) => ("border-top-right-radius", radius_value(r, theme)),
+        StyleProperty::BorderBottomRightRadius(r) => ("border-bottom-right-radius", radius_value(r, theme)),
+        StyleProperty::BorderBottomLeftRadius(r) => ("border-bottom-left-radius", radius_value(r, theme)),
+        StyleProperty::BorderStartStartRadius(r) => ("border-start-start-radius", radius_value(r, theme)),
+        StyleProperty::BorderStartEndRadius(r) => ("border-start-end-radius", radius_value(r, theme)),
+        StyleProperty::BorderEndStartRadius(r) => ("border-end-start-radius", radius_value(r, theme)),
+        StyleProperty::BorderEndEndRadius(r) => ("border-end-end-radius", radius_value(r, theme)),
+        StyleProperty::FontSize(l) => ("font-size", length_px(*l, theme)),
         StyleProperty::FontWeight(w) => ("font-weight", format!("{}", w.0)),
         StyleProperty::LineHeight(lh) => (
             "line-height",
             match lh {
-                LineHeight::Length(l) => length_px(*l),
+                LineHeight::Length(l) => length_px(*l, theme),
                 LineHeight::Ratio(r) => format!("{r}"),
             },
         ),
-        StyleProperty::TextUnderlineOffset(d) => ("text-underline-offset", dimension_value(*d)),
+        StyleProperty::TextUnderlineOffset(d) => ("text-underline-offset", dimension_value(*d, theme)),
         StyleProperty::OverflowX(o) => ("overflow-x", overflow_keyword(o).to_string()),
         StyleProperty::OverflowY(o) => ("overflow-y", overflow_keyword(o).to_string()),
-        StyleProperty::BorderLogicalWidth(edge, l) => (border_width_property(*edge), length_px(*l)),
+        StyleProperty::BorderLogicalWidth(edge, l) => (border_width_property(*edge), length_px(*l, theme)),
         StyleProperty::BorderLogicalStyle(edge, s) => {
             (border_style_property(*edge), border_style_keyword(s).to_string())
         }
@@ -901,13 +910,13 @@ pub fn property_and_value(prop: &StyleProperty, theme: &Theme) -> (&'static str,
             "columns",
             match columns {
                 ColumnCount::Count(n) => n.to_string(),
-                ColumnCount::Width(d) => dimension_value(*d),
+                ColumnCount::Width(d) => dimension_value(*d, theme),
                 ColumnCount::Auto => "auto".to_string(),
             },
         ),
         StyleProperty::LetterSpacing(ls) => ("letter-spacing", match ls {
             LetterSpacing::Em(Em(v)) => format!("{v}em"),
-            LetterSpacing::Px(l) => length_px(*l),
+            LetterSpacing::Px(l) => length_px(*l, theme),
         }),
         StyleProperty::Overflow(o) => ("overflow", overflow_keyword(o).to_string()),
         StyleProperty::TextOverflow(t) => (
@@ -965,18 +974,18 @@ pub fn property_and_value(prop: &StyleProperty, theme: &Theme) -> (&'static str,
         StyleProperty::TranslateX(_) | StyleProperty::TranslateY(_) | StyleProperty::TranslateZ(_) => {
             ("translate", String::new())
         }
-        StyleProperty::FlexBasis(d) => ("flex-basis", dimension_value(*d)),
-        StyleProperty::BlockSize(d) => ("block-size", dimension_value(*d)),
-        StyleProperty::InlineSize(d) => ("inline-size", dimension_value(*d)),
-        StyleProperty::MaxBlockSize(d) => ("max-block-size", dimension_value(*d)),
-        StyleProperty::MaxInlineSize(d) => ("max-inline-size", dimension_value(*d)),
-        StyleProperty::MinBlockSize(d) => ("min-block-size", dimension_value(*d)),
-        StyleProperty::MinInlineSize(d) => ("min-inline-size", dimension_value(*d)),
-        StyleProperty::TextIndent(d) => ("text-indent", dimension_value(*d)),
-        StyleProperty::MarginBlockStart(d) => ("margin-block-start", dimension_value(*d)),
-        StyleProperty::MarginBlockEnd(d) => ("margin-block-end", dimension_value(*d)),
-        StyleProperty::PaddingBlockStart(l) => ("padding-block-start", length_px(*l)),
-        StyleProperty::PaddingBlockEnd(l) => ("padding-block-end", length_px(*l)),
+        StyleProperty::FlexBasis(d) => ("flex-basis", dimension_value(*d, theme)),
+        StyleProperty::BlockSize(d) => ("block-size", dimension_value(*d, theme)),
+        StyleProperty::InlineSize(d) => ("inline-size", dimension_value(*d, theme)),
+        StyleProperty::MaxBlockSize(d) => ("max-block-size", dimension_value(*d, theme)),
+        StyleProperty::MaxInlineSize(d) => ("max-inline-size", dimension_value(*d, theme)),
+        StyleProperty::MinBlockSize(d) => ("min-block-size", dimension_value(*d, theme)),
+        StyleProperty::MinInlineSize(d) => ("min-inline-size", dimension_value(*d, theme)),
+        StyleProperty::TextIndent(d) => ("text-indent", dimension_value(*d, theme)),
+        StyleProperty::MarginBlockStart(d) => ("margin-block-start", dimension_value(*d, theme)),
+        StyleProperty::MarginBlockEnd(d) => ("margin-block-end", dimension_value(*d, theme)),
+        StyleProperty::PaddingBlockStart(l) => ("padding-block-start", length_px(*l, theme)),
+        StyleProperty::PaddingBlockEnd(l) => ("padding-block-end", length_px(*l, theme)),
         // `border-spacing` takes both axes at once, so these compose.
         StyleProperty::BorderSpacingX(_) | StyleProperty::BorderSpacingY(_) => {
             ("border-spacing", String::new())
@@ -1128,10 +1137,10 @@ fn box_shadow_value(props: &[&StyleProperty], theme: &Theme) -> Option<String> {
         layers.push(shadow);
     }
     if let Some(width) = inset_ring {
-        layers.push(format!("inset 0 0 0 {} {}", length_px(width), paint(inset_ring_color)));
+        layers.push(format!("inset 0 0 0 {} {}", length_px(width, theme), paint(inset_ring_color)));
     }
     if let Some(width) = ring {
-        layers.push(format!("0 0 0 {} {}", length_px(width), paint(ring_color)));
+        layers.push(format!("0 0 0 {} {}", length_px(width, theme), paint(ring_color)));
     }
     if let Some(shadow) = shadow {
         // `shadow-none` removes the *shadow* layer, not the whole
@@ -1227,7 +1236,7 @@ pub fn render_rule(
         if let Some(value) = scrollbar_color_value(&scrollbar_props, theme) {
             body.push_str(&format!("  scrollbar-color: {value};\n"));
         }
-        if let Some(value) = translate_value(&translate_props) {
+        if let Some(value) = translate_value(&translate_props, theme) {
             body.push_str(&format!("  translate: {value};\n"));
         }
         if let Some(value) = filter_value(&filter_props, false) {
@@ -1276,7 +1285,7 @@ pub fn render_rule(
         if let Some(value) = transform_value(&transform_props) {
             body.push_str(&format!("  transform: {value};\n"));
         }
-        if let Some(value) = border_spacing_value(&spacing_props) {
+        if let Some(value) = border_spacing_value(&spacing_props, theme) {
             body.push_str(&format!("  border-spacing: {value};\n"));
         }
         rules.push(format!(".{class_name}{suffix} {{\n{body}}}"));
@@ -1332,10 +1341,10 @@ fn space_declarations(prop: &StyleProperty, theme: &Theme) -> Vec<(&'static str,
     match prop {
         StyleProperty::SpaceX(l) => vec![
             ("margin-inline-start", "0".to_string()),
-            ("margin-inline-end", length_px(*l)),
+            ("margin-inline-end", length_px(*l, theme)),
         ],
         StyleProperty::SpaceY(l) => {
-            vec![("margin-top", "0".to_string()), ("margin-bottom", length_px(*l))]
+            vec![("margin-top", "0".to_string()), ("margin-bottom", length_px(*l, theme))]
         }
         // Tailwind writes both edges, zeroing the leading one, so that
         // `divide-x-reverse` can flip which edge carries the border without
@@ -1343,13 +1352,13 @@ fn space_declarations(prop: &StyleProperty, theme: &Theme) -> Vec<(&'static str,
         StyleProperty::DivideX(l) => vec![
             ("border-inline-style", "solid".to_string()),
             ("border-inline-start-width", "0".to_string()),
-            ("border-inline-end-width", length_px(*l)),
+            ("border-inline-end-width", length_px(*l, theme)),
         ],
         StyleProperty::DivideY(l) => vec![
             ("border-bottom-style", "solid".to_string()),
             ("border-top-style", "solid".to_string()),
             ("border-top-width", "0".to_string()),
-            ("border-bottom-width", length_px(*l)),
+            ("border-bottom-width", length_px(*l, theme)),
         ],
         StyleProperty::DivideColor(c) => vec![("border-color", color_var(c))],
         StyleProperty::DivideStyle(s) => {

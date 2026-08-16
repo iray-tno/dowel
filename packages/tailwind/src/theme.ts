@@ -29,6 +29,14 @@ export interface ThemeColor {
 
 export interface Theme {
   colors: ThemeColor[]
+  /**
+   * One spacing step in pixels. Tailwind's `--spacing` is a length, and
+   * every spacing utility is a multiple of it, so a project that changes
+   * it changes every padding, margin and gap at once -- which is why
+   * getting this wrong was silent: the output was an ordinary padding, at
+   * the wrong size.
+   */
+  spacingPx?: number
 }
 
 const toRgb = converter('rgb')
@@ -67,7 +75,7 @@ export async function loadTheme(css: string, base: string): Promise<Theme> {
     if (hex === null) continue
     colors.push({ token: name.slice('--color-'.length), oklch, hex })
   }
-  return { colors }
+  return { colors, spacingPx: readSpacing(design) }
 }
 
 /**
@@ -91,4 +99,33 @@ export function toHex(value: string): string | null {
 export function tailwindPackageDir(): string {
   const require = createRequire(import.meta.url)
   return path.dirname(require.resolve('tailwindcss/package.json'))
+}
+
+/// The root font size CSS resolves `rem` against, and the one Tailwind's
+/// own defaults assume.
+const ROOT_FONT_SIZE_PX = 16
+
+/**
+ * `--spacing` in pixels, or `undefined` if the project leaves it alone.
+ *
+ * Undefined rather than the default: an absent value means "whatever Dowel
+ * already does", which keeps a project that never touched the scale on
+ * exactly the path it was on.
+ */
+function readSpacing(design: {
+  theme: { entries(): Iterable<[string, { value: unknown }]> }
+}): number | undefined {
+  for (const [name, entry] of design.theme.entries()) {
+    if (name !== '--spacing') continue
+    const value = String(entry.value).trim()
+    const rem = /^(-?[\d.]+)rem$/.exec(value)
+    if (rem) return parseFloat(rem[1]) * ROOT_FONT_SIZE_PX
+    const px = /^(-?[\d.]+)px$/.exec(value)
+    if (px) return parseFloat(px[1])
+    // Anything else -- a `calc()`, a custom property chain -- is left to
+    // the default rather than guessed at. Guessing here would scale every
+    // spacing utility in the project by a number nobody chose.
+    return undefined
+  }
+  return undefined
 }

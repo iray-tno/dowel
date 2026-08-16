@@ -76,3 +76,45 @@ test('a colour that will not convert is left out rather than guessed', () => {
   // that beats a colour that is nearly right.
   assert.equal(toHex(''), null)
 })
+
+test('a project spacing scale reaches every spacing utility', async () => {
+  // The failure this fixes was silent, unlike the colour one: a project
+  // setting `--spacing` got the right number of steps at the wrong size,
+  // and the output was an ordinary padding.
+  const theme = await themeFrom(`@import "tailwindcss";
+    @theme { --spacing: 0.2rem; }`)
+  assert.equal(theme.spacingPx, 3.2)
+
+  const source =
+    `import { View } from '@dowel/core'\n` +
+    `export function C() { return <View className="p-4 -mt-2 gap-3 border-2" /> }\n`
+  const css = compile(source, theme)[0].css
+
+  assert.match(css, /padding-top: 12\.8px/)
+  // Negation happens in steps, so the sign survives the scale.
+  assert.match(css, /margin-top: -6\.4px/)
+  // Resolved, not left as arithmetic -- and rounded, since the product is
+  // written into the stylesheet as a literal.
+  assert.match(css, /gap: 9\.6px/)
+  // A border width is absolute whatever the spacing scale is, which is why
+  // the two are different kinds of length rather than one number.
+  assert.match(css, /border-top-width: 2px/)
+})
+
+test('a spacing scale Dowel cannot read leaves the default alone', async () => {
+  // Guessing here would rescale every padding, margin and gap in the
+  // project by a number nobody chose.
+  const theme = await themeFrom(`@import "tailwindcss";
+    @theme { --spacing: calc(1rem / 3); }`)
+  assert.equal(theme.spacingPx, undefined)
+})
+
+test('p-px stays one physical pixel', async () => {
+  // Tailwind means a hairline by it, not a step of anything.
+  const theme = await themeFrom(`@import "tailwindcss";
+    @theme { --spacing: 0.2rem; }`)
+  const source =
+    `import { View } from '@dowel/core'\n` +
+    `export function C() { return <View className="p-px" /> }\n`
+  assert.match(compile(source, theme)[0].css, /padding-top: 1px/)
+})

@@ -1248,6 +1248,42 @@ pub enum Radius {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Length {
     Px(f64),
+    /// A count of Tailwind spacing steps: `p-4` is `Spacing(4.0)`.
+    ///
+    /// Held as the step count rather than the pixels it works out to,
+    /// because the step is what the source said and the multiplier is the
+    /// project's (`--spacing`, 0.25rem by default). Resolving at parse time
+    /// baked the default in, so a project that changed it got the right
+    /// number of steps at the wrong size -- silently, since the output was
+    /// a perfectly ordinary padding.
+    ///
+    /// The same reasoning `Color` already followed: keep what was written,
+    /// resolve where the theme is.
+    Spacing(f64),
+}
+
+fn round(value: f64) -> f64 {
+    (value * 1e6).round() / 1e6
+}
+
+impl Length {
+    /// The pixel value, against a project's spacing scale.
+    ///
+    /// `Px` is already absolute -- a `border-2` is two pixels whatever the
+    /// spacing scale is, which is exactly why the two are different
+    /// variants rather than one number with a flag.
+    pub fn px(self, theme: &Theme) -> f64 {
+        match self {
+            Length::Px(value) => value,
+            // Rounded, because the product is written into the output as a
+            // literal. Tailwind emits `calc(var(--spacing) * 3)` and lets
+            // the browser do the arithmetic; Dowel resolves it, so binary
+            // floating point surfaces as `9.600000000000001px` in a
+            // stylesheet. Six decimals is far past any real length and
+            // short of where the noise starts.
+            Length::Spacing(steps) => round(steps * theme.spacing_px()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

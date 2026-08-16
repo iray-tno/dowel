@@ -41,17 +41,23 @@ fn parse_transition_properties(token: &str) -> Option<&'static str> {
     })
 }
 
-/// Tailwind's default spacing scale: `spacing(n) = n * 0.25rem`, and the
-/// default root font size is 16px, so each spacing step is 4px.
-fn spacing_to_px(n: f64) -> Length {
-    Length::Px(n * 4.0)
-}
-
+/// A spacing suffix as the step count it is, not the pixels it works out
+/// to.
+///
+/// `p-4` is four steps; how wide a step is belongs to the project
+/// (`--spacing`, 0.25rem by default) and is applied at lowering, where the
+/// theme is. Multiplying here baked Tailwind's default in, so a project
+/// that changed the scale got the right number of steps at the wrong
+/// size -- and silently, because the output was an ordinary padding.
+///
+/// `p-px` is the exception and stays absolute: Tailwind means one physical
+/// pixel by it, which is what a hairline border wants and is not a step of
+/// anything.
 fn parse_spacing_suffix(suffix: &str) -> Option<Length> {
     if suffix == "px" {
         return Some(Length::Px(1.0));
     }
-    suffix.parse::<f64>().ok().map(spacing_to_px)
+    suffix.parse::<f64>().ok().map(Length::Spacing)
 }
 
 pub fn parse_utility(token: &str) -> Option<StyleProperty> {
@@ -2371,10 +2377,24 @@ fn expand_negatable(token: &str) -> Vec<StyleProperty> {
 ///
 /// Tailwind only generates the `-` form where CSS accepts a negative value,
 /// so refusing here keeps Dowel from accepting more than Tailwind does.
+/// Flips a length's sign, keeping it in whatever unit it was written in.
+///
+/// A spacing step negates as a step: `-mt-4` is minus four steps, and
+/// resolving it to pixels first would freeze the project's scale into the
+/// sign flip. Without an arm for it the whole utility was dropped --
+/// negation returned `None`, and the caller reads that as "this property
+/// has no negative form".
+fn negated_length(length: Length) -> Option<Length> {
+    Some(match length {
+        Length::Px(v) => Length::Px(signed(v, true)),
+        Length::Spacing(v) => Length::Spacing(signed(v, true)),
+    })
+}
+
 fn negated(prop: StyleProperty) -> Option<StyleProperty> {
     fn flip(d: Dimension) -> Option<Dimension> {
         Some(match d {
-            Dimension::Length(Length::Px(v)) => Dimension::Length(Length::Px(signed(v, true))),
+            Dimension::Length(l) => Dimension::Length(negated_length(l)?),
             Dimension::Percent(v) => Dimension::Percent(signed(v, true)),
             // `auto` and the viewport units have no negative form.
             _ => return None,
@@ -2408,12 +2428,8 @@ fn negated(prop: StyleProperty) -> Option<StyleProperty> {
         StyleProperty::InsetBlockEnd(d) => StyleProperty::InsetBlockEnd(flip(d)?),
         StyleProperty::TranslateX(d) => StyleProperty::TranslateX(flip(d)?),
         StyleProperty::TranslateY(d) => StyleProperty::TranslateY(flip(d)?),
-        StyleProperty::TranslateZ(Length::Px(v)) => {
-            StyleProperty::TranslateZ(Length::Px(signed(v, true)))
-        }
-        StyleProperty::OutlineOffset(Length::Px(v)) => {
-            StyleProperty::OutlineOffset(Length::Px(signed(v, true)))
-        }
+        StyleProperty::TranslateZ(l) => StyleProperty::TranslateZ(negated_length(l)?),
+        StyleProperty::OutlineOffset(l) => StyleProperty::OutlineOffset(negated_length(l)?),
         StyleProperty::ZIndex(Some(z)) => StyleProperty::ZIndex(Some(-z)),
         // A marker rather than a value: negating `scale-z-50` must keep the
         // three-value form, so this negates to itself. Without an arm here
@@ -2434,11 +2450,9 @@ fn negated(prop: StyleProperty) -> Option<StyleProperty> {
         StyleProperty::GridRowEnd(GridLine::Line(n)) => {
             StyleProperty::GridRowEnd(GridLine::Line(-n))
         }
-        StyleProperty::SpaceX(Length::Px(v)) => StyleProperty::SpaceX(Length::Px(signed(v, true))),
-        StyleProperty::SpaceY(Length::Px(v)) => StyleProperty::SpaceY(Length::Px(signed(v, true))),
-        StyleProperty::ScrollMargin(edge, Length::Px(v)) => {
-            StyleProperty::ScrollMargin(edge, Length::Px(signed(v, true)))
-        }
+        StyleProperty::SpaceX(l) => StyleProperty::SpaceX(negated_length(l)?),
+        StyleProperty::SpaceY(l) => StyleProperty::SpaceY(negated_length(l)?),
+        StyleProperty::ScrollMargin(edge, l) => StyleProperty::ScrollMargin(edge, negated_length(l)?),
         StyleProperty::Rotate(a) => StyleProperty::Rotate(Angle { degrees: signed(a.degrees, true) }),
         StyleProperty::ScaleX(pct) => StyleProperty::ScaleX(signed(pct, true)),
         StyleProperty::ScaleY(pct) => StyleProperty::ScaleY(signed(pct, true)),
@@ -2742,10 +2756,10 @@ mod tests {
             (
                 Condition::Always,
                 vec![
-                    StyleProperty::PaddingTop(Length::Px(24.0)),
-                    StyleProperty::PaddingRight(Length::Px(24.0)),
-                    StyleProperty::PaddingBottom(Length::Px(24.0)),
-                    StyleProperty::PaddingLeft(Length::Px(24.0)),
+                    StyleProperty::PaddingTop(Length::Spacing(6.0)),
+                    StyleProperty::PaddingRight(Length::Spacing(6.0)),
+                    StyleProperty::PaddingBottom(Length::Spacing(6.0)),
+                    StyleProperty::PaddingLeft(Length::Spacing(6.0)),
                 ]
             )
         );
@@ -2754,8 +2768,8 @@ mod tests {
             (
                 Condition::Always,
                 vec![
-                    StyleProperty::PaddingInlineStart(Length::Px(16.0)),
-                    StyleProperty::PaddingInlineEnd(Length::Px(16.0))
+                    StyleProperty::PaddingInlineStart(Length::Spacing(4.0)),
+                    StyleProperty::PaddingInlineEnd(Length::Spacing(4.0))
                 ]
             )
         );
@@ -2811,17 +2825,17 @@ mod tests {
         );
         assert_eq!(
             expand_utility("top-4"),
-            (Condition::Always, vec![StyleProperty::InsetTop(Dimension::Length(Length::Px(16.0)))])
+            (Condition::Always, vec![StyleProperty::InsetTop(Dimension::Length(Length::Spacing(4.0)))])
         );
         assert_eq!(
             expand_utility("inset-0"),
             (
                 Condition::Always,
                 vec![
-                    StyleProperty::InsetTop(Dimension::Length(Length::Px(0.0))),
-                    StyleProperty::InsetRight(Dimension::Length(Length::Px(0.0))),
-                    StyleProperty::InsetBottom(Dimension::Length(Length::Px(0.0))),
-                    StyleProperty::InsetLeft(Dimension::Length(Length::Px(0.0))),
+                    StyleProperty::InsetTop(Dimension::Length(Length::Spacing(0.0))),
+                    StyleProperty::InsetRight(Dimension::Length(Length::Spacing(0.0))),
+                    StyleProperty::InsetBottom(Dimension::Length(Length::Spacing(0.0))),
+                    StyleProperty::InsetLeft(Dimension::Length(Length::Spacing(0.0))),
                 ]
             )
         );
@@ -2864,7 +2878,7 @@ mod tests {
         );
         assert_eq!(
             expand_utility("min-w-0"),
-            (Condition::Always, vec![StyleProperty::MinWidth(Dimension::Length(Length::Px(0.0)))])
+            (Condition::Always, vec![StyleProperty::MinWidth(Dimension::Length(Length::Spacing(0.0)))])
         );
         // max-w-* uses Tailwind's named container scale, not the spacing one.
         assert_eq!(
@@ -2953,7 +2967,7 @@ mod tests {
         );
         assert_eq!(
             expand_utility("translate-x-2"),
-            (Condition::Always, vec![StyleProperty::TranslateX(Dimension::Length(Length::Px(8.0)))])
+            (Condition::Always, vec![StyleProperty::TranslateX(Dimension::Length(Length::Spacing(2.0)))])
         );
     }
 
@@ -3282,11 +3296,11 @@ mod tests {
         );
         assert_eq!(
             expand_utility("-translate-y-2"),
-            (Condition::Always, vec![StyleProperty::TranslateY(Dimension::Length(Length::Px(-8.0)))])
+            (Condition::Always, vec![StyleProperty::TranslateY(Dimension::Length(Length::Spacing(-2.0)))])
         );
         assert_eq!(
             expand_utility("-translate-z-2"),
-            (Condition::Always, vec![StyleProperty::TranslateZ(Length::Px(-8.0))])
+            (Condition::Always, vec![StyleProperty::TranslateZ(Length::Spacing(-2.0))])
         );
         assert_eq!(expand_utility("-z-10"), (Condition::Always, vec![StyleProperty::ZIndex(Some(-10))]));
         assert_eq!(
@@ -3367,24 +3381,24 @@ mod tests {
         // which side "start" is isn't known until runtime.
         assert_eq!(
             expand_utility("ps-4"),
-            (Condition::Always, vec![StyleProperty::PaddingInlineStart(Length::Px(16.0))])
+            (Condition::Always, vec![StyleProperty::PaddingInlineStart(Length::Spacing(4.0))])
         );
         assert_eq!(
             expand_utility("me-2"),
-            (Condition::Always, vec![StyleProperty::MarginInlineEnd(Dimension::Length(Length::Px(8.0)))])
+            (Condition::Always, vec![StyleProperty::MarginInlineEnd(Dimension::Length(Length::Spacing(2.0)))])
         );
         assert_eq!(
             expand_utility("start-2"),
-            (Condition::Always, vec![StyleProperty::InsetInlineStart(Dimension::Length(Length::Px(8.0)))])
+            (Condition::Always, vec![StyleProperty::InsetInlineStart(Dimension::Length(Length::Spacing(2.0)))])
         );
         // The physical ones stay physical -- Tailwind has both families.
         assert_eq!(
             expand_utility("pl-4"),
-            (Condition::Always, vec![StyleProperty::PaddingLeft(Length::Px(16.0))])
+            (Condition::Always, vec![StyleProperty::PaddingLeft(Length::Spacing(4.0))])
         );
         assert_eq!(
             expand_utility("left-2"),
-            (Condition::Always, vec![StyleProperty::InsetLeft(Dimension::Length(Length::Px(8.0)))])
+            (Condition::Always, vec![StyleProperty::InsetLeft(Dimension::Length(Length::Spacing(2.0)))])
         );
     }
 
@@ -3409,7 +3423,7 @@ mod tests {
             vec![StyleProperty::MaskStopPosition(
                 MaskSlot::Top,
                 MaskStop::From,
-                Dimension::Length(Length::Px(16.0))
+                Dimension::Length(Length::Spacing(4.0))
             )]
         );
         assert_eq!(
@@ -3427,12 +3441,12 @@ mod tests {
                 StyleProperty::MaskStopPosition(
                     MaskSlot::Left,
                     MaskStop::From,
-                    Dimension::Length(Length::Px(16.0))
+                    Dimension::Length(Length::Spacing(4.0))
                 ),
                 StyleProperty::MaskStopPosition(
                     MaskSlot::Right,
                     MaskStop::From,
-                    Dimension::Length(Length::Px(16.0))
+                    Dimension::Length(Length::Spacing(4.0))
                 ),
             ]
         );
@@ -3452,11 +3466,11 @@ mod tests {
         // parser growing its own sign handling.
         assert_eq!(
             expand_utility("-mt-4").1,
-            vec![StyleProperty::MarginTop(Dimension::Length(Length::Px(-16.0)))]
+            vec![StyleProperty::MarginTop(Dimension::Length(Length::Spacing(-4.0)))]
         );
         assert_eq!(
             expand_utility("-top-4").1,
-            vec![StyleProperty::InsetTop(Dimension::Length(Length::Px(-16.0)))]
+            vec![StyleProperty::InsetTop(Dimension::Length(Length::Spacing(-4.0)))]
         );
         assert_eq!(expand_utility("-rotate-45").1, vec![StyleProperty::Rotate(Angle { degrees: -45.0 })]);
         // ...and refuses where CSS has no negative, rather than inventing
@@ -3479,7 +3493,7 @@ mod tests {
         // Longest prefix wins: `max-block-` must not be read as `block-`.
         assert_eq!(
             expand_utility("max-block-4").1,
-            vec![StyleProperty::MaxBlockSize(Dimension::Length(Length::Px(16.0)))]
+            vec![StyleProperty::MaxBlockSize(Dimension::Length(Length::Spacing(4.0)))]
         );
         // Bare `translate-*` sets both axes.
         assert_eq!(
@@ -3495,15 +3509,15 @@ mod tests {
     fn scroll_margin_and_padding_cover_every_edge() {
         assert_eq!(
             expand_utility("scroll-mt-4").1,
-            vec![StyleProperty::ScrollMargin(Edge::Top, Length::Px(16.0))]
+            vec![StyleProperty::ScrollMargin(Edge::Top, Length::Spacing(4.0))]
         );
         assert_eq!(
             expand_utility("scroll-pe-2").1,
-            vec![StyleProperty::ScrollPadding(Edge::InlineEnd, Length::Px(8.0))]
+            vec![StyleProperty::ScrollPadding(Edge::InlineEnd, Length::Spacing(2.0))]
         );
         assert_eq!(
             expand_utility("-scroll-mx-4").1,
-            vec![StyleProperty::ScrollMargin(Edge::Inline, Length::Px(-16.0))]
+            vec![StyleProperty::ScrollMargin(Edge::Inline, Length::Spacing(-4.0))]
         );
         // Padding takes no negative value, in CSS or in Tailwind.
         assert!(expand_utility("-scroll-p-4").1.is_empty());
@@ -3551,15 +3565,15 @@ mod tests {
     fn inset_covers_its_axis_and_logical_forms_and_negatives() {
         assert_eq!(
             expand_utility("inset-x-4").1,
-            vec![StyleProperty::InsetInline(Dimension::Length(Length::Px(16.0)))]
+            vec![StyleProperty::InsetInline(Dimension::Length(Length::Spacing(4.0)))]
         );
         assert_eq!(
             expand_utility("inset-bs-2").1,
-            vec![StyleProperty::InsetBlockStart(Dimension::Length(Length::Px(8.0)))]
+            vec![StyleProperty::InsetBlockStart(Dimension::Length(Length::Spacing(2.0)))]
         );
         assert_eq!(
             expand_utility("-inset-y-4").1,
-            vec![StyleProperty::InsetBlock(Dimension::Length(Length::Px(-16.0)))]
+            vec![StyleProperty::InsetBlock(Dimension::Length(Length::Spacing(-4.0)))]
         );
         // Bare `inset-*` is still all four physical sides.
         assert_eq!(expand_utility("inset-0").1.len(), 4);
@@ -3660,7 +3674,7 @@ mod tests {
     fn parses_sizing_including_fractions_and_size_shorthand() {
         assert_eq!(
             expand_utility("w-4"),
-            (Condition::Always, vec![StyleProperty::Width(Dimension::Length(Length::Px(16.0)))])
+            (Condition::Always, vec![StyleProperty::Width(Dimension::Length(Length::Spacing(4.0)))])
         );
         assert_eq!(
             expand_utility("w-1/2"),
@@ -3671,8 +3685,8 @@ mod tests {
             (
                 Condition::Always,
                 vec![
-                    StyleProperty::Width(Dimension::Length(Length::Px(16.0))),
-                    StyleProperty::Height(Dimension::Length(Length::Px(16.0))),
+                    StyleProperty::Width(Dimension::Length(Length::Spacing(4.0))),
+                    StyleProperty::Height(Dimension::Length(Length::Spacing(4.0))),
                 ]
             )
         );
@@ -3731,7 +3745,7 @@ mod tests {
         let (_, leading_props) = expand_utility("leading-6");
         let combined: Vec<_> = text_props.into_iter().chain(leading_props).collect();
         let deduped = dowel_ir::dedupe_last_wins(combined);
-        assert!(deduped.contains(&StyleProperty::LineHeight(LineHeight::Length(Length::Px(24.0)))));
+        assert!(deduped.contains(&StyleProperty::LineHeight(LineHeight::Length(Length::Spacing(6.0)))));
         assert!(!deduped.contains(&StyleProperty::LineHeight(LineHeight::Length(Length::Px(28.0)))));
     }
 
@@ -3749,7 +3763,7 @@ mod tests {
         // The numeric scale is spacing-based and resolves to a length on
         // both platforms.
         let (_, props) = expand_utility("leading-6");
-        assert_eq!(props, vec![StyleProperty::LineHeight(LineHeight::Length(Length::Px(24.0)))]);
+        assert_eq!(props, vec![StyleProperty::LineHeight(LineHeight::Length(Length::Spacing(6.0)))]);
         assert!(props[0].unsupported_on_native().is_none());
     }
 
@@ -3773,7 +3787,7 @@ mod tests {
         );
         assert_eq!(
             expand_utility("first:mt-0"),
-            (Condition::FirstChild, vec![StyleProperty::MarginTop(Dimension::Length(Length::Px(0.0)))])
+            (Condition::FirstChild, vec![StyleProperty::MarginTop(Dimension::Length(Length::Spacing(0.0)))])
         );
     }
 

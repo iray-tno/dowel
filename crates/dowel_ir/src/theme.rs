@@ -29,14 +29,32 @@ pub struct ThemeColor {
 /// Empty means "the default palette only", which is what every caller got
 /// before this existed -- so an absent theme changes nothing rather than
 /// turning every colour unresolved.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Theme {
     colors: HashMap<String, ThemeColor>,
+    /// One spacing step in pixels. Tailwind's `--spacing` is 0.25rem, and
+    /// the root font size is 16px, so a step is 4px unless a project says
+    /// otherwise.
+    spacing_px: f64,
+}
+
+/// Tailwind's own default, and what every caller got before a theme could
+/// be supplied.
+const DEFAULT_SPACING_PX: f64 = 4.0;
+
+impl Default for Theme {
+    fn default() -> Self {
+        Theme { colors: HashMap::new(), spacing_px: DEFAULT_SPACING_PX }
+    }
 }
 
 impl Theme {
-    pub fn new(colors: HashMap<String, ThemeColor>) -> Self {
-        Theme { colors }
+    pub fn new(colors: HashMap<String, ThemeColor>, spacing_px: Option<f64>) -> Self {
+        Theme { colors, spacing_px: spacing_px.unwrap_or(DEFAULT_SPACING_PX) }
+    }
+
+    pub fn spacing_px(&self) -> f64 {
+        self.spacing_px
     }
 
     /// Resolves a colour token, the project's theme first.
@@ -55,7 +73,4 @@ impl Theme {
         })
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.colors.is_empty()
-    }
 }

@@ -256,6 +256,10 @@ pub fn compile_native(source: String, theme: Option<JsTheme>) -> Vec<CompiledNat
 /// variable nothing defined.
 #[napi(object)]
 pub struct JsTheme {
+    /// One spacing step in pixels (Tailwind's `--spacing`, 0.25rem by
+    /// default). Absent means the default, which is what every project
+    /// that does not change it has.
+    pub spacing_px: Option<f64>,
     /// Token name (`"brand"`, `"blue-500"`) to its two spellings. Web takes
     /// the `oklch`, React Native the `hex`, which is why both are carried
     /// rather than converting at the boundary.
@@ -273,6 +277,7 @@ fn to_theme(theme: Option<JsTheme>) -> dowel_ir::Theme {
     let Some(theme) = theme else {
         return dowel_ir::Theme::default();
     };
+    let spacing_px = theme.spacing_px;
     dowel_ir::Theme::new(
         theme
             .colors
@@ -281,5 +286,6 @@ fn to_theme(theme: Option<JsTheme>) -> dowel_ir::Theme {
                 (color.token, dowel_ir::ThemeColor { oklch: color.oklch, hex: color.hex })
             })
             .collect(),
+        spacing_px,
     )
 }

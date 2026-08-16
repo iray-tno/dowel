@@ -280,7 +280,7 @@ fn style_pairs(props: &[StyleProperty], theme: &Theme) -> Vec<(&'static str, Str
             }
         }
     }
-    if let Some(transform) = style::transform_entry(props) {
+    if let Some(transform) = style::transform_entry(props, theme) {
         emitted.push(transform);
     }
     if let Some(filter) = style::filter_entry(props) {

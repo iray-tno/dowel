@@ -6,7 +6,8 @@
 
 use dowel_ir::{
     Align, AlignSelf, Angle, Animation, BorderStyle, Breakpoint, Color, Condition, Dimension,
-    ColumnCount, DecorationStyle, Display, Edge, Em, LetterSpacing, MaskSlot, MaskStop,
+    ColumnCount, DecorationStyle, Display, Edge, Em, GridLine, GridSpan, GridTracks, LetterSpacing,
+    MaskSlot, MaskStop,
     FlexDirection, FlexShorthand, FontWeight, Justify, Length, LineHeight, Overflow, Position,
     Radius, StyleProperty, TextAlign, TextOverflow, TextTransform, WhiteSpace,
 };
@@ -180,10 +181,8 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
             return Some(StyleProperty::TransitionDuration(ms));
         }
     }
-    if let Some(rest) = token.strip_prefix("grid-cols-") {
-        if let Ok(n) = rest.parse::<u32>() {
-            return Some(StyleProperty::GridTemplateColumns(n));
-        }
+    if let Some(prop) = parse_grid_placement(token) {
+        return Some(prop);
     }
     if let Some(rest) = token.strip_prefix("space-x-") {
         if let Some(v) = parse_spacing_suffix(rest) {
@@ -383,6 +382,61 @@ fn expand_dimension_family(token: &str) -> Option<Vec<StyleProperty>> {
     if let Some(rest) = token.strip_prefix("translate-") {
         return parse_dimension_suffix(rest)
             .map(|d| vec![StyleProperty::TranslateX(d), StyleProperty::TranslateY(d)]);
+    }
+    parse_axis_transform(token)
+}
+
+/// The per-axis scales, the 3D rotations and the skews.
+///
+/// All of these are compositions in Tailwind -- several utilities writing
+/// `--tw-*` registers that one declaration reads -- so Dowel resolves them
+/// the same way it resolves rings, masks and translates: hold each axis as
+/// its own property and join them at emit time. Bare `scale-*` sets all
+/// three axes here rather than staying a fourth property, which is what
+/// makes `scale-50 scale-x-75` resolve as Tailwind does: `dedupe_last_wins`
+/// keys on the property, so the axes have to be separate properties to
+/// override one another.
+fn parse_axis_transform(token: &str) -> Option<Vec<StyleProperty>> {
+    if token == "scale-3d" {
+        return Some(vec![StyleProperty::Scale3d]);
+    }
+    let percent = |rest: &str| rest.parse::<f64>().ok();
+    let degrees = |rest: &str| rest.parse::<f64>().ok().map(|d| Angle { degrees: d });
+
+    if let Some(rest) = token.strip_prefix("scale-x-") {
+        return percent(rest).map(|p| vec![StyleProperty::ScaleX(p)]);
+    }
+    if let Some(rest) = token.strip_prefix("scale-y-") {
+        return percent(rest).map(|p| vec![StyleProperty::ScaleY(p)]);
+    }
+    // Writing the z axis also switches the declaration to its three-value
+    // form -- see `StyleProperty::Scale3d`.
+    if let Some(rest) = token.strip_prefix("scale-z-") {
+        return percent(rest).map(|p| vec![StyleProperty::ScaleZ(p), StyleProperty::Scale3d]);
+    }
+    if let Some(rest) = token.strip_prefix("scale-") {
+        return percent(rest).map(|p| {
+            vec![StyleProperty::ScaleX(p), StyleProperty::ScaleY(p), StyleProperty::ScaleZ(p)]
+        });
+    }
+    if let Some(rest) = token.strip_prefix("rotate-x-") {
+        return degrees(rest).map(|a| vec![StyleProperty::RotateX(a)]);
+    }
+    if let Some(rest) = token.strip_prefix("rotate-y-") {
+        return degrees(rest).map(|a| vec![StyleProperty::RotateY(a)]);
+    }
+    if let Some(rest) = token.strip_prefix("rotate-z-") {
+        return degrees(rest).map(|a| vec![StyleProperty::RotateZ(a)]);
+    }
+    if let Some(rest) = token.strip_prefix("skew-x-") {
+        return degrees(rest).map(|a| vec![StyleProperty::SkewX(a)]);
+    }
+    if let Some(rest) = token.strip_prefix("skew-y-") {
+        return degrees(rest).map(|a| vec![StyleProperty::SkewY(a)]);
+    }
+    // Bare `skew-*` is both axes, the same way bare `scale-*` is all three.
+    if let Some(rest) = token.strip_prefix("skew-") {
+        return degrees(rest).map(|a| vec![StyleProperty::SkewX(a), StyleProperty::SkewY(a)]);
     }
     None
 }
@@ -1128,11 +1182,6 @@ fn parse_transform(token: &str) -> Option<StyleProperty> {
         let degrees: f64 = rest.parse().ok()?;
         return Some(StyleProperty::Rotate(Angle { degrees: signed(degrees, negative) }));
     }
-    if let Some(rest) = token.strip_prefix("scale-") {
-        let pct: f64 = rest.parse().ok()?;
-        // Kept as the authored percentage -- see `StyleProperty::Scale`.
-        return Some(StyleProperty::Scale(signed(pct, negative)));
-    }
     // `translate-x-1/2` is the centring idiom, so these take the wider
     // `Dimension` rather than a pixel length.
     if let Some(rest) = token.strip_prefix("translate-x-") {
@@ -1156,6 +1205,67 @@ fn signed(value: f64, negative: bool) -> f64 {
         0.0
     } else {
         result
+    }
+}
+
+/// The grid track and placement utilities: `grid-cols-*`/`grid-rows-*`,
+/// `col-start-*`/`col-end-*`/`row-start-*`/`row-end-*`, and the
+/// `col-span-*`/`row-span-*` shorthands.
+///
+/// Prefix order matters here in a way it doesn't elsewhere: `col-span-` and
+/// `col-start-` both begin with `col-`, so the shorthands are matched
+/// before the bare-line form that would otherwise swallow them.
+fn parse_grid_placement(token: &str) -> Option<StyleProperty> {
+    fn tracks(suffix: &str) -> Option<GridTracks> {
+        Some(match suffix {
+            "none" => GridTracks::None,
+            "subgrid" => GridTracks::Subgrid,
+            _ => GridTracks::Count(suffix.parse().ok()?),
+        })
+    }
+    fn line(suffix: &str) -> Option<GridLine> {
+        Some(match suffix {
+            "auto" => GridLine::Auto,
+            _ => GridLine::Line(suffix.parse().ok()?),
+        })
+    }
+    fn span(suffix: &str) -> Option<GridSpan> {
+        Some(match suffix {
+            "auto" => GridSpan::Auto,
+            "full" => GridSpan::Full,
+            _ => GridSpan::Span(suffix.parse().ok()?),
+        })
+    }
+
+    if let Some(rest) = token.strip_prefix("grid-cols-") {
+        return tracks(rest).map(StyleProperty::GridTemplateColumns);
+    }
+    if let Some(rest) = token.strip_prefix("grid-rows-") {
+        return tracks(rest).map(StyleProperty::GridTemplateRows);
+    }
+    if let Some(rest) = token.strip_prefix("col-span-") {
+        return span(rest).map(StyleProperty::GridColumn);
+    }
+    if let Some(rest) = token.strip_prefix("row-span-") {
+        return span(rest).map(StyleProperty::GridRow);
+    }
+    if let Some(rest) = token.strip_prefix("col-start-") {
+        return line(rest).map(StyleProperty::GridColumnStart);
+    }
+    if let Some(rest) = token.strip_prefix("col-end-") {
+        return line(rest).map(StyleProperty::GridColumnEnd);
+    }
+    if let Some(rest) = token.strip_prefix("row-start-") {
+        return line(rest).map(StyleProperty::GridRowStart);
+    }
+    if let Some(rest) = token.strip_prefix("row-end-") {
+        return line(rest).map(StyleProperty::GridRowEnd);
+    }
+    // `col-auto`/`row-auto` are the shorthand, not a single edge.
+    match token {
+        "col-auto" => Some(StyleProperty::GridColumn(GridSpan::Auto)),
+        "row-auto" => Some(StyleProperty::GridRow(GridSpan::Auto)),
+        _ => None,
     }
 }
 
@@ -1440,13 +1550,34 @@ fn negated(prop: StyleProperty) -> Option<StyleProperty> {
         }
         StyleProperty::ZIndex(z) => StyleProperty::ZIndex(-z),
         StyleProperty::Order(n) => StyleProperty::Order(-n),
+        // A negative grid line counts back from the end of the explicit
+        // grid, so these negate rather than being rejected.
+        StyleProperty::GridColumnStart(GridLine::Line(n)) => {
+            StyleProperty::GridColumnStart(GridLine::Line(-n))
+        }
+        StyleProperty::GridColumnEnd(GridLine::Line(n)) => {
+            StyleProperty::GridColumnEnd(GridLine::Line(-n))
+        }
+        StyleProperty::GridRowStart(GridLine::Line(n)) => {
+            StyleProperty::GridRowStart(GridLine::Line(-n))
+        }
+        StyleProperty::GridRowEnd(GridLine::Line(n)) => {
+            StyleProperty::GridRowEnd(GridLine::Line(-n))
+        }
         StyleProperty::SpaceX(Length::Px(v)) => StyleProperty::SpaceX(Length::Px(signed(v, true))),
         StyleProperty::SpaceY(Length::Px(v)) => StyleProperty::SpaceY(Length::Px(signed(v, true))),
         StyleProperty::ScrollMargin(edge, Length::Px(v)) => {
             StyleProperty::ScrollMargin(edge, Length::Px(signed(v, true)))
         }
         StyleProperty::Rotate(a) => StyleProperty::Rotate(Angle { degrees: signed(a.degrees, true) }),
-        StyleProperty::Scale(pct) => StyleProperty::Scale(signed(pct, true)),
+        StyleProperty::ScaleX(pct) => StyleProperty::ScaleX(signed(pct, true)),
+        StyleProperty::ScaleY(pct) => StyleProperty::ScaleY(signed(pct, true)),
+        StyleProperty::ScaleZ(pct) => StyleProperty::ScaleZ(signed(pct, true)),
+        StyleProperty::RotateX(a) => StyleProperty::RotateX(Angle { degrees: signed(a.degrees, true) }),
+        StyleProperty::RotateY(a) => StyleProperty::RotateY(Angle { degrees: signed(a.degrees, true) }),
+        StyleProperty::RotateZ(a) => StyleProperty::RotateZ(Angle { degrees: signed(a.degrees, true) }),
+        StyleProperty::SkewX(a) => StyleProperty::SkewX(Angle { degrees: signed(a.degrees, true) }),
+        StyleProperty::SkewY(a) => StyleProperty::SkewY(Angle { degrees: signed(a.degrees, true) }),
         StyleProperty::MaskAngle(slot, degrees) => {
             StyleProperty::MaskAngle(slot, signed(degrees, true))
         }
@@ -1904,14 +2035,61 @@ mod tests {
             expand_utility("rotate-45"),
             (Condition::Always, vec![StyleProperty::Rotate(Angle { degrees: 45.0 })])
         );
-        // Tailwind's scale scale is a percentage; the IR keeps the ratio.
+        // Tailwind writes a percentage and the IR keeps it as authored.
+        // Bare `scale-*` sets all three axes, so `scale-95 scale-x-50` can
+        // resolve per-axis the way Tailwind does.
         assert_eq!(
             expand_utility("scale-95"),
-            (Condition::Always, vec![StyleProperty::Scale(95.0)])
+            (
+                Condition::Always,
+                vec![
+                    StyleProperty::ScaleX(95.0),
+                    StyleProperty::ScaleY(95.0),
+                    StyleProperty::ScaleZ(95.0),
+                ]
+            )
         );
         assert_eq!(
             expand_utility("translate-x-2"),
             (Condition::Always, vec![StyleProperty::TranslateX(Dimension::Length(Length::Px(8.0)))])
+        );
+    }
+
+    #[test]
+    fn the_axis_transforms_are_separate_properties_so_they_can_override() {
+        // The point of holding each axis separately: `dedupe_last_wins`
+        // keys on the property, so a bare `scale-*` followed by an axis
+        // has to leave two distinguishable properties or the axis would
+        // replace the whole thing.
+        assert_eq!(
+            expand_utility("scale-x-50").1,
+            vec![StyleProperty::ScaleX(50.0)]
+        );
+        // Writing the z axis also switches the declaration to its
+        // three-value form, which is a separate fact from the axis having
+        // a value.
+        assert_eq!(
+            expand_utility("scale-z-50").1,
+            vec![StyleProperty::ScaleZ(50.0), StyleProperty::Scale3d]
+        );
+        assert_eq!(expand_utility("scale-3d").1, vec![StyleProperty::Scale3d]);
+
+        assert_eq!(
+            expand_utility("rotate-x-45").1,
+            vec![StyleProperty::RotateX(Angle { degrees: 45.0 })]
+        );
+        // Bare `skew-*` is both axes, the same way bare `scale-*` is all
+        // three -- and must not be swallowed by the `skew-x-` branch.
+        assert_eq!(
+            expand_utility("skew-6").1,
+            vec![
+                StyleProperty::SkewX(Angle { degrees: 6.0 }),
+                StyleProperty::SkewY(Angle { degrees: 6.0 })
+            ]
+        );
+        assert_eq!(
+            expand_utility("-rotate-y-12").1,
+            vec![StyleProperty::RotateY(Angle { degrees: -12.0 })]
         );
     }
 
@@ -2424,7 +2602,44 @@ mod tests {
         );
         assert_eq!(
             expand_utility("grid-cols-3").1,
-            vec![StyleProperty::GridTemplateColumns(3)]
+            vec![StyleProperty::GridTemplateColumns(GridTracks::Count(3))]
+        );
+    }
+
+    #[test]
+    fn grid_placement_distinguishes_a_line_from_a_span() {
+        // `col-start-2` pins one edge to line 2; `col-span-2` says "two
+        // tracks, wherever this lands". Same digit, different meaning, and
+        // CSS spells them with different properties -- so collapsing them
+        // would put an item in the wrong place rather than merely format it
+        // differently.
+        assert_eq!(
+            expand_utility("col-start-2").1,
+            vec![StyleProperty::GridColumnStart(GridLine::Line(2))]
+        );
+        assert_eq!(
+            expand_utility("col-span-2").1,
+            vec![StyleProperty::GridColumn(GridSpan::Span(2))]
+        );
+        // The shorthands must be matched before the bare-line form, or
+        // `col-span-2` would parse as the `col-` line `span-2` and fail.
+        assert_eq!(
+            expand_utility("row-span-full").1,
+            vec![StyleProperty::GridRow(GridSpan::Full)]
+        );
+        assert_eq!(expand_utility("col-auto").1, vec![StyleProperty::GridColumn(GridSpan::Auto)]);
+        assert_eq!(
+            expand_utility("col-end-auto").1,
+            vec![StyleProperty::GridColumnEnd(GridLine::Auto)]
+        );
+        // A negative line counts back from the end of the explicit grid.
+        assert_eq!(
+            expand_utility("-col-end-1").1,
+            vec![StyleProperty::GridColumnEnd(GridLine::Line(-1))]
+        );
+        assert_eq!(
+            expand_utility("grid-rows-subgrid").1,
+            vec![StyleProperty::GridTemplateRows(GridTracks::Subgrid)]
         );
     }
 

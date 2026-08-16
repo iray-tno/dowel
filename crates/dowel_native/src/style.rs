@@ -74,15 +74,83 @@ pub fn transform_entry(props: &[StyleProperty]) -> Option<(&'static str, String)
             parts.push(format!("{{ rotate: '{}deg' }}", a.degrees));
         }
     }
-    for prop in props {
-        if let StyleProperty::Scale(s) = prop {
-            parts.push(format!("{{ scale: {} }}", s / 100.0));
+    // React Native has the 3D rotations and the skews as transform entries
+    // of their own, in the same order CSS applies them.
+    for (name, angle) in [
+        ("rotateX", props.iter().find_map(rotate_x)),
+        ("rotateY", props.iter().find_map(rotate_y)),
+        ("rotateZ", props.iter().find_map(rotate_z)),
+        ("skewX", props.iter().find_map(skew_x)),
+        ("skewY", props.iter().find_map(skew_y)),
+    ] {
+        if let Some(degrees) = angle {
+            parts.push(format!("{{ {name}: '{degrees}deg' }}"));
+        }
+    }
+    // Scale is a ratio here, not a percentage. Written per-axis only when
+    // the axes differ: RN has a combined `scale` too, and using it keeps
+    // the common `scale-95` a single entry rather than two.
+    let axis = |f: fn(&StyleProperty) -> Option<f64>| props.iter().find_map(f);
+    let x = axis(scale_x);
+    let y = axis(scale_y);
+    match (x, y) {
+        (Some(x), Some(y)) if x == y => parts.push(format!("{{ scale: {} }}", x / 100.0)),
+        _ => {
+            if let Some(x) = x {
+                parts.push(format!("{{ scaleX: {} }}", x / 100.0));
+            }
+            if let Some(y) = y {
+                parts.push(format!("{{ scaleY: {} }}", y / 100.0));
+            }
         }
     }
     if parts.is_empty() {
         return None;
     }
     Some(("transform", format!("[{}]", parts.join(", "))))
+}
+
+fn rotate_x(prop: &StyleProperty) -> Option<f64> {
+    match prop {
+        StyleProperty::RotateX(a) => Some(a.degrees),
+        _ => None,
+    }
+}
+fn rotate_y(prop: &StyleProperty) -> Option<f64> {
+    match prop {
+        StyleProperty::RotateY(a) => Some(a.degrees),
+        _ => None,
+    }
+}
+fn rotate_z(prop: &StyleProperty) -> Option<f64> {
+    match prop {
+        StyleProperty::RotateZ(a) => Some(a.degrees),
+        _ => None,
+    }
+}
+fn skew_x(prop: &StyleProperty) -> Option<f64> {
+    match prop {
+        StyleProperty::SkewX(a) => Some(a.degrees),
+        _ => None,
+    }
+}
+fn skew_y(prop: &StyleProperty) -> Option<f64> {
+    match prop {
+        StyleProperty::SkewY(a) => Some(a.degrees),
+        _ => None,
+    }
+}
+fn scale_x(prop: &StyleProperty) -> Option<f64> {
+    match prop {
+        StyleProperty::ScaleX(v) => Some(*v),
+        _ => None,
+    }
+}
+fn scale_y(prop: &StyleProperty) -> Option<f64> {
+    match prop {
+        StyleProperty::ScaleY(v) => Some(*v),
+        _ => None,
+    }
 }
 
 /// Joins whichever ring/shadow utilities a rule carries into one
@@ -464,6 +532,13 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
         // All refused upstream by `unsupported_on_native`.
         | StyleProperty::TextOverflow(_)
         | StyleProperty::GridTemplateColumns(_)
+        | StyleProperty::GridTemplateRows(_)
+        | StyleProperty::GridColumnStart(_)
+        | StyleProperty::GridColumnEnd(_)
+        | StyleProperty::GridRowStart(_)
+        | StyleProperty::GridRowEnd(_)
+        | StyleProperty::GridColumn(_)
+        | StyleProperty::GridRow(_)
         | StyleProperty::TransitionProperty(_)
         | StyleProperty::TransitionDuration(_)
         | StyleProperty::TransitionTimingFunction(_)
@@ -549,7 +624,15 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
         // Composed into a single `transform` by the caller, since RN has no
         // standalone rotate/scale/translate -- see `transform_entry`.
         StyleProperty::Rotate(_)
-        | StyleProperty::Scale(_)
+        | StyleProperty::ScaleX(_)
+        | StyleProperty::ScaleY(_)
+        | StyleProperty::ScaleZ(_)
+        | StyleProperty::Scale3d
+        | StyleProperty::RotateX(_)
+        | StyleProperty::RotateY(_)
+        | StyleProperty::RotateZ(_)
+        | StyleProperty::SkewX(_)
+        | StyleProperty::SkewY(_)
         | StyleProperty::TranslateX(_)
         | StyleProperty::TranslateY(_) => Vec::new(),
         // RN accepts a string for both, so the CSS text carries over as-is.

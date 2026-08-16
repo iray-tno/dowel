@@ -289,7 +289,18 @@ pub enum StyleProperty {
     Columns(ColumnCount),
     /// Column count for `grid-cols-<n>`. Web-only: React Native's layout
     /// engine has no grid implementation at all.
-    GridTemplateColumns(u32),
+    GridTemplateColumns(GridTracks),
+    GridTemplateRows(GridTracks),
+    /// `col-start-*`/`col-end-*`/`row-start-*`/`row-end-*`: one edge of a
+    /// grid item's placement.
+    GridColumnStart(GridLine),
+    GridColumnEnd(GridLine),
+    GridRowStart(GridLine),
+    GridRowEnd(GridLine),
+    /// `col-span-*`/`col-auto`/`col-span-full`: both edges at once, which
+    /// CSS spells as the `grid-column` shorthand rather than as a pair.
+    GridColumn(GridSpan),
+    GridRow(GridSpan),
     Position(Position),
     /// `Dimension` rather than `Length`: Tailwind offers `top-1/2` and
     /// `inset-x-auto` alongside the spacing scale, so a plain pixel length
@@ -376,15 +387,40 @@ pub enum StyleProperty {
     /// composes whichever of these are present into one entry, in CSS's
     /// defined application order (translate, then rotate, then scale).
     Rotate(Angle),
-    /// A ratio: `scale-95` is 0.95, not 95.
-    /// As a *percentage*, the way Tailwind writes it (`scale-110` -> 110).
+
+    /// Per-axis scale, as a *percentage* the way Tailwind writes it
+    /// (`scale-110` -> 110).
     ///
-    /// Held in the authored unit rather than as a ratio so the Web
-    /// lowering is exact: converting to a ratio at parse and back at emit
-    /// made `scale-110` come out as `110.00000000000001%`. React Native
-    /// wants the ratio and divides once, where the same rounding is
-    /// invisible -- it takes a number, not a string.
-    Scale(f64),
+    /// Held in the authored unit rather than as a ratio so the Web lowering
+    /// is exact: converting to a ratio at parse and back at emit made
+    /// `scale-110` come out as `110.00000000000001%`. React Native wants
+    /// the ratio and divides once, where the same rounding is invisible --
+    /// it takes a number, not a string.
+    ///
+    /// Bare `scale-50` sets all three axes rather than being a fourth
+    /// property, which is what makes `scale-50 scale-x-75` resolve the way
+    /// Tailwind does: `dedupe_last_wins` keys on the property, so the axes
+    /// have to be separate properties to override one another.
+    ScaleX(f64),
+    ScaleY(f64),
+    ScaleZ(f64),
+    /// Whether the `scale` declaration writes its third component.
+    ///
+    /// Not the same question as "is the z register set": `scale-50` sets all
+    /// three registers and still writes only two components, while
+    /// `scale-3d` writes three without setting anything. Tailwind decides
+    /// this by which utility was written, so the marker has to be its own
+    /// property rather than inferred from `ScaleZ` being present.
+    Scale3d,
+    /// The 3D rotations and the skews. Separate from `Rotate` because CSS
+    /// puts them in `transform` rather than in the standalone `rotate`
+    /// property, and they compose into one declaration the same way the
+    /// translate axes do.
+    RotateX(Angle),
+    RotateY(Angle),
+    RotateZ(Angle),
+    SkewX(Angle),
+    SkewY(Angle),
     /// CSS's `translate` is one property taking up to three values, so
     /// these compose into a single declaration rather than one each --
     /// before 2026-08-15 `translate-x-4 translate-y-8` emitted two
@@ -674,8 +710,15 @@ impl StyleProperty {
                     _ => unreachable!("guarded by is_supported_on_native"),
                 }
             )),
-            StyleProperty::GridTemplateColumns(_) => {
-                Some("`grid-template-columns`: React Native has no grid layout".to_string())
+            StyleProperty::GridTemplateColumns(_)
+            | StyleProperty::GridTemplateRows(_)
+            | StyleProperty::GridColumnStart(_)
+            | StyleProperty::GridColumnEnd(_)
+            | StyleProperty::GridRowStart(_)
+            | StyleProperty::GridRowEnd(_)
+            | StyleProperty::GridColumn(_)
+            | StyleProperty::GridRow(_) => {
+                Some("grid placement: React Native has no grid layout".to_string())
             }
             StyleProperty::Order(_) => Some(
                 "`order-*`: Yoga lays children out in tree order and has no flex `order`, so the \
@@ -896,6 +939,38 @@ pub struct Angle {
 /// be resolved to pixels at compile time.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Em(pub f64);
+
+/// What `grid-template-columns`/`grid-template-rows` are set to.
+///
+/// `Count` is Tailwind's equal-track form, which it writes as
+/// `repeat(n, minmax(0, 1fr))` rather than `repeat(n, 1fr)` -- the `minmax`
+/// floor is what stops an oversized item from widening its track, and
+/// dropping it would produce a grid that behaves differently under
+/// overflow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GridTracks {
+    Count(u32),
+    None,
+    Subgrid,
+}
+
+/// One edge of a grid item's placement. A negative line counts back from
+/// the end of the explicit grid, which is why this is signed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GridLine {
+    Line(i32),
+    Auto,
+}
+
+/// Both edges at once, as the `grid-column`/`grid-row` shorthand.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GridSpan {
+    /// `span n / span n` -- n tracks from wherever the item lands.
+    Span(u32),
+    /// `1 / -1` -- the first line to the last, however many tracks there are.
+    Full,
+    Auto,
+}
 
 /// `columns` takes either a number of columns or an ideal column *width*,
 /// and the two mean opposite things -- `columns-3` fixes the count and lets

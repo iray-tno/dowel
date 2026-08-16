@@ -15,8 +15,9 @@
 //! correct-but-unresolved, not silently wrong.
 
 use dowel_ir::{
-    Align, AlignSelf, BorderStyle, Breakpoint, Color, Condition, ConditionExpr, DecorationStyle,
-    ColumnCount, Dimension, Display, Edge, MaskSlot, MaskStop,
+    Align, AlignSelf, Angle, BorderStyle, Breakpoint, Color, Condition, ConditionExpr,
+    DecorationStyle,
+    ColumnCount, Dimension, Display, Edge, GridLine, GridSpan, GridTracks, MaskSlot, MaskStop,
     Em, FlexDirection, LetterSpacing, FlexShorthand, Justify, Length, LineHeight, Overflow, Position, Radius,
     StyleProperty, TextAlign, TextOverflow, TextTransform, WhiteSpace,
 };
@@ -33,6 +34,35 @@ fn dimension_value(dim: Dimension) -> String {
         Dimension::Auto => "auto".to_string(),
         Dimension::ViewportWidth(pct) => format!("{pct}vw"),
         Dimension::ViewportHeight(pct) => format!("{pct}vh"),
+    }
+}
+
+/// Tailwind writes equal tracks as `repeat(n, minmax(0, 1fr))`, not
+/// `repeat(n, 1fr)`. The `minmax` floor is what stops an oversized item
+/// from widening its own track, so the two behave differently under
+/// overflow and this is not a formatting choice.
+fn grid_tracks(tracks: &GridTracks) -> String {
+    match tracks {
+        GridTracks::Count(n) => format!("repeat({n}, minmax(0, 1fr))"),
+        GridTracks::None => "none".to_string(),
+        GridTracks::Subgrid => "subgrid".to_string(),
+    }
+}
+
+fn grid_line(line: &GridLine) -> String {
+    match line {
+        GridLine::Line(n) => n.to_string(),
+        GridLine::Auto => "auto".to_string(),
+    }
+}
+
+fn grid_span(span: &GridSpan) -> String {
+    match span {
+        // Both edges, so the item spans n tracks wherever it lands rather
+        // than being pinned to a line.
+        GridSpan::Span(n) => format!("span {n} / span {n}"),
+        GridSpan::Full => "1 / -1".to_string(),
+        GridSpan::Auto => "auto".to_string(),
     }
 }
 
@@ -300,6 +330,100 @@ fn is_translate(prop: &StyleProperty) -> bool {
     )
 }
 
+fn is_scale_axis(prop: &StyleProperty) -> bool {
+    matches!(
+        prop,
+        StyleProperty::ScaleX(_)
+            | StyleProperty::ScaleY(_)
+            | StyleProperty::ScaleZ(_)
+            | StyleProperty::Scale3d
+    )
+}
+
+fn is_transform_function(prop: &StyleProperty) -> bool {
+    matches!(
+        prop,
+        StyleProperty::RotateX(_)
+            | StyleProperty::RotateY(_)
+            | StyleProperty::RotateZ(_)
+            | StyleProperty::SkewX(_)
+            | StyleProperty::SkewY(_)
+    )
+}
+
+/// The per-axis scales as one `scale` declaration.
+///
+/// An unwritten axis is `1`, not `100%` -- that is the literal
+/// `initial-value` of Tailwind's `--tw-scale-*` registers, and since a
+/// written axis is a percentage the two spellings sit side by side in the
+/// same declaration (`scale-x-50` is `50% 1`). They mean the same thing to
+/// CSS; a differential test compares strings.
+///
+/// The third component appears only when a z-form utility was written --
+/// see `StyleProperty::Scale3d` for why that isn't the same question as
+/// whether the z axis has a value.
+fn scale_value(props: &[&StyleProperty]) -> Option<String> {
+    if props.is_empty() {
+        return None;
+    }
+    let axis = |f: fn(&StyleProperty) -> Option<f64>| {
+        props.iter().find_map(|p| f(p)).map_or_else(|| "1".to_string(), |v| format!("{v}%"))
+    };
+    let x = axis(|p| match p {
+        StyleProperty::ScaleX(v) => Some(*v),
+        _ => None,
+    });
+    let y = axis(|p| match p {
+        StyleProperty::ScaleY(v) => Some(*v),
+        _ => None,
+    });
+    if !props.iter().any(|p| matches!(p, StyleProperty::Scale3d)) {
+        return Some(format!("{x} {y}"));
+    }
+    let z = axis(|p| match p {
+        StyleProperty::ScaleZ(v) => Some(*v),
+        _ => None,
+    });
+    Some(format!("{x} {y} {z}"))
+}
+
+/// The 3D rotations and skews as one `transform` declaration.
+///
+/// Order matters and is Tailwind's: `rotateX rotateY rotateZ skewX skewY`,
+/// which is the order its `--tw-*` registers appear in the value. Transform
+/// functions don't commute, so a different order is a different rendering
+/// rather than a different spelling.
+fn transform_value(props: &[&StyleProperty]) -> Option<String> {
+    let mut parts: Vec<String> = Vec::new();
+    let mut push = |name: &str, angle: Option<&Angle>| {
+        if let Some(a) = angle {
+            parts.push(format!("{name}({}deg)", a.degrees));
+        }
+    };
+    let find = |f: fn(&StyleProperty) -> Option<&Angle>| props.iter().find_map(|p| f(p));
+    push("rotateX", find(|p| match p {
+        StyleProperty::RotateX(a) => Some(a),
+        _ => None,
+    }));
+    push("rotateY", find(|p| match p {
+        StyleProperty::RotateY(a) => Some(a),
+        _ => None,
+    }));
+    push("rotateZ", find(|p| match p {
+        StyleProperty::RotateZ(a) => Some(a),
+        _ => None,
+    }));
+    push("skewX", find(|p| match p {
+        StyleProperty::SkewX(a) => Some(a),
+        _ => None,
+    }));
+    push("skewY", find(|p| match p {
+        StyleProperty::SkewY(a) => Some(a),
+        _ => None,
+    }));
+    (!parts.is_empty()).then(|| parts.join(" "))
+}
+
 /// CSS's `translate` is one property taking up to three values, so the
 /// three axes have to become one declaration. Emitting them separately --
 /// which this did until 2026-08-15 -- made `translate-x-4 translate-y-8`
@@ -490,9 +614,14 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
         StyleProperty::MaxWidth(d) => ("max-width", dimension_value(*d)),
         StyleProperty::MaxHeight(d) => ("max-height", dimension_value(*d)),
         StyleProperty::ZIndex(z) => ("z-index", format!("{z}")),
-        StyleProperty::GridTemplateColumns(n) => {
-            ("grid-template-columns", format!("repeat({n}, minmax(0, 1fr))"))
-        }
+        StyleProperty::GridTemplateColumns(t) => ("grid-template-columns", grid_tracks(t)),
+        StyleProperty::GridTemplateRows(t) => ("grid-template-rows", grid_tracks(t)),
+        StyleProperty::GridColumnStart(l) => ("grid-column-start", grid_line(l)),
+        StyleProperty::GridColumnEnd(l) => ("grid-column-end", grid_line(l)),
+        StyleProperty::GridRowStart(l) => ("grid-row-start", grid_line(l)),
+        StyleProperty::GridRowEnd(l) => ("grid-row-end", grid_line(l)),
+        StyleProperty::GridColumn(s) => ("grid-column", grid_span(s)),
+        StyleProperty::GridRow(s) => ("grid-row", grid_span(s)),
         StyleProperty::Position(pos) => (
             "position",
             match pos {
@@ -675,7 +804,16 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
         // Tailwind writes both axes explicitly for scale/translate, so
         // these do the same rather than relying on one-value expansion.
         StyleProperty::Rotate(a) => ("rotate", format!("{}deg", a.degrees)),
-        StyleProperty::Scale(pct) => ("scale", format!("{pct}% {pct}%")),
+        // Composed, not emitted here -- see `scale_value` / `transform_value`.
+        StyleProperty::ScaleX(_)
+        | StyleProperty::ScaleY(_)
+        | StyleProperty::ScaleZ(_)
+        | StyleProperty::Scale3d => ("scale", String::new()),
+        StyleProperty::RotateX(_)
+        | StyleProperty::RotateY(_)
+        | StyleProperty::RotateZ(_)
+        | StyleProperty::SkewX(_)
+        | StyleProperty::SkewY(_) => ("transform", String::new()),
         // Composed by `translate_value`; partitioned out above.
         StyleProperty::TranslateX(_) | StyleProperty::TranslateY(_) | StyleProperty::TranslateZ(_) => {
             ("translate", String::new())
@@ -878,6 +1016,10 @@ pub fn render_rule(class_name: &str, condition: &Condition, props: &[StyleProper
         rest.into_iter().partition(|p| is_scrollbar_color(p));
     let (translate_props, rest): (Vec<&StyleProperty>, Vec<&StyleProperty>) =
         rest.into_iter().partition(|p| is_translate(p));
+    let (scale_props, rest): (Vec<&StyleProperty>, Vec<&StyleProperty>) =
+        rest.into_iter().partition(|p| is_scale_axis(p));
+    let (transform_props, rest): (Vec<&StyleProperty>, Vec<&StyleProperty>) =
+        rest.into_iter().partition(|p| is_transform_function(p));
     let (spacing_props, own_props): (Vec<&StyleProperty>, Vec<&StyleProperty>) =
         rest.into_iter().partition(|p| is_border_spacing(p));
 
@@ -887,6 +1029,8 @@ pub fn render_rule(class_name: &str, condition: &Condition, props: &[StyleProper
         || !mask_props.is_empty()
         || !scrollbar_props.is_empty()
         || !translate_props.is_empty()
+        || !scale_props.is_empty()
+        || !transform_props.is_empty()
         || !spacing_props.is_empty()
     {
         let mut body = String::new();
@@ -905,6 +1049,12 @@ pub fn render_rule(class_name: &str, condition: &Condition, props: &[StyleProper
         }
         if let Some(value) = translate_value(&translate_props) {
             body.push_str(&format!("  translate: {value};\n"));
+        }
+        if let Some(value) = scale_value(&scale_props) {
+            body.push_str(&format!("  scale: {value};\n"));
+        }
+        if let Some(value) = transform_value(&transform_props) {
+            body.push_str(&format!("  transform: {value};\n"));
         }
         if let Some(value) = border_spacing_value(&spacing_props) {
             body.push_str(&format!("  border-spacing: {value};\n"));

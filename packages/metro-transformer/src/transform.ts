@@ -19,7 +19,16 @@ import { importSpecifier } from '@dowel/compiler/project'
 import { candidateModulePath } from './project.ts'
 
 const DOWEL_CORE_IMPORT_RE = /import\s*\{[^}]*\}\s*from\s*['"]@dowel\/core['"]\s*\n?/
-const RN_PRIMITIVE_TAGS = ['View', 'Text', 'Pressable'] as const
+/// The components the Native backend lowers to that come from
+/// `react-native` itself. `DowelSpaced` and `DowelDialog` are Dowel's own
+/// and arrive through `runtimeImports` instead.
+///
+/// `TextInput` was missing here until 2026-08-16, so a compiled TextInput
+/// referred to an identifier nothing imported. Metro bundles that happily
+/// -- an undefined identifier is only an error when it runs -- so the
+/// example built cleanly and would have crashed on first render. Reading
+/// the bundle is what found it; building it was not enough.
+const RN_PRIMITIVE_TAGS = ['View', 'Text', 'Pressable', 'TextInput'] as const
 
 /// Renames this component's `dowelN`/`dowelN_suffix` style/JSX identifiers
 /// to be unique across every component in the file -- each `compileNative`

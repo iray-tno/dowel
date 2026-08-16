@@ -12,6 +12,7 @@
 // instead; this file is thin, documented Metro API surface on top of it.
 
 import { createRequire } from 'node:module'
+import path from 'node:path'
 import { transformDowelSource } from './transform.ts'
 
 const require = createRequire(import.meta.url)
@@ -32,21 +33,60 @@ interface UpstreamTransformer {
 
 let upstream: UpstreamTransformer | undefined
 
-function loadUpstream(): UpstreamTransformer {
-  if (!upstream) {
-    // Peer dependency: whatever transformer the consuming RN/Expo project
-    // already uses (bare RN CLI projects default to this package name;
-    // Expo projects configure their own path -- see this package's
-    // README for how to point at that instead).
-    upstream = require('metro-react-native-babel-transformer') as UpstreamTransformer
+/// The transformer this one wraps, in the order a project is likely to
+/// have it.
+///
+/// `metro-react-native-babel-transformer` was the only name here until
+/// 2026-08-16, and React Native renamed it at 0.73 -- so on any currently
+/// supported version this package required something that isn't installed,
+/// and the bundle died inside React Native's own source with a syntax
+/// error that named neither. Found by building the example, which is the
+/// only thing that runs this file at all.
+///
+/// `DOWEL_UPSTREAM_TRANSFORMER` overrides the search, for projects (Expo
+/// among them) that ship their own.
+const UPSTREAM_CANDIDATES = [
+  '@react-native/metro-babel-transformer',
+  '@expo/metro-config/babel-transformer',
+  'metro-react-native-babel-transformer',
+]
+
+function loadUpstream(projectRoot?: string): UpstreamTransformer {
+  if (upstream) {
+    return upstream
   }
-  return upstream
+  const configured = process.env.DOWEL_UPSTREAM_TRANSFORMER
+  const candidates = configured ? [configured] : UPSTREAM_CANDIDATES
+  // Resolved from the *project*, not from this package. The upstream
+  // transformer is the consuming app's dependency, and under pnpm's strict
+  // layout a package cannot see its consumer's -- so resolving relative to
+  // this file finds nothing in exactly the setup a monorepo has.
+  const fromProject = projectRoot
+    ? createRequire(path.join(projectRoot, 'noop.js'))
+    : require
+  const tried: string[] = []
+  for (const name of candidates) {
+    for (const resolve of [fromProject, require]) {
+      try {
+        upstream = resolve(name) as UpstreamTransformer
+        return upstream
+      } catch {
+        // Next resolver, then next candidate.
+      }
+    }
+    tried.push(name)
+  }
+  throw new Error(
+    `[dowel] no Babel transformer for Metro to hand off to. Dowel only rewrites the source and ` +
+      `leaves the rest of the pipeline alone, so it needs the one your project already uses. ` +
+      `Tried: ${tried.join(', ')}. Set DOWEL_UPSTREAM_TRANSFORMER to the right one.`,
+  )
 }
 
 export function transform(params: TransformParams): unknown {
   const rewritten = transformDowelSource(params.src, params.filename, params.options?.projectRoot)
   const nextParams = rewritten === null ? params : { ...params, src: rewritten }
-  return loadUpstream().transform(nextParams)
+  return loadUpstream(params.options?.projectRoot).transform(nextParams)
 }
 
 export { transformDowelSource } from './transform.ts'

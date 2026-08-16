@@ -35,6 +35,7 @@ fn parse_transition_properties(token: &str) -> Option<&'static str> {
         "transition-opacity" => "opacity",
         "transition-transform" => "transform, translate, scale, rotate",
         "transition-shadow" => "box-shadow",
+        "transition-all" => "all",
         "transition-none" => "none",
         _ => return None,
     })
@@ -216,6 +217,16 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
             return Some(StyleProperty::InsetBottom(v));
         }
     }
+    if let Some(rest) = token.strip_prefix("start-") {
+        if let Some(v) = parse_dimension_suffix(rest) {
+            return Some(StyleProperty::InsetInlineStart(v));
+        }
+    }
+    if let Some(rest) = token.strip_prefix("end-") {
+        if let Some(v) = parse_dimension_suffix(rest) {
+            return Some(StyleProperty::InsetInlineEnd(v));
+        }
+    }
     if let Some(rest) = token.strip_prefix("left-") {
         if let Some(v) = parse_dimension_suffix(rest) {
             return Some(StyleProperty::InsetLeft(v));
@@ -234,21 +245,36 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
         }
     }
     if let Some(rest) = token.strip_prefix("min-w-") {
+        if let Some(d) = parse_extremum_suffix(rest) {
+            return Some(StyleProperty::MinWidth(d));
+        }
+        if rest == "screen" {
+            return Some(StyleProperty::MinWidth(Dimension::ViewportWidth(100.0)));
+        }
         if let Some(d) = parse_inline_size_suffix(rest) {
             return Some(StyleProperty::MinWidth(d));
         }
     }
     if let Some(rest) = token.strip_prefix("min-h-") {
+        if let Some(d) = parse_extremum_suffix(rest) {
+            return Some(StyleProperty::MinHeight(d));
+        }
         if let Some(d) = parse_dimension_suffix(rest) {
             return Some(StyleProperty::MinHeight(d));
         }
     }
     if let Some(rest) = token.strip_prefix("max-w-") {
+        if let Some(d) = parse_extremum_suffix(rest) {
+            return Some(StyleProperty::MaxWidth(d));
+        }
         if let Some(d) = parse_inline_size_suffix(rest) {
             return Some(StyleProperty::MaxWidth(d));
         }
     }
     if let Some(rest) = token.strip_prefix("max-h-") {
+        if let Some(d) = parse_extremum_suffix(rest) {
+            return Some(StyleProperty::MaxHeight(d));
+        }
         if let Some(d) = parse_dimension_suffix(rest) {
             return Some(StyleProperty::MaxHeight(d));
         }
@@ -268,6 +294,18 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
     }
     if let Some(keyword) = parse_cursor(token) {
         return Some(StyleProperty::Cursor(keyword.to_string()));
+    }
+    if let Some(rest) = token.strip_prefix("inset-shadow") {
+        let shadow = match rest.trim_start_matches('-') {
+            "2xs" => "inset 0 1px rgb(0 0 0 / 0.05)",
+            "xs" => "inset 0 1px 1px rgb(0 0 0 / 0.05)",
+            "sm" => "inset 0 2px 4px rgb(0 0 0 / 0.05)",
+            // Tailwind clears the layer to a fully transparent inset
+            // rather than dropping it, so a ring beside it still paints.
+            "none" => "inset 0 0 #0000",
+            _ => return None,
+        };
+        return Some(StyleProperty::InsetShadow(shadow.to_string()));
     }
     if let Some(shadow) = parse_shadow(token) {
         return Some(StyleProperty::BoxShadow(shadow.to_string()));
@@ -354,6 +392,11 @@ fn expand_dimension_family(token: &str) -> Option<Vec<StyleProperty>> {
         FAMILIES.iter().filter(|(p, _, _)| token.starts_with(*p)).max_by_key(|(p, _, _)| p.len())
     {
         let suffix = &token[prefix.len()..];
+        if prefix.starts_with("max-") || prefix.starts_with("min-") {
+            if let Some(value) = parse_extremum_suffix(suffix) {
+                return Some(vec![make(value)]);
+            }
+        }
         let value = if *inline_axis {
             parse_inline_size_suffix(suffix)
         } else {
@@ -392,6 +435,26 @@ fn expand_dimension_family(token: &str) -> Option<Vec<StyleProperty>> {
     if let Some(rest) = token.strip_prefix("border-spacing-") {
         return parse_spacing_suffix(rest)
             .map(|l| vec![StyleProperty::BorderSpacingX(l), StyleProperty::BorderSpacingY(l)]);
+    }
+    // `*-screen` is a viewport size, which the block/inline families spell
+    // on their own axis: `block-screen` is a height, `inline-screen` a
+    // width. Handled before the table so it stays a `ViewportHeight`/
+    // `ViewportWidth` the Native backend can answer, rather than text.
+    for (prefix, make, vertical) in [
+        ("max-block-", StyleProperty::MaxBlockSize as fn(Dimension) -> StyleProperty, true),
+        ("min-block-", StyleProperty::MinBlockSize as fn(Dimension) -> StyleProperty, true),
+        ("block-", StyleProperty::BlockSize as fn(Dimension) -> StyleProperty, true),
+        ("max-inline-", StyleProperty::MaxInlineSize as fn(Dimension) -> StyleProperty, false),
+        ("min-inline-", StyleProperty::MinInlineSize as fn(Dimension) -> StyleProperty, false),
+        ("inline-", StyleProperty::InlineSize as fn(Dimension) -> StyleProperty, false),
+    ] {
+        if token == format!("{}screen", prefix) {
+            return Some(vec![make(if vertical {
+                Dimension::ViewportHeight(100.0)
+            } else {
+                Dimension::ViewportWidth(100.0)
+            })]);
+        }
     }
     // Bare `translate-*` sets both axes; `translate-z-*` the third.
     if let Some(rest) = token.strip_prefix("translate-z-") {
@@ -1234,6 +1297,22 @@ fn parse_filter_function(token: &str) -> Option<(FilterFunction, String)> {
             return Some((*function, format!("{name}({pct}%)")));
         }
     }
+    // Tailwind's drop-shadow scale. The colour is a register there
+    // (`--tw-drop-shadow-color`) with these as its defaults; Dowel resolves
+    // the composition, so the default is written in.
+    if let Some(rest) = token.strip_prefix("drop-shadow") {
+        let shadow = match rest.trim_start_matches('-') {
+            "xs" => "drop-shadow(0 1px 1px rgb(0 0 0 / 0.05))",
+            "sm" => "drop-shadow(0 1px 2px rgb(0 0 0 / 0.15))",
+            "md" => "drop-shadow(0 3px 3px rgb(0 0 0 / 0.12))",
+            "lg" => "drop-shadow(0 4px 4px rgb(0 0 0 / 0.15))",
+            "xl" => "drop-shadow(0 9px 7px rgb(0 0 0 / 0.1))",
+            "2xl" => "drop-shadow(0 25px 25px rgb(0 0 0 / 0.15))",
+            "none" => "",
+            _ => return None,
+        };
+        return Some((FilterFunction::DropShadow, shadow.to_string()));
+    }
     if token == "hue-rotate" {
         return Some((FilterFunction::HueRotate, "hue-rotate(0deg)".to_string()));
     }
@@ -1487,6 +1566,38 @@ fn parse_extended_value(token: &str) -> Option<StyleProperty> {
     // `Css` would refuse them on Native, where RN's alignment unions do
     // have both. The refusal audit caught exactly that.
     match token {
+        "fixed" => return Some(StyleProperty::Position(Position::Css("fixed"))),
+        "static" => return Some(StyleProperty::Position(Position::Static)),
+        "sticky" => return Some(StyleProperty::Position(Position::Css("sticky"))),
+        "text-start" => return Some(StyleProperty::TextAlign(TextAlign::Css("start"))),
+        "text-end" => return Some(StyleProperty::TextAlign(TextAlign::Css("end"))),
+        "text-justify" => return Some(StyleProperty::TextAlign(TextAlign::Css("justify"))),
+        // CSS's `last baseline` aligns the *last* line's baseline, which is
+        // a different rule rather than a spelling of `baseline`.
+        "items-baseline-last" => return Some(StyleProperty::AlignItems(Align::Css("last baseline"))),
+        "self-baseline-last" => return Some(StyleProperty::AlignSelf(AlignSelf::Css("last baseline"))),
+        "rotate-none" => return Some(StyleProperty::RotateNone),
+        "scale-none" => return Some(StyleProperty::ScaleNone),
+        // `transform` and `transform-cpu` write the composed `transform`
+        // with nothing in it -- Tailwind emits the register chain, which
+        // resolves to empty. `transform-gpu` prepends a null 3D
+        // translation, the old trick for forcing GPU compositing.
+        "transform" | "transform-cpu" => return Some(StyleProperty::TransformEmpty),
+        "transform-gpu" => return Some(StyleProperty::TransformGpu),
+        "transform-none" => return Some(StyleProperty::TransformNone),
+        "translate-none" => return Some(StyleProperty::TranslateNone),
+        // Writes the three-value form with every axis at its default, which
+        // is how Tailwind switches the z component on.
+        "translate-3d" => {
+            return Some(StyleProperty::TranslateZ(Length::Px(0.0)));
+        }
+        "decoration-auto" => return Some(StyleProperty::Keyword("text-decoration-thickness", "auto")),
+        "decoration-from-font" => {
+            return Some(StyleProperty::Keyword("text-decoration-thickness", "from-font"))
+        }
+        "fill-none" => return Some(StyleProperty::Fill(Color::Keyword("none"))),
+        "stroke-none" => return Some(StyleProperty::Stroke(Color::Keyword("none"))),
+        "accent-auto" => return Some(StyleProperty::AccentColor(Color::Keyword("auto"))),
         "items-baseline" => return Some(StyleProperty::AlignItems(Align::Baseline)),
         "items-stretch" => return Some(StyleProperty::AlignItems(Align::Stretch)),
         "self-baseline" => return Some(StyleProperty::AlignSelf(AlignSelf::Baseline)),
@@ -1869,6 +1980,114 @@ const KEYWORD_UTILITIES: &[(&str, &str, &str)] = &[
         ("zoom-200", "zoom", "200%"),
 ];
 
+/// `sr-only` / `not-sr-only`: visible to a screen reader, not to the eye.
+///
+/// Expanded into the properties Dowel already models rather than held as a
+/// blob, so that a `w-4` written beside it still overrides the width the
+/// way it does on Web -- `dedupe_key` can only do that if each declaration
+/// arrives as its own property.
+///
+/// The mechanism is a one-pixel clipped box rather than `display: none` or
+/// `visibility: hidden`, and that distinction is the whole point: those two
+/// remove the element from the accessibility tree, which is the opposite of
+/// what this is for.
+fn parse_screen_reader_only(token: &str) -> Option<Vec<StyleProperty>> {
+    let visually_hidden = token == "sr-only";
+    if !visually_hidden && token != "not-sr-only" {
+        return None;
+    }
+    let size = |px: f64| {
+        if visually_hidden {
+            Dimension::Length(Length::Px(px))
+        } else {
+            Dimension::Auto
+        }
+    };
+    let margin = Dimension::Length(Length::Px(if visually_hidden { -1.0 } else { 0.0 }));
+    let mut props = vec![
+        StyleProperty::Position(if visually_hidden { Position::Absolute } else { Position::Static }),
+        StyleProperty::Width(size(1.0)),
+        StyleProperty::Height(size(1.0)),
+        StyleProperty::PaddingTop(Length::Px(0.0)),
+        StyleProperty::PaddingRight(Length::Px(0.0)),
+        StyleProperty::PaddingBottom(Length::Px(0.0)),
+        StyleProperty::PaddingLeft(Length::Px(0.0)),
+        StyleProperty::MarginTop(margin),
+        StyleProperty::MarginRight(margin),
+        StyleProperty::MarginBottom(margin),
+        StyleProperty::MarginLeft(margin),
+        StyleProperty::Overflow(if visually_hidden { Overflow::Hidden } else { Overflow::Visible }),
+        StyleProperty::Keyword("clip-path", if visually_hidden { "inset(50%)" } else { "none" }),
+        StyleProperty::WhiteSpace(if visually_hidden {
+            WhiteSpace::NoWrap
+        } else {
+            WhiteSpace::Normal
+        }),
+    ];
+    // Only `sr-only` zeroes the border; `not-sr-only` leaves whatever the
+    // element had, which is why this isn't symmetric.
+    //
+    // Widths only, unlike `all_sides_border`: that writes a `solid` style
+    // alongside, which exists so a width has something to render as. A zero
+    // width has nothing to render either way, and Tailwind writes no style
+    // here.
+    if visually_hidden {
+        props.extend([
+            StyleProperty::BorderTopWidth(Length::Px(0.0)),
+            StyleProperty::BorderRightWidth(Length::Px(0.0)),
+            StyleProperty::BorderBottomWidth(Length::Px(0.0)),
+            StyleProperty::BorderLeftWidth(Length::Px(0.0)),
+        ]);
+    }
+    Some(props)
+}
+
+/// The utilities that are two declarations of the same value.
+///
+/// Almost all of them are a vendor prefix beside the standard property,
+/// which Tailwind still emits because Safari and Firefox need them here.
+/// `break-normal` is the odd one: two genuinely different properties that
+/// Tailwind sets together because "don't break words" needs both.
+fn keyword_pair_utility(token: &str) -> Option<StyleProperty> {
+    const PAIRS: &[(&str, &str, &str, &str, &str)] = &[
+        ("hyphens-auto", "-webkit-hyphens", "auto", "hyphens", "auto"),
+        ("hyphens-manual", "-webkit-hyphens", "manual", "hyphens", "manual"),
+        ("hyphens-none", "-webkit-hyphens", "none", "hyphens", "none"),
+        (
+            "antialiased",
+            "-webkit-font-smoothing",
+            "antialiased",
+            "-moz-osx-font-smoothing",
+            "grayscale",
+        ),
+        (
+            "subpixel-antialiased",
+            "-webkit-font-smoothing",
+            "auto",
+            "-moz-osx-font-smoothing",
+            "auto",
+        ),
+        (
+            "box-decoration-clone",
+            "-webkit-box-decoration-break",
+            "clone",
+            "box-decoration-break",
+            "clone",
+        ),
+        (
+            "box-decoration-slice",
+            "-webkit-box-decoration-break",
+            "slice",
+            "box-decoration-break",
+            "slice",
+        ),
+        ("break-normal", "overflow-wrap", "normal", "word-break", "normal"),
+    ];
+    PAIRS.iter().find(|(name, ..)| *name == token).map(|(_, p1, v1, p2, v2)| {
+        StyleProperty::KeywordPair(p1, v1, p2, v2)
+    })
+}
+
 /// The one-declaration utilities; see `KEYWORD_UTILITIES`.
 fn keyword_utility(token: &str) -> Option<StyleProperty> {
     KEYWORD_UTILITIES
@@ -1945,6 +2164,20 @@ fn parse_css_size_suffix(suffix: &str) -> Option<Dimension> {
         "svh" => "100svh",
         "svw" => "100svw",
         "lh" => "1lh",
+        _ => return None,
+    }))
+}
+
+/// The values only the *max* and *min* size families take.
+///
+/// Kept out of the shared suffix table because they are not dimensions in
+/// general: putting `none` there made `translate-none` parse as a
+/// translation of "none none" rather than as switching the property off.
+fn parse_extremum_suffix(suffix: &str) -> Option<Dimension> {
+    Some(Dimension::Css(match suffix {
+        "none" => "none",
+        // Tailwind's measure-of-text width, and the one place `ch` appears.
+        "prose" => "65ch",
         _ => return None,
     }))
 }
@@ -2284,8 +2517,22 @@ fn expand_base_utility(token: &str) -> Vec<StyleProperty> {
     if let Some(prop) = parse_keyword_utility(token) {
         return vec![prop];
     }
+    if let Some(props) = parse_screen_reader_only(token) {
+        return props;
+    }
+    if let Some(prop) = keyword_pair_utility(token) {
+        return vec![prop];
+    }
     if let Some(prop) = keyword_utility(token) {
         return vec![prop];
+    }
+    if let Some(rest) = token.strip_prefix("line-clamp-") {
+        if rest == "none" {
+            return vec![StyleProperty::LineClamp(None)];
+        }
+        if let Ok(lines) = rest.parse::<u32>() {
+            return vec![StyleProperty::LineClamp(Some(lines))];
+        }
     }
     if let Some(prop) = parse_extended_value(token) {
         return vec![prop];
@@ -2703,6 +2950,59 @@ mod tests {
             expand_utility("translate-x-2"),
             (Condition::Always, vec![StyleProperty::TranslateX(Dimension::Length(Length::Px(8.0)))])
         );
+    }
+
+    #[test]
+    fn a_colour_slot_that_holds_a_keyword_does_not_go_through_the_palette() {
+        // `accent-color: auto` and `fill: none` sit where a colour goes and
+        // are not colours. Routing them through the token path produced
+        // `var(--dowel-color-auto)` -- a plausible-looking wrong answer
+        // rather than an unresolved one, which is the failure the palette
+        // fallback exists to avoid in the first place.
+        assert_eq!(
+            expand_utility("accent-auto").1,
+            vec![StyleProperty::AccentColor(Color::Keyword("auto"))]
+        );
+        assert_eq!(expand_utility("fill-none").1, vec![StyleProperty::Fill(Color::Keyword("none"))]);
+    }
+
+    #[test]
+    fn sr_only_expands_into_the_properties_it_sets() {
+        // Expanded rather than held as a blob so a `w-4` beside it still
+        // overrides the width: `dedupe_key` can only do that if each
+        // declaration arrives as its own property.
+        let (_, props) = expand_utility("sr-only");
+        assert!(props.contains(&StyleProperty::Position(Position::Absolute)));
+        assert!(props.contains(&StyleProperty::Width(Dimension::Length(Length::Px(1.0)))));
+        assert!(props.contains(&StyleProperty::Overflow(Overflow::Hidden)));
+        assert!(props.contains(&StyleProperty::Keyword("clip-path", "inset(50%)")));
+        // A clipped one-pixel box, not `display: none` -- those remove the
+        // element from the accessibility tree, which is the opposite of
+        // what this utility is for.
+        assert!(!props.iter().any(|p| matches!(p, StyleProperty::Display(_))));
+        // Widths only: a zero width needs no style to render nothing, and
+        // Tailwind writes none.
+        assert!(props.contains(&StyleProperty::BorderTopWidth(Length::Px(0.0))));
+        assert!(!props.iter().any(|p| matches!(p, StyleProperty::BorderTopStyle(_))));
+
+        let (_, props) = expand_utility("not-sr-only");
+        assert!(props.contains(&StyleProperty::Position(Position::Static)));
+        assert!(props.contains(&StyleProperty::Width(Dimension::Auto)));
+    }
+
+    #[test]
+    fn line_clamp_is_one_property_because_react_native_has_one_prop() {
+        assert_eq!(expand_utility("line-clamp-3").1, vec![StyleProperty::LineClamp(Some(3))]);
+        assert_eq!(expand_utility("line-clamp-none").1, vec![StyleProperty::LineClamp(None)]);
+    }
+
+    #[test]
+    fn position_static_is_not_refused() {
+        // React Native has `static` and means what CSS means by it. It was
+        // refused as part of the fixed/sticky group until the audit
+        // objected.
+        assert!(StyleProperty::Position(Position::Static).unsupported_on_native().is_none());
+        assert!(StyleProperty::Position(Position::Css("sticky")).unsupported_on_native().is_some());
     }
 
     #[test]

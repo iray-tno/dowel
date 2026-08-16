@@ -290,6 +290,36 @@ pub enum StyleProperty {
     /// `columns-*`. CSS multi-column layout, which React Native has no
     /// equivalent for at all.
     Columns(ColumnCount),
+    /// `rotate-none`/`scale-none`/`translate-none`/`transform-none`: the
+    /// standalone transform properties turned off.
+    ///
+    /// Separate from the axes rather than a value of them, because each
+    /// clears the whole property -- and separate from each other, because
+    /// CSS has four properties here and turning off one leaves the rest.
+    RotateNone,
+    ScaleNone,
+    TranslateNone,
+    TransformNone,
+    /// `transform`/`transform-cpu`: the composed `transform` with nothing
+    /// in it. Tailwind writes the register chain here, which resolves to
+    /// empty; the declaration exists so a later utility has something to
+    /// override.
+    TransformEmpty,
+    /// `transform-gpu`: the same chain with a null 3D translation in
+    /// front, the long-standing trick for forcing GPU compositing.
+    TransformGpu,
+    /// `line-clamp-*`. `None` is `line-clamp-none`.
+    ///
+    /// One property standing for four CSS declarations, composed at emit
+    /// time like the ring and mask slots -- the `-webkit-box` display and
+    /// the `overflow` it needs are part of the mechanism, not separate
+    /// intentions, and routing them through `Display`/`Overflow` would
+    /// make `line-clamp-2` silently fight an `overflow-visible` written
+    /// beside it.
+    ///
+    /// React Native expresses the whole thing as `numberOfLines` on Text,
+    /// which is why this is a property rather than a pile of keywords.
+    LineClamp(Option<u32>),
     /// `grow`/`grow-0`/`shrink`/`shrink-0` and `aspect-*`. All three are
     /// real React Native styles, which is why they are properties rather
     /// than `Keyword`s -- the refusal audit caught them being refused as
@@ -332,6 +362,11 @@ pub enum StyleProperty {
     /// `background-blend-mode` has no equivalent there.
     MixBlendMode(&'static str),
     BackgroundBlendMode(&'static str),
+    /// A pair of declarations that are the same value under two property
+    /// names -- `-webkit-hyphens` and `hyphens`, `-webkit-font-smoothing`
+    /// and `-moz-osx-font-smoothing`. Held as one property because they
+    /// are one intention, and because a `Keyword` can only carry one.
+    KeywordPair(&'static str, &'static str, &'static str, &'static str),
     /// One CSS declaration with a fixed value, as `(property, value)`.
     ///
     /// The deliberate escape hatch for the long tail: `touch-action`,
@@ -505,6 +540,10 @@ pub enum StyleProperty {
     /// properties reach the output.
     RingWidth(Length),
     RingColor(Color),
+    /// `inset-shadow-*`: an inner shadow, a fourth layer beside the two
+    /// rings and the outer shadow. Held as its composed CSS text for the
+    /// same reason `BoxShadow` is.
+    InsetShadow(String),
     InsetRingWidth(Length),
     InsetRingColor(Color),
     /// One function of the `filter` chain, and its already-formatted CSS
@@ -731,6 +770,12 @@ pub enum Justify {
 pub enum Position {
     Relative,
     Absolute,
+    /// React Native has this too, and means what CSS means by it: the
+    /// element is not a containing block for absolutely positioned
+    /// descendants. Refusing it was wrong, and the refusal audit said so.
+    Static,
+    /// `fixed` and `sticky`, which React Native has no equivalent for.
+    Css(&'static str),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -822,6 +867,20 @@ impl StyleProperty {
                  only way to reorder on React Native is to reorder the elements"
                     .to_string(),
             ),
+            StyleProperty::Position(Position::Css(value)) => Some(format!(
+                "`position: {value}`: React Native's position is relative or absolute"
+            )),
+            StyleProperty::RotateNone
+            | StyleProperty::ScaleNone
+            | StyleProperty::TranslateNone
+            | StyleProperty::TransformNone
+            | StyleProperty::TransformEmpty
+            | StyleProperty::TransformGpu => Some(
+                "`rotate-none`/`scale-none`/`translate-none`/`transform-none`: React Native builds 
+                 one transform array, so there is no property to switch off -- omit the transform 
+                 instead"
+                    .to_string(),
+            ),
             StyleProperty::ZIndex(None) => Some(
                 "`z-auto`: React Native's zIndex is a number and has no auto".to_string(),
             ),
@@ -875,6 +934,9 @@ impl StyleProperty {
             // none of the rest -- checked against its own StyleSheet types
             // rather than assumed, the same way the refusal audit checks
             // everything else here.
+            StyleProperty::KeywordPair(_, _, property, _) => {
+                Some(format!("`{property}`: React Native has no such style"))
+            }
             StyleProperty::Keyword(property, _)
                 if !matches!(*property, 
                     "user-select"
@@ -1114,6 +1176,12 @@ impl Dimension {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Color {
     Token(String),
+    /// A CSS keyword that stands where a colour goes but isn't one:
+    /// `accent-color: auto`, `fill: none`. Kept apart from `Token` because
+    /// the palette resolver can't resolve these and its fallback --
+    /// `var(--dowel-color-none)` -- would be a plausible-looking wrong
+    /// answer rather than an unresolved one.
+    Keyword(&'static str),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1124,6 +1192,8 @@ pub enum TextAlign {
     Left,
     Center,
     Right,
+    /// `start`, `end`, `justify`. React Native has all three.
+    Css(&'static str),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

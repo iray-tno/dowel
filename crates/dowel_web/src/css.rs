@@ -109,6 +109,28 @@ fn border_style_property(edge: Edge) -> &'static str {
     }
 }
 
+/// The four declarations `line-clamp-*` is, as one group.
+///
+/// Tailwind writes all four because the `-webkit-line-clamp` mechanism
+/// only works inside a `-webkit-box` with a vertical orientation and
+/// hidden overflow -- they are one thing, not four choices.
+fn line_clamp_declarations(lines: Option<u32>) -> Vec<(&'static str, String)> {
+    match lines {
+        Some(n) => vec![
+            ("overflow", "hidden".to_string()),
+            ("display", "-webkit-box".to_string()),
+            ("-webkit-box-orient", "vertical".to_string()),
+            ("-webkit-line-clamp", n.to_string()),
+        ],
+        None => vec![
+            ("overflow", "visible".to_string()),
+            ("display", "block".to_string()),
+            ("-webkit-box-orient", "horizontal".to_string()),
+            ("-webkit-line-clamp", "unset".to_string()),
+        ],
+    }
+}
+
 fn overflow_keyword(overflow: &Overflow) -> &'static str {
     match overflow {
         Overflow::Visible => "visible",
@@ -600,7 +622,11 @@ fn side_keyword(slot: MaskSlot) -> &'static str {
 }
 
 fn color_var(color: &Color) -> String {
-    let Color::Token(token) = color;
+    let token = match color {
+        Color::Token(token) => token,
+        // Not a colour at all, so it does not go through the palette.
+        Color::Keyword(keyword) => return keyword.to_string(),
+    };
     match dowel_ir::resolve_color_token(token) {
         Some(resolved) => resolved.oklch.to_string(),
         None => format!("var(--dowel-color-{token})"),
@@ -713,6 +739,8 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
             match pos {
                 Position::Relative => "relative",
                 Position::Absolute => "absolute",
+                Position::Static => "static",
+                Position::Css(v) => v,
             }
             .to_string(),
         ),
@@ -835,6 +863,14 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
         StyleProperty::BorderLogicalStyle(edge, s) => {
             (border_style_property(*edge), border_style_keyword(s).to_string())
         }
+        // Composed; see `line_clamp_declarations`.
+        StyleProperty::RotateNone => ("rotate", "none".to_string()),
+        StyleProperty::ScaleNone => ("scale", "none".to_string()),
+        StyleProperty::TranslateNone => ("translate", "none".to_string()),
+        StyleProperty::TransformNone => ("transform", "none".to_string()),
+        StyleProperty::TransformEmpty => ("transform", String::new()),
+        StyleProperty::TransformGpu => ("transform", "translateZ(0)".to_string()),
+        StyleProperty::LineClamp(_) => ("-webkit-line-clamp", String::new()),
         StyleProperty::FlexGrow(n) => ("flex-grow", format!("{n}")),
         StyleProperty::FlexShrink(n) => ("flex-shrink", format!("{n}")),
         StyleProperty::AspectRatio(v) => ("aspect-ratio", v.to_string()),
@@ -843,6 +879,8 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
         StyleProperty::UserSelect(_) => ("user-select", String::new()),
         StyleProperty::TextDecorationLine(v) => ("text-decoration-line", v.to_string()),
         StyleProperty::Keyword(property, value) => (property, value.to_string()),
+        // Composed: it writes both halves. See `KeywordPair`.
+        StyleProperty::KeywordPair(..) => ("", String::new()),
         StyleProperty::MixBlendMode(m) => ("mix-blend-mode", m.to_string()),
         StyleProperty::BackgroundBlendMode(m) => ("background-blend-mode", m.to_string()),
         StyleProperty::Order(n) => ("order", n.to_string()),
@@ -892,6 +930,7 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
                 TextAlign::Left => "left",
                 TextAlign::Center => "center",
                 TextAlign::Right => "right",
+                TextAlign::Css(v) => v,
             }
             .to_string(),
         ),
@@ -936,7 +975,8 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
         StyleProperty::RingWidth(_)
         | StyleProperty::RingColor(_)
         | StyleProperty::InsetRingWidth(_)
-        | StyleProperty::InsetRingColor(_) => ("box-shadow", String::new()),
+        | StyleProperty::InsetRingColor(_)
+        | StyleProperty::InsetShadow(_) => ("box-shadow", String::new()),
         // Composed, not emitted here -- see `filter_value`.
         StyleProperty::Filter(..) => ("filter", String::new()),
         StyleProperty::BackdropFilter(..) => ("backdrop-filter", String::new()),
@@ -1017,6 +1057,7 @@ fn is_shadow_layer(prop: &StyleProperty) -> bool {
     matches!(
         prop,
         StyleProperty::BoxShadow(_)
+            | StyleProperty::InsetShadow(_)
             | StyleProperty::RingWidth(_)
             | StyleProperty::RingColor(_)
             | StyleProperty::InsetRingWidth(_)
@@ -1061,7 +1102,17 @@ fn box_shadow_value(props: &[&StyleProperty]) -> Option<String> {
     // Tailwind's default ring colour is `currentcolor`.
     let paint = |c: Option<&Color>| c.map_or("currentcolor".to_string(), color_var);
 
+    let inset_shadow = props.iter().find_map(|p| match p {
+        StyleProperty::InsetShadow(s) => Some(s.clone()),
+        _ => None,
+    });
+
     let mut layers: Vec<String> = Vec::new();
+    // Innermost first, matching the order Tailwind splices its registers:
+    // inset shadow, inset ring, ring, outer shadow.
+    if let Some(shadow) = inset_shadow {
+        layers.push(shadow);
+    }
     if let Some(width) = inset_ring {
         layers.push(format!("inset 0 0 0 {} {}", length_px(width), paint(inset_ring_color)));
     }
@@ -1114,6 +1165,10 @@ pub fn render_rule(class_name: &str, condition: &Condition, props: &[StyleProper
         rest.into_iter().partition(|p| is_scrollbar_color(p));
     let (translate_props, rest): (Vec<&StyleProperty>, Vec<&StyleProperty>) =
         rest.into_iter().partition(|p| is_translate(p));
+    let (keyword_pair_props, rest): (Vec<&StyleProperty>, Vec<&StyleProperty>) =
+        rest.into_iter().partition(|p| matches!(p, StyleProperty::KeywordPair(..)));
+    let (line_clamp_props, rest): (Vec<&StyleProperty>, Vec<&StyleProperty>) =
+        rest.into_iter().partition(|p| matches!(p, StyleProperty::LineClamp(_)));
     let (user_select_props, rest): (Vec<&StyleProperty>, Vec<&StyleProperty>) =
         rest.into_iter().partition(|p| matches!(p, StyleProperty::UserSelect(_)));
     let (filter_props, rest): (Vec<&StyleProperty>, Vec<&StyleProperty>) =
@@ -1131,6 +1186,8 @@ pub fn render_rule(class_name: &str, condition: &Condition, props: &[StyleProper
         || !mask_props.is_empty()
         || !scrollbar_props.is_empty()
         || !translate_props.is_empty()
+        || !keyword_pair_props.is_empty()
+        || !line_clamp_props.is_empty()
         || !user_select_props.is_empty()
         || !filter_props.is_empty()
         || !scale_props.is_empty()
@@ -1166,6 +1223,22 @@ pub fn render_rule(class_name: &str, condition: &Condition, props: &[StyleProper
 "));
             body.push_str(&format!("  backdrop-filter: {value};
 "));
+        }
+        for prop in &keyword_pair_props {
+            if let StyleProperty::KeywordPair(p1, v1, p2, v2) = prop {
+                body.push_str(&format!("  {p1}: {v1};
+"));
+                body.push_str(&format!("  {p2}: {v2};
+"));
+            }
+        }
+        for prop in &line_clamp_props {
+            if let StyleProperty::LineClamp(lines) = prop {
+                for (name, value) in line_clamp_declarations(*lines) {
+                    body.push_str(&format!("  {name}: {value};
+"));
+                }
+            }
         }
         // Safari still needs the prefix for user-select, and Tailwind emits
         // both, so this is one utility writing two declarations rather than

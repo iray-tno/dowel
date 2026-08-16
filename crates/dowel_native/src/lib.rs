@@ -1155,6 +1155,19 @@ fn truncation_props(node: &Node) -> Option<Vec<(&'static str, String)>> {
         return None;
     }
     let has = |want: &StyleProperty| node.style.iter().any(|d| d.property == *want);
+    // `line-clamp-<n>` is the same mechanism with a line count: React
+    // Native has one prop for both, so the two utilities meet here.
+    if let Some(lines) = node.style.iter().find_map(|d| match d.property {
+        StyleProperty::LineClamp(lines) => Some(lines),
+        _ => None,
+    }) {
+        return match lines {
+            // `line-clamp-none` means no clamping, which on this platform
+            // is the absence of the prop rather than a value for it.
+            None => Some(Vec::new()),
+            Some(n) => Some(vec![("numberOfLines", n.to_string())]),
+        };
+    }
     if !has(&StyleProperty::WhiteSpace(WhiteSpace::NoWrap)) {
         return None;
     }
@@ -1172,7 +1185,7 @@ fn truncation_props(node: &Node) -> Option<Vec<(&'static str, String)>> {
 fn is_truncation_declaration(property: &StyleProperty) -> bool {
     matches!(
         property,
-        StyleProperty::WhiteSpace(WhiteSpace::NoWrap) | StyleProperty::TextOverflow(_)
+        StyleProperty::WhiteSpace(WhiteSpace::NoWrap) | StyleProperty::TextOverflow(_) | StyleProperty::LineClamp(_)
     )
 }
 

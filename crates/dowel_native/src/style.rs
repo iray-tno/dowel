@@ -223,6 +223,12 @@ pub fn box_shadow_entry(props: &[StyleProperty]) -> Option<(&'static str, String
     };
 
     let mut layers: Vec<String> = Vec::new();
+    if let Some(shadow) = props.iter().find_map(|p| match p {
+        StyleProperty::InsetShadow(s) => Some(s.clone()),
+        _ => None,
+    }) {
+        layers.push(shadow);
+    }
     if let Some(width) = inset_ring {
         layers.push(format!("inset 0 0 0 {width}px {}", paint(inset_ring_color)));
     }
@@ -275,7 +281,10 @@ fn border_style_literal(style: &BorderStyle) -> String {
 /// real-color-shaped, so a missed resolution fails loudly instead of
 /// rendering a plausible-but-wrong color.
 fn resolve_color(color: &Color) -> String {
-    let Color::Token(token) = color;
+    let token = match color {
+        Color::Token(token) => token,
+        Color::Keyword(keyword) => return format!("'{keyword}'"),
+    };
     match dowel_ir::resolve_color_token(token) {
         Some(resolved) => format!("'{}'", resolved.hex),
         None => format!("'dowel-unresolved:{token}'"),
@@ -499,6 +508,19 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
             _ => Vec::new(),
         },
         StyleProperty::BorderLogicalStyle(..) => Vec::new(),
+        // Absorbed into `numberOfLines` by `truncation_props`, the same way
+        // `truncate` is -- React Native clamps lines with a prop, not a
+        // style.
+        // RN composes every transform into one array, so "off" is the
+        // absence of an entry rather than a value; refused upstream so it
+        // isn't silently a no-op when written after a transform.
+        StyleProperty::RotateNone
+        | StyleProperty::ScaleNone
+        | StyleProperty::TranslateNone
+        | StyleProperty::TransformNone
+        | StyleProperty::TransformEmpty
+        | StyleProperty::TransformGpu => Vec::new(),
+        StyleProperty::LineClamp(_) => Vec::new(),
         StyleProperty::FlexGrow(n) => vec![("flexGrow", format!("{n}"))],
         StyleProperty::FlexShrink(n) => vec![("flexShrink", format!("{n}"))],
         // RN's aspectRatio takes a number, so the ratio is divided out. It
@@ -512,6 +534,9 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
         StyleProperty::TextDecorationLine(v) => vec![("textDecorationLine", format!("'{v}'"))],
         StyleProperty::OverflowX(_) | StyleProperty::OverflowY(_) => Vec::new(),
         StyleProperty::Keyword(..) => Vec::new(),
+        // Every one of these is a vendor-prefixed Web property or a text
+        // shaping control React Native doesn't have; refused upstream.
+        StyleProperty::KeywordPair(..) => Vec::new(),
         StyleProperty::MixBlendMode(m) => vec![("mixBlendMode", format!("'{m}'"))],
         StyleProperty::BackgroundBlendMode(_) => Vec::new(),
         // Both refused upstream: Yoga has no flex `order`, and React Native
@@ -522,6 +547,10 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
             match pos {
                 Position::Relative => "'relative'",
                 Position::Absolute => "'absolute'",
+            Position::Static => "'static'",
+            // RN's static is not CSS's; fixed and sticky have no equivalent.
+            // All three refused upstream.
+            Position::Css(_) => "",
             }
             .to_string(),
         )],
@@ -733,6 +762,7 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
                 TextAlign::Left => "'left'",
                 TextAlign::Center => "'center'",
                 TextAlign::Right => "'right'",
+                TextAlign::Css(v) => return vec![("textAlign", format!("'{v}'"))],
             }
             .to_string(),
         )],
@@ -757,7 +787,8 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
         | StyleProperty::RingWidth(_)
         | StyleProperty::RingColor(_)
         | StyleProperty::InsetRingWidth(_)
-        | StyleProperty::InsetRingColor(_) => vec![],
+        | StyleProperty::InsetRingColor(_)
+        | StyleProperty::InsetShadow(_) => vec![],
         // Composed, not emitted here -- see `filter_entry`. `BackdropFilter`
         // is refused upstream: React Native has no such style key.
         StyleProperty::Filter(..) | StyleProperty::BackdropFilter(..) => vec![],

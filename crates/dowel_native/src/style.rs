@@ -19,7 +19,8 @@
 //!   property to defer to the way Web's `var(--dowel-color-x)` does.
 
 use dowel_ir::{
-    Align, AlignSelf, BorderStyle, Color, DecorationStyle, Dimension, Display, FlexDirection,
+    Align, AlignSelf, BorderStyle, Color, DecorationStyle, Dimension, Display, FilterFunction,
+    FlexDirection,
     LetterSpacing,
     FlexShorthand, Justify,
     Length, LineHeight, Overflow, Position, Radius, StyleProperty, TextAlign, TextTransform,
@@ -151,6 +152,27 @@ fn scale_y(prop: &StyleProperty) -> Option<f64> {
         StyleProperty::ScaleY(v) => Some(*v),
         _ => None,
     }
+}
+
+/// Joins whichever filter utilities a rule carries into one `filter`
+/// string, in `FilterFunction` order -- the same order the Web backend
+/// uses, so the two platforms compose identically. React Native 0.76+
+/// accepts the CSS syntax here, so the value text is shared.
+pub fn filter_entry(props: &[StyleProperty]) -> Option<(&'static str, String)> {
+    let mut functions: Vec<(FilterFunction, &str)> = Vec::new();
+    for prop in props {
+        let StyleProperty::Filter(function, value) = prop else { continue };
+        if *function == FilterFunction::None {
+            return Some(("filter", "'none'".to_string()));
+        }
+        functions.push((*function, value.as_str()));
+    }
+    if functions.is_empty() {
+        return None;
+    }
+    functions.sort_by_key(|(function, _)| *function);
+    let chain: Vec<&str> = functions.iter().map(|(_, v)| *v).filter(|v| !v.is_empty()).collect();
+    Some(("filter", format!("'{}'", chain.join(" "))))
 }
 
 /// Joins whichever ring/shadow utilities a rule carries into one
@@ -643,7 +665,9 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
         | StyleProperty::RingColor(_)
         | StyleProperty::InsetRingWidth(_)
         | StyleProperty::InsetRingColor(_) => vec![],
-        StyleProperty::Filter(f) => vec![("filter", format!("'{f}'"))],
+        // Composed, not emitted here -- see `filter_entry`. `BackdropFilter`
+        // is refused upstream: React Native has no such style key.
+        StyleProperty::Filter(..) | StyleProperty::BackdropFilter(..) => vec![],
         StyleProperty::TextTransform(t) => vec![(
             "textTransform",
             match t {

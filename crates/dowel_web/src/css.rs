@@ -15,7 +15,7 @@
 //! correct-but-unresolved, not silently wrong.
 
 use dowel_ir::{
-    Align, AlignSelf, Angle, BorderStyle, Breakpoint, Color, Condition, ConditionExpr,
+    Align, AlignSelf, Angle, BorderStyle, Breakpoint, Color, Condition, ConditionExpr, FilterFunction,
     DecorationStyle,
     ColumnCount, Dimension, Display, Edge, GridLine, GridSpan, GridTracks, MaskSlot, MaskStop,
     Em, FlexDirection, LetterSpacing, FlexShorthand, Justify, Length, LineHeight, Overflow, Position, Radius,
@@ -328,6 +328,44 @@ fn is_translate(prop: &StyleProperty) -> bool {
         prop,
         StyleProperty::TranslateX(_) | StyleProperty::TranslateY(_) | StyleProperty::TranslateZ(_)
     )
+}
+
+/// The `filter`/`backdrop-filter` chain, in `FilterFunction` order.
+///
+/// Sorted by the function rather than by the order the utilities were
+/// written, because filter functions don't commute -- `grayscale invert`
+/// and `invert grayscale` render differently -- and Tailwind's own order is
+/// fixed by the order its registers appear in the value. A slot cleared by
+/// a `-none` utility contributes an empty register there and so nothing
+/// here.
+fn filter_value(props: &[&StyleProperty], backdrop: bool) -> Option<String> {
+    let mut functions: Vec<(FilterFunction, &str)> = Vec::new();
+    for prop in props {
+        let (function, value) = match (prop, backdrop) {
+            (StyleProperty::Filter(f, v), false) | (StyleProperty::BackdropFilter(f, v), true) => {
+                (*f, v.as_str())
+            }
+            _ => continue,
+        };
+        // `filter-none` is the whole chain off, not one slot cleared.
+        if function == FilterFunction::None {
+            return Some("none".to_string());
+        }
+        functions.push((function, value));
+    }
+    if functions.is_empty() {
+        return None;
+    }
+    functions.sort_by_key(|(function, _)| *function);
+    let chain: Vec<&str> = functions.iter().map(|(_, v)| *v).filter(|v| !v.is_empty()).collect();
+    // Every slot cleared still leaves a declaration -- Tailwind emits
+    // `filter: ` with an empty value, which is what an all-`-none` chain
+    // resolves to.
+    Some(chain.join(" "))
+}
+
+fn is_filter(prop: &StyleProperty) -> bool {
+    matches!(prop, StyleProperty::Filter(..) | StyleProperty::BackdropFilter(..))
 }
 
 fn is_scale_axis(prop: &StyleProperty) -> bool {
@@ -841,7 +879,9 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
         | StyleProperty::RingColor(_)
         | StyleProperty::InsetRingWidth(_)
         | StyleProperty::InsetRingColor(_) => ("box-shadow", String::new()),
-        StyleProperty::Filter(f) => ("filter", f.clone()),
+        // Composed, not emitted here -- see `filter_value`.
+        StyleProperty::Filter(..) => ("filter", String::new()),
+        StyleProperty::BackdropFilter(..) => ("backdrop-filter", String::new()),
         StyleProperty::TextTransform(t) => (
             "text-transform",
             match t {
@@ -1016,6 +1056,8 @@ pub fn render_rule(class_name: &str, condition: &Condition, props: &[StyleProper
         rest.into_iter().partition(|p| is_scrollbar_color(p));
     let (translate_props, rest): (Vec<&StyleProperty>, Vec<&StyleProperty>) =
         rest.into_iter().partition(|p| is_translate(p));
+    let (filter_props, rest): (Vec<&StyleProperty>, Vec<&StyleProperty>) =
+        rest.into_iter().partition(|p| is_filter(p));
     let (scale_props, rest): (Vec<&StyleProperty>, Vec<&StyleProperty>) =
         rest.into_iter().partition(|p| is_scale_axis(p));
     let (transform_props, rest): (Vec<&StyleProperty>, Vec<&StyleProperty>) =
@@ -1029,6 +1071,7 @@ pub fn render_rule(class_name: &str, condition: &Condition, props: &[StyleProper
         || !mask_props.is_empty()
         || !scrollbar_props.is_empty()
         || !translate_props.is_empty()
+        || !filter_props.is_empty()
         || !scale_props.is_empty()
         || !transform_props.is_empty()
         || !spacing_props.is_empty()
@@ -1049,6 +1092,19 @@ pub fn render_rule(class_name: &str, condition: &Condition, props: &[StyleProper
         }
         if let Some(value) = translate_value(&translate_props) {
             body.push_str(&format!("  translate: {value};\n"));
+        }
+        if let Some(value) = filter_value(&filter_props, false) {
+            body.push_str(&format!("  filter: {value};
+"));
+        }
+        if let Some(value) = filter_value(&filter_props, true) {
+            // The unprefixed property is not enough: Safari still ships
+            // backdrop-filter only behind the -webkit- prefix, and Tailwind
+            // emits both.
+            body.push_str(&format!("  -webkit-backdrop-filter: {value};
+"));
+            body.push_str(&format!("  backdrop-filter: {value};
+"));
         }
         if let Some(value) = scale_value(&scale_props) {
             body.push_str(&format!("  scale: {value};\n"));
@@ -1157,6 +1213,43 @@ mod tests {
         let (media, suffix) = condition_shape(&Condition::Expr(expr));
         assert!(media.is_none());
         assert_eq!(suffix, "[data-dowel-cond-0-1]:not([data-dowel-cond-2-3])");
+    }
+
+    #[test]
+    fn the_filter_chain_is_ordered_by_function_not_by_how_it_was_written() {
+        // Filter functions don't commute: grayscale-then-invert and
+        // invert-then-grayscale render differently. Tailwind fixes the
+        // order by where each register sits in the value, so writing
+        // `invert grayscale` must still come out grayscale-first.
+        let props = vec![
+            StyleProperty::Filter(FilterFunction::Invert, "invert(100%)".to_string()),
+            StyleProperty::Filter(FilterFunction::Grayscale, "grayscale(100%)".to_string()),
+            StyleProperty::Filter(FilterFunction::Blur, "blur(8px)".to_string()),
+        ];
+        let refs: Vec<&StyleProperty> = props.iter().collect();
+        assert_eq!(
+            filter_value(&refs, false),
+            Some("blur(8px) grayscale(100%) invert(100%)".to_string())
+        );
+        // The element's own chain and the backdrop's are independent.
+        assert_eq!(filter_value(&refs, true), None);
+    }
+
+    #[test]
+    fn a_cleared_filter_slot_drops_out_but_filter_none_clears_everything() {
+        let cleared = vec![
+            StyleProperty::Filter(FilterFunction::Blur, String::new()),
+            StyleProperty::Filter(FilterFunction::Invert, "invert(100%)".to_string()),
+        ];
+        let refs: Vec<&StyleProperty> = cleared.iter().collect();
+        assert_eq!(filter_value(&refs, false), Some("invert(100%)".to_string()));
+
+        let off = vec![
+            StyleProperty::Filter(FilterFunction::Invert, "invert(100%)".to_string()),
+            StyleProperty::Filter(FilterFunction::None, String::new()),
+        ];
+        let refs: Vec<&StyleProperty> = off.iter().collect();
+        assert_eq!(filter_value(&refs, false), Some("none".to_string()));
     }
 
     #[test]

@@ -447,7 +447,20 @@ pub enum StyleProperty {
     RingColor(Color),
     InsetRingWidth(Length),
     InsetRingColor(Color),
-    Filter(String),
+    /// One function of the `filter` chain, and its already-formatted CSS
+    /// argument (`blur(12px)` is `Blur` + `"blur(12px)"`).
+    ///
+    /// Per-function rather than one string, for the same reason the ring
+    /// and mask slots are: Tailwind builds `filter` out of eight registers
+    /// in a fixed order, and holding the whole chain as one value would
+    /// make `blur-md grayscale` last-wins instead of composing. The
+    /// `FilterFunction` is also the dedupe key, so `blur-sm blur-lg`
+    /// replaces rather than stacks.
+    Filter(FilterFunction, String),
+    /// The same chain applied to what's *behind* the element. A separate
+    /// property, not a flag on `Filter`: an element can carry both, and
+    /// they compose independently.
+    BackdropFilter(FilterFunction, String),
 
     // Typography
     FontSize(Length),
@@ -728,6 +741,15 @@ impl StyleProperty {
             StyleProperty::Columns(_) => {
                 Some("`columns-*`: React Native has no multi-column layout".to_string())
             }
+            // `filter` is real on React Native; `backdrop-filter` is not --
+            // there is no such style key, and blurring what is *behind* a
+            // view needs a native blur component (`@react-native-community/
+            // blur`, Expo's BlurView) rather than a style.
+            StyleProperty::BackdropFilter(..) => Some(
+                "`backdrop-*`: React Native has no backdrop-filter style -- blurring what's \
+                 behind a view needs a native blur component"
+                    .to_string(),
+            ),
             // React Native's `cursor` is real but narrow: `auto` and
             // `pointer` only, which is what a pointer-capable target
             // (tablet with a trackpad, macOS/Windows/visionOS) can act on.
@@ -939,6 +961,32 @@ pub struct Angle {
 /// be resolved to pixels at compile time.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Em(pub f64);
+
+/// The functions of a `filter`/`backdrop-filter` chain.
+///
+/// Declared in the order Tailwind writes them, and that order is the
+/// discriminant order deliberately: filter functions don't commute --
+/// `grayscale(100%) invert(100%)` and `invert(100%) grayscale(100%)` render
+/// differently -- so the chain is sorted by this enum rather than by the
+/// order the utilities happened to appear in the class string.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum FilterFunction {
+    Blur,
+    Brightness,
+    Contrast,
+    Grayscale,
+    HueRotate,
+    Invert,
+    Saturate,
+    Sepia,
+    DropShadow,
+    /// `backdrop-opacity-*` only; there is no `opacity-*` filter utility,
+    /// since bare `opacity-*` is the CSS property rather than the function.
+    Opacity,
+    /// `filter-none`/`backdrop-filter-none`, which clear the whole chain
+    /// rather than contributing to it.
+    None,
+}
 
 /// What `grid-template-columns`/`grid-template-rows` are set to.
 ///
@@ -1262,6 +1310,9 @@ impl StyleProperty {
                 (*slot as u32) * 2 + *stop as u32
             }
             StyleProperty::MaskAngle(slot, _) => *slot as u32,
+            StyleProperty::Filter(function, _) | StyleProperty::BackdropFilter(function, _) => {
+                *function as u32
+            }
             _ => 0,
         };
         (std::mem::discriminant(self), target)

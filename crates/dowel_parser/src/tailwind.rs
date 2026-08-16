@@ -8,8 +8,8 @@ use dowel_ir::{
     Align, AlignSelf, Angle, Animation, BorderStyle, Breakpoint, Color, Condition, Dimension,
     ColumnCount, DecorationStyle, Display, Edge, Em, GridLine, GridSpan, GridTracks, LetterSpacing,
     MaskSlot, MaskStop,
-    FlexDirection, FlexShorthand, FontWeight, Justify, Length, LineHeight, Overflow, Position,
-    Radius, StyleProperty, TextAlign, TextOverflow, TextTransform, WhiteSpace,
+    FilterFunction, FlexDirection, FlexShorthand, FontWeight, Justify, Length, LineHeight, Overflow,
+    Position, Radius, StyleProperty, TextAlign, TextOverflow, TextTransform, WhiteSpace,
 };
 
 /// The property lists Tailwind's `transition`/`transition-colors` expand
@@ -264,9 +264,6 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
     }
     if let Some(shadow) = parse_shadow(token) {
         return Some(StyleProperty::BoxShadow(shadow.to_string()));
-    }
-    if let Some(blur) = parse_blur(token) {
-        return Some(StyleProperty::Filter(format!("blur({blur}px)")));
     }
     if let Some(prop) = parse_transform(token) {
         return Some(prop);
@@ -1171,6 +1168,72 @@ fn parse_blur(token: &str) -> Option<f64> {
     })
 }
 
+/// One function of a `filter` chain, from the utility that names it.
+///
+/// `Some((function, ""))` is the `-none` form, which clears that function's
+/// slot rather than setting it -- Tailwind writes `--tw-blur: ;`, an empty
+/// register, so the slot contributes nothing to the composed value.
+fn parse_filter_function(token: &str) -> Option<(FilterFunction, String)> {
+    if token == "filter-none" {
+        return Some((FilterFunction::None, String::new()));
+    }
+    if let Some(px) = parse_blur(token) {
+        return Some((FilterFunction::Blur, format!("blur({px}px)")));
+    }
+    if token == "blur-none" {
+        return Some((FilterFunction::Blur, String::new()));
+    }
+
+    // The percentage-valued functions. Each has a bare form meaning 100%
+    // (`grayscale` is a full conversion) and a numbered form.
+    const PERCENT: &[(&str, FilterFunction)] = &[
+        ("brightness", FilterFunction::Brightness),
+        ("contrast", FilterFunction::Contrast),
+        ("grayscale", FilterFunction::Grayscale),
+        ("invert", FilterFunction::Invert),
+        ("saturate", FilterFunction::Saturate),
+        ("sepia", FilterFunction::Sepia),
+        ("opacity", FilterFunction::Opacity),
+    ];
+    for (name, function) in PERCENT {
+        if token == *name {
+            return Some((*function, format!("{name}(100%)")));
+        }
+        if let Some(rest) = token.strip_prefix(&format!("{name}-")) {
+            if rest == "none" {
+                return Some((*function, String::new()));
+            }
+            let pct: f64 = rest.parse().ok()?;
+            return Some((*function, format!("{name}({pct}%)")));
+        }
+    }
+    if token == "hue-rotate" {
+        return Some((FilterFunction::HueRotate, "hue-rotate(0deg)".to_string()));
+    }
+    if let Some(rest) = token.strip_prefix("hue-rotate-") {
+        let degrees: f64 = rest.parse().ok()?;
+        return Some((FilterFunction::HueRotate, format!("hue-rotate({degrees}deg)")));
+    }
+    None
+}
+
+/// `filter-*` and `backdrop-*`, which are the same chain applied to the
+/// element and to what's behind it.
+fn expand_filter(token: &str) -> Option<Vec<StyleProperty>> {
+    if let Some(rest) = token.strip_prefix("backdrop-") {
+        // `backdrop-filter-none` reaches here as `filter-none`.
+        let (function, value) = parse_filter_function(rest)?;
+        return Some(vec![StyleProperty::BackdropFilter(function, value)]);
+    }
+    let (function, value) = parse_filter_function(token)?;
+    // Bare `opacity-*` is the CSS property, not a filter function -- only
+    // its backdrop form exists as a filter.
+    if function == FilterFunction::Opacity {
+        return None;
+    }
+    Some(vec![StyleProperty::Filter(function, value)])
+}
+
 /// `rotate-<deg>`, `scale-<pct>`, `translate-x-<n>`, `translate-y-<n>`,
 /// each optionally negated with a leading `-`.
 fn parse_transform(token: &str) -> Option<StyleProperty> {
@@ -1646,6 +1709,9 @@ fn expand_base_utility(token: &str) -> Vec<StyleProperty> {
     if let Some(props) = expand_dimension_family(token) {
         return props;
     }
+    if let Some(props) = expand_filter(token) {
+        return props;
+    }
     if let Some(prop) = expand_scrollbar(token) {
         return vec![prop];
     }
@@ -2023,7 +2089,10 @@ mod tests {
     fn parses_effects_and_transforms() {
         assert_eq!(
             expand_utility("blur-sm"),
-            (Condition::Always, vec![StyleProperty::Filter("blur(8px)".to_string())])
+            (
+                Condition::Always,
+                vec![StyleProperty::Filter(FilterFunction::Blur, "blur(8px)".to_string())]
+            )
         );
         assert_eq!(
             expand_utility("shadow-lg").1,
@@ -2053,6 +2122,47 @@ mod tests {
             expand_utility("translate-x-2"),
             (Condition::Always, vec![StyleProperty::TranslateX(Dimension::Length(Length::Px(8.0)))])
         );
+    }
+
+    #[test]
+    fn filter_functions_are_held_per_slot_so_they_compose() {
+        // One property per function, not one string for the chain: holding
+        // the whole chain would make `blur-md grayscale` last-wins instead
+        // of composing, which is the same reason the ring and mask slots
+        // are separate.
+        assert_eq!(
+            expand_utility("grayscale").1,
+            vec![StyleProperty::Filter(FilterFunction::Grayscale, "grayscale(100%)".to_string())]
+        );
+        assert_eq!(
+            expand_utility("hue-rotate-15").1,
+            vec![StyleProperty::Filter(FilterFunction::HueRotate, "hue-rotate(15deg)".to_string())]
+        );
+        // The `-none` form clears one slot; Tailwind writes an empty
+        // register for it, so it contributes nothing to the chain.
+        assert_eq!(
+            expand_utility("blur-none").1,
+            vec![StyleProperty::Filter(FilterFunction::Blur, String::new())]
+        );
+        // `filter-none` is the whole chain off, which is a different thing.
+        assert_eq!(
+            expand_utility("filter-none").1,
+            vec![StyleProperty::Filter(FilterFunction::None, String::new())]
+        );
+
+        // The backdrop forms are the same chain aimed at what's behind the
+        // element, and an element can carry both.
+        assert_eq!(
+            expand_utility("backdrop-blur-md").1,
+            vec![StyleProperty::BackdropFilter(FilterFunction::Blur, "blur(12px)".to_string())]
+        );
+        // `opacity()` is a filter function only in its backdrop form --
+        // bare `opacity-50` is the CSS property.
+        assert_eq!(
+            expand_utility("backdrop-opacity-50").1,
+            vec![StyleProperty::BackdropFilter(FilterFunction::Opacity, "opacity(50%)".to_string())]
+        );
+        assert_eq!(expand_utility("opacity-50").1, vec![StyleProperty::Opacity(0.5)]);
     }
 
     #[test]

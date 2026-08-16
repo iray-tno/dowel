@@ -281,6 +281,9 @@ fn style_pairs(props: &[StyleProperty]) -> Vec<(&'static str, String)> {
     if let Some(transform) = style::transform_entry(props) {
         emitted.push(transform);
     }
+    if let Some(filter) = style::filter_entry(props) {
+        emitted.push(filter);
+    }
     if let Some(shadow) = style::box_shadow_entry(props) {
         emitted.push(shadow);
     }

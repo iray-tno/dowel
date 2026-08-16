@@ -47,16 +47,47 @@ pub fn native_component(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'st
         // accessibility question doesn't change between platforms even
         // though the prop names do.
         Primitive::TextInput => ("TextInput", missing_label(node, diagnostics)),
+        Primitive::Dialog => ("DowelDialog", dialog_attrs(node, diagnostics)),
     }
 }
 
 /// Diagnoses a text field with no accessible name (proposal §10.2). The
 /// Web counterpart carries the reasoning; this is the same check with
 /// React Native's prop names in the message.
+/// A dialog's own diagnostics (proposal §10.3): it needs a name, and it
+/// needs a way out.
+///
+/// The dismissal check is the one part of §10.3's quality bar a compiler
+/// can see -- focus trapping and restoration are behaviours, but "there is
+/// no `onClose`" is a missing prop. Escape on Web and the hardware back
+/// button on Android both arrive there, so without it the modal ignores
+/// both and reads as a trap.
+fn dialog_attrs(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> Vec<(&'static str, String)> {
+    if node.props.accessibility_label.is_none() {
+        diagnostics.push(Diagnostic {
+            code: DiagnosticCode::A11yMissingAccessibleName,
+            severity: Severity::Warning,
+            message: "Dialog has no accessible name, so a screen reader announces only that a \n                      dialog opened. Add `accessibilityLabel`."
+                .to_string(),
+            span: node.span,
+        });
+    }
+    if !node.props.has_on_close {
+        diagnostics.push(Diagnostic {
+            code: DiagnosticCode::A11yDialogWithoutDismiss,
+            severity: Severity::Warning,
+            message: "Dialog has no `onClose`, so Escape and the Android back button do nothing \n                      and the modal is a trap. Add `onClose`."
+                .to_string(),
+            span: node.span,
+        });
+    }
+    Vec::new()
+}
+
 fn missing_label(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> Vec<(&'static str, String)> {
     if node.props.accessibility_label.is_none() {
         diagnostics.push(Diagnostic {
-            code: DiagnosticCode::A11yInputWithoutLabel,
+            code: DiagnosticCode::A11yMissingAccessibleName,
             severity: Severity::Warning,
             message: if node.props.has_placeholder {
                 "TextInput has a placeholder but no accessible name. A placeholder is not a \n                 label: it may not be announced as one, and it disappears as soon as the user \n                 types. Add `accessibilityLabel`."
@@ -108,6 +139,8 @@ mod tests {
                 accessibility_role: None,
                 accessibility_label: None,
                 has_placeholder: false,
+                open: None,
+                has_on_close: false,
                 passthrough: Vec::new(),
             },
             children: Vec::new(),

@@ -525,6 +525,14 @@ fn render_node(
     if let Some(label) = node.props.accessibility_label {
         props_text.push_str(&format!(" accessibilityLabel={{{}}}", source_text(source, label)));
     }
+    if let Some(open) = &node.props.open {
+        props_text.push_str(&format!(" open={{{}}}", render_condition_expr(source, open)));
+    }
+    if node.primitive == Primitive::Dialog {
+        // The behaviour lives in `@dowel/a11y`; the compiler only lowers
+        // the styles and checks the props.
+        runtime.need_component("DowelDialog");
+    }
     if let Some(on_press) = node.props.on_press {
         props_text.push_str(&format!(" onPress={{{}}}", source_text(source, on_press)));
     }
@@ -1883,6 +1891,45 @@ export function Login() {
     }
 
     #[test]
+    fn a_dialog_is_lowered_with_its_styles_and_its_two_diagnostics() {
+        // A primitive rather than a component the compiler walks past:
+        // otherwise its className never compiles and neither of these
+        // checks ever runs. The behaviour itself is `@dowel/a11y`'s.
+        let source = r#"
+            import { Dialog, Text } from '@dowel/core'
+            const el = (
+              <Dialog className="p-6" open={showing} onClose={dismiss} accessibilityLabel="Confirm">
+                <Text>Delete?</Text>
+              </Dialog>
+            )
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source);
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert!(output.jsx.contains("<DowelDialog style={styles.dowel0}"), "{}", output.jsx);
+        assert!(output.jsx.contains("open={showing}"), "{}", output.jsx);
+        assert!(output.runtime_imports.contains(&"DowelDialog"), "{:?}", output.runtime_imports);
+        assert!(output.styles.contains("paddingTop: 24,"), "{}", output.styles);
+    }
+
+    #[test]
+    fn a_dialog_with_no_way_out_is_diagnosed() {
+        // The one part of §10.3's quality bar a compiler can see: focus
+        // trapping and restoration are behaviours, but "there is no
+        // onClose" is a missing prop -- and without it Escape and the
+        // Android back button both do nothing.
+        let source = r#"
+            import { Dialog } from '@dowel/core'
+            const el = <Dialog open={showing} accessibilityLabel="Confirm" />
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source);
+        assert_eq!(output.diagnostics.len(), 1, "{:?}", output.diagnostics);
+        assert_eq!(output.diagnostics[0].code, DiagnosticCode::A11yDialogWithoutDismiss);
+        assert!(output.diagnostics[0].message.contains("trap"), "{}", output.diagnostics[0].message);
+    }
+
+    #[test]
     fn placeholder_colour_lowers_to_the_prop_that_carries_it() {
         // 291 candidates were refused for want of a `TextInput` to put this
         // on. React Native keeps the colour as a prop rather than a style,
@@ -1927,7 +1974,7 @@ export function Login() {
         let warning = output
             .diagnostics
             .iter()
-            .find(|d| d.code == DiagnosticCode::A11yInputWithoutLabel)
+            .find(|d| d.code == DiagnosticCode::A11yMissingAccessibleName)
             .expect("a nameless field must be diagnosed");
         assert!(warning.message.contains("placeholder is not a"), "{}", warning.message);
 

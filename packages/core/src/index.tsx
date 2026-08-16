@@ -65,3 +65,8 @@ export function Button({ className, children, onPress, disabled }: ButtonProps) 
 cargo test 2>&1 | grep -E "^---- |panicked|^error" | head -5
 
 export { TextInput, type TextInputProps } from './text-input.tsx'
+
+// Dialog is not implemented here: its behaviour is the whole point of it
+// (proposal §10.3), and that lives in `@dowel/a11y` so there is exactly one
+// implementation for the compiler to lower to and for tests to cover.
+export { DowelDialog as Dialog, type DowelDialogProps as DialogProps } from '@dowel/a11y'

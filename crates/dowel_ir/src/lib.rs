@@ -48,14 +48,26 @@ pub enum Severity {
 pub enum DiagnosticCode {
     /// Interactive Pressable/Button with no accessible role (proposal §10.2).
     A11yInteractiveWithoutRole,
-    /// A `TextInput` with no accessible name (proposal §10.2).
+    /// A `Dialog` that can't be dismissed (proposal §10.3).
+    ///
+    /// Escape on Web and the hardware back button on Android both arrive
+    /// as a request to close, and a modal that ignores them is a trap --
+    /// the one failure in §10.3's quality bar that a compiler *can* see,
+    /// since it is a missing prop rather than a runtime behaviour.
+    A11yDialogWithoutDismiss,
+    /// An element that needs an accessible name and has none (proposal
+    /// §10.2): a `TextInput`, a `Dialog`.
+    ///
+    /// One code rather than one per element, because the fix is the same
+    /// sentence every time -- give it a name -- and the message says which
+    /// element it is.
     ///
     /// Separate from the role diagnostic because the fix is different and
     /// the wrong fix is so common: a `placeholder` looks like a label,
     /// and is not one. Screen readers may not announce it, and it
     /// vanishes the moment the user types -- which is exactly when they
     /// would want to check what the field was for.
-    A11yInputWithoutLabel,
+    A11yMissingAccessibleName,
     /// A prop spread appears after a statically compiled className/style and
     /// could silently override it at runtime; that node's className is not
     /// compiled and falls back instead of failing silently.
@@ -113,6 +125,13 @@ pub enum Primitive {
     Text,
     Pressable,
     Button,
+    /// A modal dialog (proposal §10.3, v1's first hard primitive).
+    ///
+    /// A primitive rather than a component the compiler walks past,
+    /// because otherwise its `className` never compiles and its missing
+    /// accessible name is never noticed -- both backends lower it to
+    /// `/a11y`'s `DowelDialog`, which owns the runtime behaviour.
+    Dialog,
     /// A single-line text field. `<input>` on Web, `TextInput` on React
     /// Native -- and the reason `placeholder-*` can lower at all, since
     /// React Native carries that colour as a prop on this component
@@ -219,6 +238,12 @@ pub struct PropSet {
     /// classic thing people reach for instead -- it disappears on first
     /// keystroke and is not announced as a label.
     pub accessibility_label: Option<ExprRef>,
+    /// A `Dialog`'s `open` guard, re-emitted verbatim like `disabled`.
+    pub open: Option<ConditionExpr>,
+    /// Whether a `Dialog` was given an `onClose`. A modal with no way to
+    /// dismiss it reads as a trap, and that is worth naming at build time
+    /// rather than discovering with a screen reader.
+    pub has_on_close: bool,
     /// Whether a `TextInput` was given a `placeholder`. Only whether, not
     /// what: the value is passed through untouched, and all the compiler
     /// needs to know is that a name-less field has one, which is the case

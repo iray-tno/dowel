@@ -5,5 +5,8 @@
   "description": "Complex accessibility primitives (Dialog, etc.) with runtime-managed focus and keyboard behavior.",
   "license": "MIT",
   "type": "module",
-  "main": "./src/index.ts"
+  "main": "./src/index.ts",
+  "scripts": {
+    "test": "node --test src/*.test.ts"
+  }
 }

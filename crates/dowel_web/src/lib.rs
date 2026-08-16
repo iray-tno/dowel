@@ -216,7 +216,15 @@ fn render_node(
     // spell this either way, and re-emitting `accessibilityLabel` here
     // would leave the field with no accessible name at all.
     if let Some(label) = node.props.accessibility_label {
-        attrs.push_str(&format!(" aria-label={{{}}}", source_text(source, label)));
+        // `aria-label` for a real DOM element; `accessibilityLabel` for a
+        // Dowel component, which maps it to `aria-label` itself. Writing
+        // the DOM spelling on a component would make it an unknown prop
+        // that React drops.
+        let name = if tag.starts_with("Dowel") { "accessibilityLabel" } else { "aria-label" };
+        attrs.push_str(&format!(" {name}={{{}}}", source_text(source, label)));
+    }
+    if let Some(open) = &node.props.open {
+        attrs.push_str(&format!(" open={{{}}}", render_condition_expr(source, open)));
     }
     if let Some(on_press) = node.props.on_press {
         attrs.push_str(&format!(" onClick={{{}}}", source_text(source, on_press)));

@@ -156,6 +156,8 @@ fn primitive_name(name: &str) -> Option<&'static str> {
         "Text" => Some("Text"),
         "Pressable" => Some("Pressable"),
         "Button" => Some("Button"),
+        "TextInput" => Some("TextInput"),
+        "Dialog" => Some("Dialog"),
         _ => None,
     }
 }
@@ -188,6 +190,7 @@ fn primitive_for_name(name: &str) -> Option<Primitive> {
         "Text" => Some(Primitive::Text),
         "Pressable" => Some(Primitive::Pressable),
         "TextInput" => Some(Primitive::TextInput),
+        "Dialog" => Some(Primitive::Dialog),
         "Button" => Some(Primitive::Button),
         _ => None,
     }
@@ -316,6 +319,20 @@ fn build_node(
                     .passthrough
                     .push(PassthroughProp { span: to_expr_ref(attr.span()), is_spread: false }),
             },
+            "open" => match &attr.value {
+                Some(JSXAttributeValue::ExpressionContainer(container)) => {
+                    props.open = Some(ConditionExpr::Ref(to_expr_ref(container.expression.span())));
+                }
+                _ => props
+                    .passthrough
+                    .push(PassthroughProp { span: to_expr_ref(attr.span()), is_spread: false }),
+            },
+            "onClose" => {
+                props.has_on_close = true;
+                props
+                    .passthrough
+                    .push(PassthroughProp { span: to_expr_ref(attr.span()), is_spread: false });
+            }
             "placeholder" => {
                 props.has_placeholder = true;
                 props

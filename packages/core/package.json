@@ -4,6 +4,9 @@
   "private": true,
   "description": "Canonical primitives and semantic components for new Dowel projects.",
   "license": "MIT",
+  "dependencies": {
+    "@dowel/a11y": "workspace:*"
+  },
   "type": "module",
   "main": "./src/index.tsx",
   "peerDependencies": {

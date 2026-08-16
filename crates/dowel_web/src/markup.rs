@@ -46,6 +46,12 @@ pub fn element_shape(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'stati
             ("div", attrs)
         }
         Primitive::TextInput => ("input", missing_label(node, diagnostics)),
+        // Lowered to `@dowel/a11y`'s component, not to a bare `<dialog>`:
+        // the element gives the trap and the inert background, but only
+        // once something calls `showModal()`, and keeping `open` in step
+        // with the DOM is exactly the runtime behaviour §10.3 assigns to a
+        // runtime.
+        Primitive::Dialog => ("DowelDialog", dialog_attrs(node, diagnostics)),
     }
 }
 
@@ -60,10 +66,40 @@ pub fn element_shape(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'stati
 /// it is the common wrong answer: it is not reliably announced as a name,
 /// and it disappears on the first keystroke -- exactly when someone would
 /// want to check what the field was for.
+/// A dialog's own diagnostics (proposal §10.3): it needs a name, and it
+/// needs a way out.
+///
+/// The dismissal check is the one part of §10.3's quality bar a compiler
+/// can see -- focus trapping and restoration are behaviours, but "there is
+/// no `onClose`" is a missing prop. Escape on Web and the hardware back
+/// button on Android both arrive there, so without it the modal ignores
+/// both and reads as a trap.
+fn dialog_attrs(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> Vec<(&'static str, String)> {
+    if node.props.accessibility_label.is_none() {
+        diagnostics.push(Diagnostic {
+            code: DiagnosticCode::A11yMissingAccessibleName,
+            severity: Severity::Warning,
+            message: "Dialog has no accessible name, so a screen reader announces only that a \n                      dialog opened. Add `accessibilityLabel`."
+                .to_string(),
+            span: node.span,
+        });
+    }
+    if !node.props.has_on_close {
+        diagnostics.push(Diagnostic {
+            code: DiagnosticCode::A11yDialogWithoutDismiss,
+            severity: Severity::Warning,
+            message: "Dialog has no `onClose`, so Escape and the Android back button do nothing \n                      and the modal is a trap. Add `onClose`."
+                .to_string(),
+            span: node.span,
+        });
+    }
+    Vec::new()
+}
+
 fn missing_label(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> Vec<(&'static str, String)> {
     if node.props.accessibility_label.is_none() {
         diagnostics.push(Diagnostic {
-            code: DiagnosticCode::A11yInputWithoutLabel,
+            code: DiagnosticCode::A11yMissingAccessibleName,
             severity: Severity::Warning,
             message: if node.props.has_placeholder {
                 "TextInput has a placeholder but no accessible name. A placeholder is not a \
@@ -122,6 +158,8 @@ mod tests {
                 accessibility_role: None,
                 accessibility_label: None,
                 has_placeholder: false,
+                open: None,
+                has_on_close: false,
                 passthrough: Vec::new(),
             },
             children: Vec::new(),
@@ -147,6 +185,8 @@ mod tests {
                 accessibility_role: Some(AccessibilityRole::Button),
                 accessibility_label: None,
                 has_placeholder: false,
+                open: None,
+                has_on_close: false,
                 passthrough: Vec::new(),
             },
             children: Vec::new(),

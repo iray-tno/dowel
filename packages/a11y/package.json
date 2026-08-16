@@ -8,5 +8,18 @@
   "main": "./src/index.ts",
   "scripts": {
     "test": "node --test src/*.test.ts"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "react-native": ">=0.76"
+  },
+  "peerDependenciesMeta": {
+    "react-native": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "react": "^19.2.8",
+    "react-native": "^0.87.0"
   }
 }

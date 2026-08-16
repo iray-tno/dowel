@@ -116,6 +116,17 @@ export function transformDowelSource(
       text: namespaceDowelIdentifiers(component.jsx, index),
     })
 
+    // Collected before the prelude check, not inside it. Runtime imports
+    // used to come only from hooks, which always have a prelude, so the two
+    // were folded together -- and then `DowelSpaced` and `DowelDialog`
+    // arrived, which need an import and no hook. Every component using
+    // `space-*`, `divide-*` or a `Dialog` was emitting a module that
+    // referenced an undefined identifier, which nothing caught because
+    // nothing ran the output.
+    for (const name of component.runtimeImports) {
+      runtimeImports.add(name)
+    }
+
     if (component.prelude.length === 0) {
       return
     }
@@ -137,9 +148,6 @@ export function transformDowelSource(
       already.add(line)
     }
     declaredPerSlot.set(component.hookSlot, already)
-    for (const name of component.runtimeImports) {
-      runtimeImports.add(name)
-    }
     if (fresh.length > 0) {
       edits.push({
         start: component.hookSlot,

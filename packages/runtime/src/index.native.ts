@@ -14,4 +14,8 @@
 export * from './index.ts'
 export { useDowelDark, useDowelBreakpoint, useDowelViewport } from './hooks.native.ts'
 export { DowelSpaced } from './spacing.native.tsx'
+// Re-exported rather than left in `@dowel/a11y`: generated code should
+// depend on one package, not on how the compiler divides its own. The
+// implementation stays there, where its tests and its reasoning are.
+export { DowelDialog, type DowelDialogProps } from '@dowel/a11y'
 export type { BreakpointName, Viewport } from './ambient.ts'

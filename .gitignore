@@ -19,3 +19,5 @@ target/
 .idea/
 .typecheck-*/
 .render-*/
+.native-render-*/
+.tsx-*/

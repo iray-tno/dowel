@@ -128,6 +128,7 @@ pub fn lower(root: &Node, source: &str) -> LowerOutput {
     let jsx = render_node(
         root,
         SiblingPosition::Unknown,
+        &[],
         source,
         &mut allocator,
         &mut style_entries,
@@ -336,6 +337,12 @@ enum SiblingPosition {
 fn render_node(
     node: &Node,
     position: SiblingPosition,
+    // Text properties inherited from an ancestor. CSS inherits these;
+    // React Native inherits them only from a `Text` to a `Text`. So a
+    // `text-xl` on a View has to be carried down by the compiler, or it
+    // renders at the default size on device while looking right on Web --
+    // the silent divergence this backend exists to avoid.
+    inherited: &[StyleDeclaration],
     source: &str,
     allocator: &mut NameAllocator,
     style_entries: &mut Vec<(String, Vec<StyleProperty>)>,
@@ -445,13 +452,56 @@ fn render_node(
     // Native's Text inherits from an enclosing Text but *not* from a View,
     // so leaving `fontSize` on the parent would silently render at the
     // default size instead.
-    let wraps_text = component != "Text"
-        && node.children.iter().any(|c| matches!(c, dowel_ir::Child::Text(_)));
-    let (text_declarations, own_declarations): (Vec<_>, Vec<_>) = if wraps_text {
-        style.iter().cloned().partition(|d| is_text_property(&d.property))
+    // A `Text` is where inheritance stops: React Native takes over from
+    // here, so its descendants need nothing from the compiler. What it
+    // inherited goes *before* its own declarations, so its own win --
+    // `dedupe_last_wins` keeps the last of a property, which is the same
+    // order CSS specificity would settle on.
+    let style: Vec<StyleDeclaration> = if component == "Text" {
+        inherited.iter().cloned().chain(style).collect()
     } else {
-        (Vec::new(), style.clone())
+        style
     };
+
+    // Everything else hands its text properties down rather than keeping
+    // them: React Native's View has no `fontSize`, so leaving them here
+    // would be a style that renders nothing while the same source renders
+    // correctly on Web.
+    let (text_declarations, own_declarations): (Vec<_>, Vec<_>) = if component == "Text" {
+        (Vec::new(), style.clone())
+    } else {
+        style.iter().cloned().partition(|d| is_text_property(&d.property))
+    };
+    // Passed to every child, and to the `Text` wrapper a raw string gets.
+    // The element's own come after what it inherited, for the same
+    // last-wins reason.
+    let descend: Vec<StyleDeclaration> =
+        inherited.iter().cloned().chain(text_declarations.iter().cloned()).collect();
+
+    // Handing them down is only half the job: they have to land somewhere.
+    // Reported here rather than dropped, because a text size that reaches
+    // no text is precisely a style that renders correctly on Web and does
+    // nothing on device -- which is the divergence worth a build message.
+    if !text_declarations.is_empty() {
+        match text_reach(node) {
+            TextReach::Certain => {}
+            TextReach::Opaque => diagnostics.push(unwired_variant(
+                node,
+                "this element's text styles are handed down to its children, and one of them is \
+                 an expression or a component the compiler doesn't read. React Native doesn't \
+                 inherit text styles from a View, so if the text is rendered in there it will \
+                 come out at the default size. Put the `text-*` on the Text itself.",
+                Severity::Warning,
+            )),
+            TextReach::None => diagnostics.push(unwired_variant(
+                node,
+                "this element sets text styles and contains no text. React Native has no \
+                 `fontSize` on a View, so there is nothing for them to apply to -- on Web the \
+                 same source would style whatever is put inside later.",
+                Severity::Warning,
+            )),
+        }
+    }
 
     // `space-*`/`divide-*` belong to the children, not here. Web gives them
     // their own rule with a child-scoped selector; the equivalent on this
@@ -571,6 +621,7 @@ fn render_node(
                 inner.push_str(&render_node(
                     child_node,
                     child_position,
+                    &descend,
                     source,
                     allocator,
                     style_entries,
@@ -580,10 +631,10 @@ fn render_node(
             }
             dowel_ir::Child::Text(text) => {
                 let escaped = escape_jsx_text(text);
-                inner.push_str(&if wraps_text {
+                inner.push_str(&if component != "Text" {
                     wrap_in_text(
                         &escaped,
-                        &text_declarations,
+                        &descend,
                         &base_name,
                         source,
                         node,
@@ -602,6 +653,7 @@ fn render_node(
                 inner.push_str(&render_verbatim(
                     *expr_ref,
                     nested,
+                    &descend,
                     source,
                     allocator,
                     style_entries,
@@ -713,6 +765,7 @@ fn spaced_children(
 fn render_verbatim(
     expr_ref: ExprRef,
     nested: &[dowel_ir::NestedNode],
+    inherited: &[StyleDeclaration],
     source: &str,
     allocator: &mut NameAllocator,
     style_entries: &mut Vec<(String, Vec<StyleProperty>)>,
@@ -726,6 +779,7 @@ fn render_verbatim(
         out.push_str(&render_node(
             &entry.node,
             SiblingPosition::Unknown,
+            inherited,
             source,
             allocator,
             style_entries,
@@ -788,6 +842,57 @@ fn wrap_in_text(
 /// platform because React Native's `Text` inherits them from an enclosing
 /// `Text` but not from a `View`, so they have to travel with the text
 /// rather than stay on its container.
+/// Whether a text style handed down from here can actually land on
+/// something that renders text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TextReach {
+    /// There is a `Text`, or a raw string that becomes one.
+    Certain,
+    /// No `Text` the compiler can see, but something opaque is in the way:
+    /// an expression, or a component Dowel doesn't model. It may render
+    /// text through code the compiler never reads.
+    Opaque,
+    /// Nothing that could hold text at all.
+    None,
+}
+
+/// Where a text style handed down from `node` could land.
+///
+/// Stops at a `Text`, because that is where React Native's own inheritance
+/// takes over -- anything below it is the platform's problem, not the
+/// compiler's.
+fn text_reach(node: &Node) -> TextReach {
+    let mut reach = TextReach::None;
+    for child in &node.children {
+        match child {
+            dowel_ir::Child::Text(_) => return TextReach::Certain,
+            dowel_ir::Child::Node(child_node) => {
+                if child_node.primitive == Primitive::Text {
+                    return TextReach::Certain;
+                }
+                match text_reach(child_node) {
+                    TextReach::Certain => return TextReach::Certain,
+                    TextReach::Opaque => reach = TextReach::Opaque,
+                    TextReach::None => {}
+                }
+            }
+            dowel_ir::Child::Verbatim { nested, .. } => {
+                if nested.iter().any(|n| {
+                    n.node.primitive == Primitive::Text
+                        || text_reach(&n.node) == TextReach::Certain
+                }) {
+                    return TextReach::Certain;
+                }
+                // `{name}` renders text and `{rows.map(..)}` may render a
+                // Text through a component the compiler never reads. Either
+                // way the compiler can't follow it.
+                reach = TextReach::Opaque;
+            }
+        }
+    }
+    reach
+}
+
 fn is_text_property(property: &StyleProperty) -> bool {
     matches!(
         property,
@@ -1443,10 +1548,14 @@ export function Login() {
 
     #[test]
     fn dynamic_class_name_guard_merges_into_the_style_array() {
+        // A layout utility rather than `text-xl`: text styles are handed
+        // down to children now, and a View with none has nowhere to put
+        // them -- which would make this test about that instead of about
+        // the guard it is checking.
         let source = r#"
             import { View } from '@dowel/core'
             import { cn } from 'clsx'
-            const el = <View className={cn('p-4', active && 'text-xl')} />
+            const el = <View className={cn('p-4', active && 'p-8')} />
             "#;
         let parsed = dowel_parser::parse_tsx(source);
         let output = lower(&parsed.roots[0].node, source);
@@ -1888,6 +1997,106 @@ export function Login() {
         let output = lower(&parsed.roots[0].node, source);
         assert!(output.diagnostics.is_empty());
         assert!(!output.jsx.contains("numberOfLines"));
+    }
+
+    #[test]
+    fn text_styles_reach_a_text_the_author_wrote() {
+        // The long-standing divergence this fixes: CSS inherits `text-xl`
+        // to the span, React Native inherits nothing from a View, so the
+        // same source rendered 20px on Web and the default size on device
+        // with nothing said about it.
+        let source = r#"
+            import { View, Text } from '@dowel/core'
+            const el = <View className="text-xl text-red-500"><Text>Hi</Text></View>
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source);
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert!(output.styles.contains("fontSize: 20,"), "{}", output.styles);
+        assert!(output.styles.contains("color: '#fb2c36',"), "{}", output.styles);
+        // And they leave the View, which has no `fontSize` to put them in.
+        assert!(!output.jsx.contains("<View style="), "{}", output.jsx);
+    }
+
+    #[test]
+    fn an_inherited_text_style_loses_to_the_child_that_sets_its_own() {
+        // Only the property the child sets: `text-sm` replaces the size and
+        // leaves the colour and weight alone, which is what CSS would do.
+        // `dedupe_last_wins` gets this right only because the inherited
+        // declarations are placed *before* the child's own.
+        let source = r#"
+            import { View, Text } from '@dowel/core'
+            const el = (
+              <View className="text-xl text-red-500 font-bold">
+                <Text className="text-sm">x</Text>
+              </View>
+            )
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source);
+        assert!(output.styles.contains("fontSize: 14,"), "{}", output.styles);
+        assert!(!output.styles.contains("fontSize: 20,"), "{}", output.styles);
+        assert!(output.styles.contains("color: '#fb2c36',"), "{}", output.styles);
+        assert!(output.styles.contains("fontWeight: '700',"), "{}", output.styles);
+    }
+
+    #[test]
+    fn inheritance_passes_through_an_intermediate_view_and_stops_at_a_text() {
+        let source = r#"
+            import { View, Text } from '@dowel/core'
+            const el = (
+              <View className="text-xl">
+                <View className="p-2"><Text>Deep</Text></View>
+              </View>
+            )
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source);
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert!(output.styles.contains("fontSize: 20,"), "{}", output.styles);
+
+        // A Text inside a Text needs nothing from the compiler: React
+        // Native inherits there, so pushing a copy down would be noise.
+        let nested = r#"
+            import { Text } from '@dowel/core'
+            const el = <Text className="text-xl"><Text>nested</Text></Text>
+            "#;
+        let parsed = dowel_parser::parse_tsx(nested);
+        let output = lower(&parsed.roots[0].node, nested);
+        assert_eq!(output.styles.matches("fontSize: 20,").count(), 1, "{}", output.styles);
+    }
+
+    #[test]
+    fn text_styles_with_nowhere_to_land_are_reported_rather_than_dropped() {
+        // Handing them down is only half the job. A text size that reaches
+        // no text is a style that renders on Web and does nothing on
+        // device, which is the divergence worth a build message -- and
+        // exactly what silently happened when the push-down was added.
+        for (source, expected) in [
+            (
+                r#"
+                import { View } from '@dowel/core'
+                const el = <View className="text-xl p-4" />
+                "#,
+                "contains no text",
+            ),
+            (
+                r#"
+                import { View } from '@dowel/core'
+                const el = <View className="text-xl">{rows}</View>
+                "#,
+                "doesn't read",
+            ),
+        ] {
+            let parsed = dowel_parser::parse_tsx(source);
+            let output = lower(&parsed.roots[0].node, source);
+            let warning = output
+                .diagnostics
+                .iter()
+                .find(|d| d.code == DiagnosticCode::NotWiredOnNative)
+                .unwrap_or_else(|| panic!("expected a diagnostic for: {source}"));
+            assert!(warning.message.contains(expected), "{}", warning.message);
+        }
     }
 
     #[test]

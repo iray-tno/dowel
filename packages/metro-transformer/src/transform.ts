@@ -14,7 +14,7 @@
 //   `const styles = StyleSheet.create({...})` declaration in the same
 //   file, since that's the idiomatic RN pattern.
 
-import { compileNative, type CompiledNativeComponent } from '@dowel/compiler'
+import { compileNative, type CompiledNativeComponent, type Theme } from '@dowel/compiler'
 import { importSpecifier } from '@dowel/compiler/project'
 import { candidateModulePath } from './project.ts'
 
@@ -55,12 +55,13 @@ export function transformDowelSource(
   code: string,
   filename: string,
   projectRoot?: string,
+  theme?: Theme,
 ): string | null {
   if (!filename.endsWith('.tsx') || !code.includes('@dowel/core')) {
     return null
   }
 
-  const components = compileNative(code)
+  const components = compileNative(code, theme)
   if (components.length === 0) {
     return null
   }

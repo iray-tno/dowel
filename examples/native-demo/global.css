@@ -1,0 +1,8 @@
+@import "tailwindcss";
+
+/* The example's own tokens, so the bundle proves the theme actually
+   reaches the compiler rather than only that the API exists. */
+@theme {
+  --spacing: 0.2rem;
+  --color-brand: oklch(62% 0.19 259);
+}

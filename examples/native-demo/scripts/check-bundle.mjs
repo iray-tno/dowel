@@ -40,9 +40,32 @@ expect(/style: styles\./.test(app), 'elements reference the generated StyleSheet
 // Text styles set on the View were carried down rather than left behind.
 expect(/fontSize:/.test(bundle), 'text styles reached the StyleSheet')
 
+// The project's own theme, not Tailwind's defaults:  sets
+// --spacing to 0.2rem, so  is 19.2 rather than 24, and --color-brand
+// resolves to a real hex rather than the not-a-colour marker.
+expect(/paddingTop: 19.2/.test(app), 'the project spacing scale reached the styles')
+expect(bundle.includes('#3581f6'), 'the project colour resolved')
+expect(!/dowel-unresolved/.test(bundle), 'no colour was left unresolved')
+
 if (failures.length > 0) {
   console.error('bundle check failed:')
   for (const failure of failures) console.error(`  - ${failure}`)
   process.exit(1)
 }
 console.log(`bundle check passed (${bundle.length} bytes)`)
+
+// The project's own theme rather than Tailwind's defaults. `global.css`
+// sets `--spacing` to 0.2rem, so `p-6` is 19.2px and not 24; and
+// `--color-brand` resolves to a real hex rather than the marker the
+// compiler emits for a token it can't resolve.
+const themed = []
+if (!/paddingTop: 19\.2/.test(app)) themed.push('the project spacing scale reached the styles')
+if (!bundle.includes('#3581f6')) themed.push('the project colour resolved')
+if (/dowel-unresolved/.test(bundle)) themed.push('no colour was left unresolved')
+
+if (themed.length > 0) {
+  console.error('theme check failed:')
+  for (const failure of themed) console.error(`  - ${failure}`)
+  process.exit(1)
+}
+console.log('theme check passed')

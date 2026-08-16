@@ -11,7 +11,8 @@
   },
   "dependencies": {
     "@dowel/compiler": "workspace:*",
-    "@dowel/runtime": "workspace:*"
+    "@dowel/runtime": "workspace:*",
+    "@dowel/tailwind": "workspace:^"
   },
   "peerDependencies": {
     "@react-native/metro-babel-transformer": "*"

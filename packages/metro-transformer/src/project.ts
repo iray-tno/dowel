@@ -18,6 +18,7 @@ import { writeFileSync } from 'node:fs'
 import path from 'node:path'
 
 import { scanProject } from '@dowel/compiler/project'
+import { readProjectTheme } from './theme.ts'
 
 /// File name of the generated resolver module. Also read by the
 /// transformer, which imports it into every file it lowers.
@@ -41,9 +42,23 @@ export function candidateModulePath(projectRoot: string): string {
  *
  * Returns the module's path, mostly so a caller can log it.
  */
-export function generateCandidateModule(projectRoot: string): string {
+/**
+ * Generates the project-wide candidate module, resolving against the
+ * project's theme.
+ *
+ * Async because reading the theme means asking Tailwind, and Tailwind's
+ * design-system loader is async. Metro config files can await, and the
+ * alternative -- resolving these classes against the default palette
+ * while every other class in the app uses the project's -- would be two
+ * different answers for the same utility in one bundle.
+ */
+export async function generateCandidateModule(
+  projectRoot: string,
+  options: { css?: string } = {},
+): Promise<string> {
+  const theme = await readProjectTheme(projectRoot, options.css)
   const { cache } = scanProject(projectRoot)
   const modulePath = candidateModulePath(projectRoot)
-  writeFileSync(modulePath, cache.renderNativeModule())
+  writeFileSync(modulePath, cache.renderNativeModule(theme))
   return modulePath
 }

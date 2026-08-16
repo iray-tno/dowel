@@ -14,7 +14,7 @@ const { generateCandidateModule } = require('@dowel/metro-transformer/project')
 const projectRoot = __dirname
 const workspaceRoot = path.resolve(projectRoot, '..', '..')
 
-generateCandidateModule(projectRoot)
+
 
 const config = getDefaultConfig(projectRoot)
 
@@ -29,4 +29,8 @@ config.resolver.nodeModulesPaths = [
   path.resolve(workspaceRoot, 'node_modules'),
 ]
 
-module.exports = config
+// Exported as a promise, which Metro awaits: the candidate module is
+// generated from the project's theme, and reading that means asking
+// Tailwind, which is async. Generating it against the defaults instead
+// would give one utility two different answers inside one bundle.
+module.exports = generateCandidateModule(projectRoot, { css: 'global.css' }).then(() => config)

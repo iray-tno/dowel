@@ -14,6 +14,7 @@
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { transformDowelSource } from './transform.ts'
+import { readProjectTheme } from './theme.ts'
 
 const require = createRequire(import.meta.url)
 
@@ -83,10 +84,16 @@ function loadUpstream(projectRoot?: string): UpstreamTransformer {
   )
 }
 
-export function transform(params: TransformParams): unknown {
-  const rewritten = transformDowelSource(params.src, params.filename, params.options?.projectRoot)
+// Async because the theme comes from Tailwind's own resolver, which is
+// async. Metro allows it, and the alternative -- compiling against the
+// default palette while the project defines its own -- is the failure this
+// exists to prevent.
+export async function transform(params: TransformParams): Promise<unknown> {
+  const projectRoot = params.options?.projectRoot
+  const theme = projectRoot ? await readProjectTheme(projectRoot) : undefined
+  const rewritten = transformDowelSource(params.src, params.filename, projectRoot, theme)
   const nextParams = rewritten === null ? params : { ...params, src: rewritten }
-  return loadUpstream(params.options?.projectRoot).transform(nextParams)
+  return loadUpstream(projectRoot).transform(nextParams)
 }
 
 export { transformDowelSource } from './transform.ts'

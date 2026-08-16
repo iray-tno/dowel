@@ -7,7 +7,8 @@
   "type": "module",
   "main": "./src/index.ts",
   "dependencies": {
-    "@dowel/compiler": "workspace:*"
+    "@dowel/compiler": "workspace:*",
+    "@dowel/tailwind": "workspace:^"
   },
   "peerDependencies": {
     "vite": ">=5"

@@ -93,6 +93,9 @@ importers:
       '@dowel/runtime':
         specifier: workspace:*
         version: link:../runtime
+      '@dowel/tailwind':
+        specifier: workspace:^
+        version: link:../tailwind
       '@react-native/metro-babel-transformer':
         specifier: '*'
         version: 0.87.0(@babel/core@7.29.7)
@@ -112,15 +115,16 @@ importers:
 
   packages/tailwind:
     dependencies:
-      '@dowel/compiler':
-        specifier: workspace:^
-        version: link:../compiler
       culori:
         specifier: ^4.0.2
         version: 4.0.2
       tailwindcss:
         specifier: ^4.3.3
         version: 4.3.3
+    devDependencies:
+      '@dowel/compiler':
+        specifier: workspace:*
+        version: link:../compiler
 
   packages/tailwind-conformance:
     dependencies:
@@ -164,6 +168,9 @@ importers:
       '@dowel/compiler':
         specifier: workspace:*
         version: link:../compiler
+      '@dowel/tailwind':
+        specifier: workspace:^
+        version: link:../tailwind
       vite:
         specifier: '>=5'
         version: 8.2.1(@types/node@26.2.0)(terser@5.50.0)

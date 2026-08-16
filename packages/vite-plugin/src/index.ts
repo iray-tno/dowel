@@ -17,10 +17,11 @@
 // owns the project walk and the file-deletion signal, while the cache in
 // Rust owns scanning, staleness, and persistence.
 
-import { statSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import type { Plugin, ViteDevServer } from 'vite'
-import { compile, type CandidateCache } from '@dowel/compiler'
+import { compile, type CandidateCache, type Theme } from '@dowel/compiler'
+import { loadTheme } from '@dowel/tailwind'
 import { importSpecifier, scanProject, scannableFile } from '@dowel/compiler/project'
 
 const DOWEL_CORE_IMPORT_RE = /import\s*\{[^}]*\}\s*from\s*['"]@dowel\/core['"]\s*\n?/
@@ -64,7 +65,35 @@ function namespaceDowelClasses(text: string, rootIndex: number): string {
   return text.replace(/\bdowel-(\d+)\b/g, `dowel-r${rootIndex}-$1`)
 }
 
-export function dowel(): Plugin {
+
+/**
+ * A project's design tokens reach the compiler from here.
+ *
+ * Without them Dowel resolves against Tailwind's defaults, which is right
+ * until a project defines its own -- and then `bg-brand` compiles to a CSS
+ * variable nothing defines and `p-4` to the wrong number of pixels. The
+ * theme is read once at `buildStart` rather than per file: it is a
+ * project-wide fact, and re-reading it for every module would run
+ * Tailwind's resolver hundreds of times for one answer.
+ */
+export interface DowelOptions {
+  /**
+   * The stylesheet that carries `@import "tailwindcss"` and the project's
+   * `@theme`. Relative to the Vite root.
+   *
+   * Left out, Dowel looks for the usual names and falls back to the
+   * default theme if it finds none -- reporting what it looked for rather
+   * than silently compiling against the wrong palette.
+   */
+  css?: string
+}
+
+/// Where a Tailwind v4 project usually keeps its entry stylesheet. Only
+/// consulted when `css` isn't given.
+const CSS_GUESSES = ['src/index.css', 'src/styles.css', 'src/app.css', 'app/globals.css']
+
+export function dowel(options: DowelOptions = {}): Plugin {
+  let theme: Theme | undefined
   let root = process.cwd()
   let cache: CandidateCache
   let candidateCssPath = ''
@@ -75,7 +104,7 @@ export function dowel(): Plugin {
   /// `node_modules`, which Vite's watcher ignores by default, so the
   /// invalidation has to be explicit rather than left to the watcher.
   function writeCandidateCss() {
-    writeFileSync(candidateCssPath, cache.renderCss())
+    writeFileSync(candidateCssPath, cache.renderCss(theme))
     const module = server?.moduleGraph.getModuleById(candidateCssPath)
     if (module) {
       void server?.reloadModule(module)
@@ -94,7 +123,9 @@ export function dowel(): Plugin {
       server = devServer
     },
 
-    buildStart() {
+    async buildStart() {
+      theme = await readProjectTheme(root, options.css, (message) => this.warn(message))
+
       // The whole project, not just what the bundler happens to reach: a
       // class can be produced by a module the graph never resolves
       // statically.
@@ -130,7 +161,7 @@ export function dowel(): Plugin {
         return
       }
 
-      const components = compile(code)
+      const components = compile(code, theme)
       if (components.length === 0) {
         return
       }
@@ -183,4 +214,38 @@ export function dowel(): Plugin {
       cache?.persist()
     },
   }
+}
+
+/**
+ * Loads the project's theme, or nothing if there is none to load.
+ *
+ * Nothing means Tailwind's defaults, which is exactly what a project
+ * without a `@theme` wants -- so a missing stylesheet is reported and then
+ * shrugged off rather than being an error. A *named* stylesheet that
+ * doesn't exist is different: someone said where it was, and silently
+ * compiling against the wrong palette would be worse than a warning.
+ */
+async function readProjectTheme(
+  root: string,
+  configured: string | undefined,
+  warn: (message: string) => void,
+): Promise<Theme | undefined> {
+  const candidates = configured ? [configured] : CSS_GUESSES
+  for (const relative of candidates) {
+    const file = path.resolve(root, relative)
+    if (!existsSync(file)) continue
+    try {
+      return await loadTheme(readFileSync(file, 'utf8'), path.dirname(file))
+    } catch (error) {
+      warn(
+        `[dowel] couldn't read the theme from ${relative}, so utilities resolve against ` +
+          `Tailwind's defaults: ${(error as Error).message}`,
+      )
+      return undefined
+    }
+  }
+  if (configured) {
+    warn(`[dowel] no stylesheet at ${configured}, so utilities resolve against Tailwind's defaults`)
+  }
+  return undefined
 }

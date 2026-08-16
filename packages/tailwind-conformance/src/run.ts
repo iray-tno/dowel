@@ -8,7 +8,8 @@ import { reactNativeCssProperties, reactNativeVersion } from './native-surface.t
 import { compareCandidate, type Comparison, type Verdict } from './compare.ts'
 import { compareNativeCandidate, type NativeComparison, type NativeVerdict } from './native.ts'
 import { typeCheckStyles } from './typecheck.ts'
-import { compileNative } from '@dowel/compiler'
+import { classesDefinedIn, renderWeb } from './render.ts'
+import { compile as dowelCompile, compileNative } from '@dowel/compiler'
 import { buildOracle } from './oracle.ts'
 import { loadThemeVars, tailwindVersion } from './theme.ts'
 
@@ -382,4 +383,43 @@ if (typeErrors.length > 0) {
   for (const [candidate, message] of byCandidate) {
     console.log(`  ${candidate}: ${message}`)
   }
+}
+
+// ---------------------------------------------------------------------------
+// Web output, rendered
+// ---------------------------------------------------------------------------
+//
+// Everything above compares text. This runs the generated component and
+// looks at what comes out -- that the JSX parses, that it mounts, and that
+// the class reaching the element is one the stylesheet has a rule for.
+// Nothing established any of that until 2026-08-16.
+
+console.log('\n\n== Web output (rendered, not compared as text) ==')
+
+const rendering: { name: string; jsx: string }[] = []
+const sheets = new Map<string, { candidate: string; css: string }>()
+ALL_CANDIDATES.forEach((candidate, index) => {
+  const source =
+    `import { View } from '@dowel/core'\n` +
+    `export function C() { return <View className="${candidate}">x</View> }\n`
+  const [compiled] = dowelCompile(source)
+  if (!compiled) return
+  const name = `C${index}`
+  rendering.push({ name, jsx: compiled.jsx })
+  sheets.set(name, { candidate, css: compiled.css })
+})
+
+const dangling: string[] = []
+for (const output of renderWeb(rendering)) {
+  const sheet = sheets.get(output.name)
+  if (!sheet) continue
+  const defined = classesDefinedIn(sheet.css)
+  if ([...output.classes].some((name) => !defined.has(name))) dangling.push(sheet.candidate)
+}
+console.log(
+  `Rendered:    ${rendering.length}/${ALL_CANDIDATES.length} components mounted\n` +
+    `Dangling:    ${dangling.length}   (a class reached the DOM with no rule behind it)`,
+)
+if (dangling.length > 0) {
+  console.log(`  ${dangling.join(' ')}`)
 }

@@ -75,6 +75,12 @@ importers:
       '@types/react':
         specifier: ^19.2.18
         version: 19.2.18
+      react:
+        specifier: ^19.2.8
+        version: 19.2.8
+      react-dom:
+        specifier: ^19.2.8
+        version: 19.2.8(react@19.2.8)
       react-native:
         specifier: ^0.87.0
         version: 0.87.0(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.8)

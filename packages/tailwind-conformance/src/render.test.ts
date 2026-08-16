@@ -1,0 +1,93 @@
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+
+import { compile } from '@dowel/compiler'
+import { classesDefinedIn, renderWeb } from './render.ts'
+
+/** Compiles one source and renders the first component it produced. */
+function round(source: string, scope: Record<string, unknown> = {}) {
+  const [compiled] = compile(source)
+  const [rendered] = renderWeb([{ name: 'C', jsx: compiled.jsx }], scope)
+  return { compiled, rendered }
+}
+
+test('a compiled component mounts and produces the expected markup', () => {
+  // The check nothing in this package made until 2026-08-16: every other
+  // comparison here is between strings, and none of them establishes that
+  // the generated JSX parses, let alone renders.
+  const { rendered } = round(`
+    import { View, Text } from '@dowel/core'
+    export function Card() {
+      return <View className="p-4"><Text className="text-xl">Hello</Text></View>
+    }
+  `)
+  assert.equal(
+    rendered.html,
+    '<div class="dowel-view dowel-0"><span class="dowel-1">Hello</span></div>',
+  )
+})
+
+test('every class in the DOM has a rule in the stylesheet', () => {
+  // The two halves of the Web output have to agree, and nothing compared
+  // them before: a class that reaches the element and matches no rule is a
+  // style that silently never applies. This found the opposite -- classes
+  // emitted for elements with no declarations at all.
+  const { compiled, rendered } = round(
+    `
+    import { View, Text, Button } from '@dowel/core'
+    export function Card() {
+      return (
+        <View className="p-4 bg-blue-500">
+          <Text className="text-xl">Hello</Text>
+          <Button onPress={save}>Save</Button>
+          <View />
+        </View>
+      )
+    }
+    `,
+    { save: () => {} },
+  )
+  const defined = classesDefinedIn(compiled.css)
+  const undefinedClasses = [...rendered.classes].filter((name) => !defined.has(name))
+  assert.deepEqual(undefinedClasses, [])
+})
+
+test('an element with no declarations carries no class at all', () => {
+  // Not merely an unused class -- no attribute. It was bytes in every
+  // render of every unstyled element, matching nothing.
+  const { rendered } = round(`
+    import { Text } from '@dowel/core'
+    export function Bare() {
+      return <Text>plain</Text>
+    }
+  `)
+  assert.equal(rendered.html, '<span>plain</span>')
+})
+
+test('a View keeps its base class even with nothing else on it', () => {
+  // `dowel-view` is View's own semantics rather than a compiled utility
+  // (proposal §8.1), so dropping it with the rest would change the layout.
+  const { rendered } = round(`
+    import { View } from '@dowel/core'
+    export function Bare() {
+      return <View />
+    }
+  `)
+  assert.equal(rendered.html, '<div class="dowel-view"></div>')
+})
+
+test('text kept its spacing around an interpolation', () => {
+  // JSX whitespace rules, checked through the DOM rather than through the
+  // emitted string -- `Hello {name}` losing its space is invisible in a
+  // comparison that trims.
+  const { rendered } = round(
+    `
+    import { Text } from '@dowel/core'
+    export function Greeting() {
+      return <Text className="text-xl">Hello {name}</Text>
+    }
+    `,
+    { name: 'world' },
+  )
+  assert.equal(rendered.html, '<span class="dowel-0">Hello world</span>')
+})

@@ -161,6 +161,11 @@ fn render_node(
 ) -> String {
     let class_name = allocator.alloc();
 
+    // `rules` accumulates the whole tree's CSS, so "did this node write
+    // one" has to be asked about the span this node adds, not about
+    // whether the string is empty.
+    let rules_before = rules.len();
+
     for (condition, props) in dowel_ir::group_by_condition(&node.style) {
         let props = dowel_ir::dedupe_last_wins(props);
         if props.is_empty() {
@@ -172,10 +177,19 @@ fn render_node(
 
     let (tag, extra_attrs) = markup::element_shape(node, diagnostics);
 
-    let mut classes = class_name;
+    // The generated class is dropped when no rule was written for it. It
+    // matched nothing, so it was a class attribute on every unstyled
+    // element and bytes in every render -- found by rendering the output
+    // and comparing the classes in the DOM against the ones the stylesheet
+    // defines, which is a comparison nothing had made before.
+    let mut classes = if rules.len() == rules_before { String::new() } else { class_name };
     if node.primitive == Primitive::View {
         *uses_view_base = true;
-        classes = format!("dowel-view {classes}");
+        classes = if classes.is_empty() {
+            "dowel-view".to_string()
+        } else {
+            format!("dowel-view {classes}")
+        };
     }
 
     // `className`, not `class` -- Dowel's Web output is consumed as JSX
@@ -187,7 +201,11 @@ fn render_node(
     // (`render_candidate_stylesheet`) -- the browser's own CSS engine does
     // the resolution, with no runtime code involved.
     let mut attrs = if node.class_name_fallback.is_empty() {
-        format!(r#" className="{classes}""#)
+        if classes.is_empty() {
+            String::new()
+        } else {
+            format!(r#" className="{classes}""#)
+        }
     } else {
         for expr_ref in &node.class_name_fallback {
             diagnostics.push(dowel_ir::Diagnostic {

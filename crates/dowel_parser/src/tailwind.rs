@@ -6,7 +6,7 @@
 
 use dowel_ir::{
     Align, AlignSelf, Angle, Animation, BorderStyle, Breakpoint, Color, Condition, Dimension,
-    DecorationStyle, Display, Edge, Em, LetterSpacing, MaskSlot, MaskStop,
+    ColumnCount, DecorationStyle, Display, Edge, Em, LetterSpacing, MaskSlot, MaskStop,
     FlexDirection, FlexShorthand, FontWeight, Justify, Length, LineHeight, Overflow, Position,
     Radius, StyleProperty, TextAlign, TextOverflow, TextTransform, WhiteSpace,
 };
@@ -215,8 +215,10 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
             return Some(StyleProperty::InsetLeft(v));
         }
     }
+    // Inline axis takes the container scale, block axis doesn't -- see
+    // `parse_inline_size_suffix`.
     if let Some(rest) = token.strip_prefix("w-") {
-        if let Some(d) = parse_dimension_suffix(rest) {
+        if let Some(d) = parse_inline_size_suffix(rest) {
             return Some(StyleProperty::Width(d));
         }
     }
@@ -226,7 +228,7 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
         }
     }
     if let Some(rest) = token.strip_prefix("min-w-") {
-        if let Some(d) = parse_dimension_suffix(rest) {
+        if let Some(d) = parse_inline_size_suffix(rest) {
             return Some(StyleProperty::MinWidth(d));
         }
     }
@@ -236,12 +238,12 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
         }
     }
     if let Some(rest) = token.strip_prefix("max-w-") {
-        if let Some(d) = parse_max_size_suffix(rest) {
+        if let Some(d) = parse_inline_size_suffix(rest) {
             return Some(StyleProperty::MaxWidth(d));
         }
     }
     if let Some(rest) = token.strip_prefix("max-h-") {
-        if let Some(d) = parse_max_size_suffix(rest) {
+        if let Some(d) = parse_dimension_suffix(rest) {
             return Some(StyleProperty::MaxHeight(d));
         }
     }
@@ -249,6 +251,17 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
         if let Ok(z) = rest.parse::<i32>() {
             return Some(StyleProperty::ZIndex(z));
         }
+    }
+    if let Some(prop) = parse_order(token) {
+        return Some(prop);
+    }
+    if let Some(rest) = token.strip_prefix("columns-") {
+        if let Some(columns) = parse_columns_suffix(rest) {
+            return Some(StyleProperty::Columns(columns));
+        }
+    }
+    if let Some(keyword) = parse_cursor(token) {
+        return Some(StyleProperty::Cursor(keyword.to_string()));
     }
     if let Some(shadow) = parse_shadow(token) {
         return Some(StyleProperty::BoxShadow(shadow.to_string()));
@@ -317,22 +330,33 @@ pub fn parse_utility(token: &str) -> Option<StyleProperty> {
 /// A flat prefix table because that is all they are -- each is one CSS
 /// property fed by the same value parser everything else uses.
 fn expand_dimension_family(token: &str) -> Option<Vec<StyleProperty>> {
-    const FAMILIES: &[(&str, fn(Dimension) -> StyleProperty)] = &[
-        ("basis-", StyleProperty::FlexBasis),
-        ("block-", StyleProperty::BlockSize),
-        ("inline-", StyleProperty::InlineSize),
-        ("max-block-", StyleProperty::MaxBlockSize),
-        ("max-inline-", StyleProperty::MaxInlineSize),
-        ("min-block-", StyleProperty::MinBlockSize),
-        ("min-inline-", StyleProperty::MinInlineSize),
-        ("indent-", StyleProperty::TextIndent),
-        ("mbs-", StyleProperty::MarginBlockStart),
-        ("mbe-", StyleProperty::MarginBlockEnd),
+    /// Whether the family sits on the inline axis, and so also accepts the
+    /// named container scale (`basis-md`). See `parse_inline_size_suffix`.
+    const INLINE: bool = true;
+    const BLOCK: bool = false;
+    const FAMILIES: &[(&str, fn(Dimension) -> StyleProperty, bool)] = &[
+        ("basis-", StyleProperty::FlexBasis, INLINE),
+        ("block-", StyleProperty::BlockSize, BLOCK),
+        ("inline-", StyleProperty::InlineSize, INLINE),
+        ("max-block-", StyleProperty::MaxBlockSize, BLOCK),
+        ("max-inline-", StyleProperty::MaxInlineSize, INLINE),
+        ("min-block-", StyleProperty::MinBlockSize, BLOCK),
+        ("min-inline-", StyleProperty::MinInlineSize, INLINE),
+        ("indent-", StyleProperty::TextIndent, BLOCK),
+        ("mbs-", StyleProperty::MarginBlockStart, BLOCK),
+        ("mbe-", StyleProperty::MarginBlockEnd, BLOCK),
     ];
     // Longest prefix first: `max-block-` must beat `block-`.
-    for (prefix, make) in FAMILIES.iter().filter(|(p, _)| token.starts_with(*p)).max_by_key(|(p, _)| p.len())
+    for (prefix, make, inline_axis) in
+        FAMILIES.iter().filter(|(p, _, _)| token.starts_with(*p)).max_by_key(|(p, _, _)| p.len())
     {
-        if let Some(value) = parse_dimension_suffix(&token[prefix.len()..]) {
+        let suffix = &token[prefix.len()..];
+        let value = if *inline_axis {
+            parse_inline_size_suffix(suffix)
+        } else {
+            parse_dimension_suffix(suffix)
+        };
+        if let Some(value) = value {
             return Some(vec![make(value)]);
         }
     }
@@ -1135,10 +1159,63 @@ fn signed(value: f64, negative: bool) -> f64 {
     }
 }
 
-/// `max-w-*`/`max-h-*` additionally accept Tailwind's named container
-/// scale (`max-w-md` = `--container-md` = 28rem), which the plain
-/// width/height utilities don't.
-fn parse_max_size_suffix(suffix: &str) -> Option<Dimension> {
+/// `order-<n>`, plus the two named extremes.
+///
+/// `order-first`/`order-last` are Tailwind's own sentinels rather than CSS
+/// keywords -- `order` has none, so "first" is spelled as a number far
+/// enough out that nothing outranks it. Matching the exact values matters:
+/// they're what makes `order-first` beat a hand-written `order-[-999]`.
+fn parse_order(token: &str) -> Option<StyleProperty> {
+    let value = match token {
+        "order-first" => -9999,
+        "order-last" => 9999,
+        "order-none" => 0,
+        _ => token.strip_prefix("order-")?.parse::<i32>().ok()?,
+    };
+    Some(StyleProperty::Order(value))
+}
+
+/// `columns-<n>` (a count) or `columns-<size>` (an ideal column width, from
+/// the same container scale the inline sizes use).
+fn parse_columns_suffix(suffix: &str) -> Option<ColumnCount> {
+    if suffix == "auto" {
+        return Some(ColumnCount::Auto);
+    }
+    if let Ok(count) = suffix.parse::<u32>() {
+        return Some(ColumnCount::Count(count));
+    }
+    parse_inline_size_suffix(suffix).map(ColumnCount::Width)
+}
+
+/// `cursor-*`. The value is passed straight through, so the table is only
+/// deciding *which names are utilities* -- accepting anything after the
+/// prefix would compile `cursor-nonsense` into CSS the browser drops.
+fn parse_cursor(token: &str) -> Option<&str> {
+    const KEYWORDS: &[&str] = &[
+        "alias", "all-scroll", "auto", "cell", "col-resize", "context-menu", "copy", "crosshair",
+        "default", "e-resize", "ew-resize", "grab", "grabbing", "help", "move", "n-resize",
+        "ne-resize", "nesw-resize", "no-drop", "none", "not-allowed", "ns-resize", "nw-resize",
+        "nwse-resize", "pointer", "progress", "row-resize", "s-resize", "se-resize", "sw-resize",
+        "text", "vertical-text", "w-resize", "wait", "zoom-in", "zoom-out",
+    ];
+    let keyword = token.strip_prefix("cursor-")?;
+    KEYWORDS.contains(&keyword).then_some(keyword)
+}
+
+/// A size suffix that may also name Tailwind's container scale (`w-md` is
+/// `--container-md`, 28rem), falling back to the ordinary dimension parser.
+///
+/// The scale is **inline-axis only**: `w-*`, `min-w-*`, `max-w-*`,
+/// `basis-*` and the `inline-*` logical family take it, and nothing on the
+/// block axis does. Tailwind emits no rule at all for `max-h-md` or
+/// `h-2xl` -- containers are a measure of line length, so a named one on
+/// the block axis has no meaning.
+///
+/// Applying it to `max-h-*` (as this did until 2026-08-16) was invisible to
+/// the conformance report rather than caught by it: a candidate Tailwind
+/// produces no rule for leaves the denominator, so Dowel accepting a class
+/// Tailwind rejects is exactly the shape of error that report can't see.
+fn parse_inline_size_suffix(suffix: &str) -> Option<Dimension> {
     let rem = match suffix {
         "3xs" => 16.0,
         "2xs" => 18.0,
@@ -1355,6 +1432,14 @@ fn negated(prop: StyleProperty) -> Option<StyleProperty> {
         StyleProperty::InsetBlockEnd(d) => StyleProperty::InsetBlockEnd(flip(d)?),
         StyleProperty::TranslateX(d) => StyleProperty::TranslateX(flip(d)?),
         StyleProperty::TranslateY(d) => StyleProperty::TranslateY(flip(d)?),
+        StyleProperty::TranslateZ(Length::Px(v)) => {
+            StyleProperty::TranslateZ(Length::Px(signed(v, true)))
+        }
+        StyleProperty::OutlineOffset(Length::Px(v)) => {
+            StyleProperty::OutlineOffset(Length::Px(signed(v, true)))
+        }
+        StyleProperty::ZIndex(z) => StyleProperty::ZIndex(-z),
+        StyleProperty::Order(n) => StyleProperty::Order(-n),
         StyleProperty::SpaceX(Length::Px(v)) => StyleProperty::SpaceX(Length::Px(signed(v, true))),
         StyleProperty::SpaceY(Length::Px(v)) => StyleProperty::SpaceY(Length::Px(signed(v, true))),
         StyleProperty::ScrollMargin(edge, Length::Px(v)) => {
@@ -1839,6 +1924,80 @@ mod tests {
         assert_eq!(
             expand_utility("-translate-y-2"),
             (Condition::Always, vec![StyleProperty::TranslateY(Dimension::Length(Length::Px(-8.0)))])
+        );
+        assert_eq!(
+            expand_utility("-translate-z-2"),
+            (Condition::Always, vec![StyleProperty::TranslateZ(Length::Px(-8.0))])
+        );
+        assert_eq!(expand_utility("-z-10"), (Condition::Always, vec![StyleProperty::ZIndex(-10)]));
+        assert_eq!(
+            expand_utility("-outline-offset-2"),
+            (Condition::Always, vec![StyleProperty::OutlineOffset(Length::Px(-2.0))])
+        );
+    }
+
+    #[test]
+    fn the_container_scale_is_inline_axis_only() {
+        // Tailwind has no `max-h-md` or `h-2xl` -- a container is a measure
+        // of line length, so a named one on the block axis means nothing.
+        // Dowel accepted them until 2026-08-16, which the conformance report
+        // structurally could not catch: a candidate Tailwind emits no rule
+        // for isn't in the catalogue to compare against.
+        let scale = Dimension::Length(Length::Px(448.0)); // --container-md
+        for token in ["w-md", "min-w-md", "max-w-md", "basis-md", "inline-md", "max-inline-md"] {
+            let (_, props) = expand_utility(token);
+            assert_eq!(props.len(), 1, "{token}: {props:?}");
+            assert!(
+                matches!(
+                    props[0],
+                    StyleProperty::Width(d)
+                        | StyleProperty::MinWidth(d)
+                        | StyleProperty::MaxWidth(d)
+                        | StyleProperty::FlexBasis(d)
+                        | StyleProperty::InlineSize(d)
+                        | StyleProperty::MaxInlineSize(d) if d == scale
+                ),
+                "{token}: {props:?}"
+            );
+        }
+        for token in ["h-md", "max-h-md", "min-h-2xl", "block-md", "max-block-md"] {
+            assert_eq!(expand_utility(token), (Condition::Always, vec![]), "{token}");
+        }
+    }
+
+    #[test]
+    fn order_cursor_and_columns_are_plain_tables() {
+        assert_eq!(expand_utility("order-3"), (Condition::Always, vec![StyleProperty::Order(3)]));
+        // Tailwind's own sentinels, not CSS keywords: `order` has none, so
+        // "first" is a number far enough out that nothing outranks it.
+        assert_eq!(
+            expand_utility("order-first"),
+            (Condition::Always, vec![StyleProperty::Order(-9999)])
+        );
+        assert_eq!(expand_utility("-order-3"), (Condition::Always, vec![StyleProperty::Order(-3)]));
+
+        assert_eq!(
+            expand_utility("cursor-pointer"),
+            (Condition::Always, vec![StyleProperty::Cursor("pointer".to_string())])
+        );
+        // The keyword list decides which names are utilities at all --
+        // passing anything through would compile to CSS the browser drops.
+        assert_eq!(expand_utility("cursor-nonsense"), (Condition::Always, vec![]));
+
+        // A count and a width mean opposite things, so the two forms stay
+        // distinguishable in the IR.
+        assert_eq!(
+            expand_utility("columns-3"),
+            (Condition::Always, vec![StyleProperty::Columns(ColumnCount::Count(3))])
+        );
+        assert_eq!(
+            expand_utility("columns-md"),
+            (
+                Condition::Always,
+                vec![StyleProperty::Columns(ColumnCount::Width(Dimension::Length(Length::Px(
+                    448.0
+                ))))]
+            )
         );
     }
 

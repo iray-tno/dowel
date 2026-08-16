@@ -274,6 +274,19 @@ pub enum StyleProperty {
     MaxWidth(Dimension),
     MaxHeight(Dimension),
     ZIndex(i32),
+    /// `order-*`. Flex ordering, which Yoga doesn't implement -- React
+    /// Native lays children out in tree order and has no way to say
+    /// otherwise.
+    Order(i32),
+    /// `cursor-*`. Held as the CSS keyword rather than an enum: these are
+    /// pass-through names with no structure to model, and thirty-odd
+    /// variants would only restate the CSS spec. React Native accepts two
+    /// of them (`auto`, `pointer`), which `unsupported_on_native` checks by
+    /// name.
+    Cursor(String),
+    /// `columns-*`. CSS multi-column layout, which React Native has no
+    /// equivalent for at all.
+    Columns(ColumnCount),
     /// Column count for `grid-cols-<n>`. Web-only: React Native's layout
     /// engine has no grid implementation at all.
     GridTemplateColumns(u32),
@@ -664,6 +677,25 @@ impl StyleProperty {
             StyleProperty::GridTemplateColumns(_) => {
                 Some("`grid-template-columns`: React Native has no grid layout".to_string())
             }
+            StyleProperty::Order(_) => Some(
+                "`order-*`: Yoga lays children out in tree order and has no flex `order`, so the \
+                 only way to reorder on React Native is to reorder the elements"
+                    .to_string(),
+            ),
+            StyleProperty::Columns(_) => {
+                Some("`columns-*`: React Native has no multi-column layout".to_string())
+            }
+            // React Native's `cursor` is real but narrow: `auto` and
+            // `pointer` only, which is what a pointer-capable target
+            // (tablet with a trackpad, macOS/Windows/visionOS) can act on.
+            // The rest are refused by name rather than silently flattened
+            // to `pointer`, which would claim an affordance the app doesn't
+            // have.
+            StyleProperty::Cursor(keyword) if keyword != "auto" && keyword != "pointer" => {
+                Some(format!(
+                    "`cursor-{keyword}`: React Native's cursor accepts only `auto` and `pointer`"
+                ))
+            }
             // `letter-spacing` in em and a unitless `line-height` are
             // deliberately absent here even though React Native has neither
             // form as a style. Both are relative to the font size, and when
@@ -864,6 +896,18 @@ pub struct Angle {
 /// be resolved to pixels at compile time.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Em(pub f64);
+
+/// `columns` takes either a number of columns or an ideal column *width*,
+/// and the two mean opposite things -- `columns-3` fixes the count and lets
+/// the width follow, `columns-md` fixes the width and lets the count
+/// follow. Tailwind spells both as a bare suffix, so the distinction has to
+/// survive into the IR or the output would be a plausible wrong answer.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ColumnCount {
+    Count(u32),
+    Width(Dimension),
+    Auto,
+}
 
 /// CSS lets a letter spacing be relative to the font size or absolute.
 /// Tailwind writes the named scale in `em` (`tracking-wide` is `0.025em`);

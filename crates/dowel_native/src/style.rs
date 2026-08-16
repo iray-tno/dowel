@@ -331,6 +331,13 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
         StyleProperty::MaxWidth(d) => vec![("maxWidth", dimension_value(*d))],
         StyleProperty::MaxHeight(d) => vec![("maxHeight", dimension_value(*d))],
         StyleProperty::ZIndex(z) => vec![("zIndex", format!("{z}"))],
+        // RN's `cursor` takes `auto` and `pointer`; every other keyword is
+        // refused upstream by `unsupported_on_native`, so anything reaching
+        // here is one of the two.
+        StyleProperty::Cursor(keyword) => vec![("cursor", format!("'{keyword}'"))],
+        // Both refused upstream: Yoga has no flex `order`, and React Native
+        // has no multi-column layout.
+        StyleProperty::Order(_) | StyleProperty::Columns(_) => Vec::new(),
         StyleProperty::Position(pos) => vec![(
             "position",
             match pos {

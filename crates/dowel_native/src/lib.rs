@@ -196,7 +196,7 @@ pub fn lower(root: &Node, source: &str, theme: &Theme) -> LowerOutput {
 /// static `className` that compiled fine), which is why this is a runtime
 /// warning and not a build error.
 pub fn render_candidate_module(class_names: &[String], theme: &Theme) -> String {
-    let mut supported: Vec<(&String, Vec<(&'static str, String)>)> = Vec::new();
+    let mut supported: Vec<(&String, Vec<(String, String)>)> = Vec::new();
     let mut unsupported: Vec<(&String, String)> = Vec::new();
 
     for name in class_names {
@@ -213,7 +213,14 @@ pub fn render_candidate_module(class_names: &[String], theme: &Theme) -> String 
             unsupported.push((name, format!("{reason} -- this utility is Web-only.")));
             continue;
         }
-        let pairs = style_pairs(&utility.properties, theme);
+        // Owned, because the properties are a local that ends with this
+        // iteration -- a style key can now borrow from the property it
+        // came from (an arbitrary property's name is the author's text,
+        // not a literal in this binary).
+        let pairs: Vec<(String, String)> = style_pairs(&utility.properties, theme)
+            .into_iter()
+            .map(|(key, value)| (key.to_string(), value))
+            .collect();
         if pairs.is_empty() {
             continue;
         }
@@ -253,8 +260,8 @@ fn quote(text: &str) -> String {
 /// border styles map to `borderStyle`), which would emit a duplicate object
 /// key. Keep the last, matching how JS itself would resolve it -- but
 /// written once.
-fn style_pairs(props: &[StyleProperty], theme: &Theme) -> Vec<(&'static str, String)> {
-    let mut emitted: Vec<(&'static str, String)> = Vec::new();
+fn style_pairs<'a>(props: &'a [StyleProperty], theme: &Theme) -> Vec<(&'a str, String)> {
+    let mut emitted: Vec<(&'a str, String)> = Vec::new();
     for prop in props {
         // A child-scoped property (`space-*`/`divide-*`) means something
         // different from a property of the same name on the element itself,
@@ -1136,6 +1143,43 @@ fn build_style_entries(
                     Severity::Error,
                 )),
             },
+            // Refused rather than shelved. React Native has no selector
+            // engine at all -- not a missing feature but a different
+            // architecture, since styles there are objects handed to
+            // elements rather than rules matched against a tree. `[&>*]`
+            // asks which elements match a pattern, and there is nothing on
+            // that side of the compiler that could ever answer it.
+            //
+            // An error, not a warning: the author wrote a selector, and a
+            // build that quietly rendered without it would look like it
+            // worked.
+            Condition::ArbitrarySelector(selector) => diagnostics.push(Diagnostic {
+                code: DiagnosticCode::WebOnlyPropertyOnNative,
+                severity: Severity::Error,
+                message: format!(
+                    "`[{selector}]:` is a CSS selector, and React Native has no selector engine \
+                     to match it with -- styles there are objects attached to elements, not \
+                     rules matched against a tree. Move the condition into JSX, or apply the \
+                     style to the elements directly."
+                ),
+                span: node.span,
+            }),
+            // `@media` and `@supports` both ask the browser a question
+            // about itself. The nearest Native equivalents are real but
+            // unrelated -- `useWindowDimensions` for width, `Platform` for
+            // capability -- and neither is a translation of the at-rule
+            // the author wrote.
+            Condition::ArbitraryAtRule(rule) => diagnostics.push(Diagnostic {
+                code: DiagnosticCode::WebOnlyPropertyOnNative,
+                severity: Severity::Error,
+                message: format!(
+                    "`[{rule}]:` is a CSS at-rule, which only a browser can evaluate. Dowel's \
+                     own breakpoint variants do work on React Native -- they read \
+                     `useWindowDimensions` -- so a width query is better written as `md:` than \
+                     as a raw `@media`."
+                ),
+                span: node.span,
+            }),
         }
         // No catch-all arm above, deliberately: a new `Condition` variant
         // must fail to compile here rather than quietly joining the set
@@ -1395,6 +1439,13 @@ fn condition_suffix(condition: &Condition) -> Option<String> {
         Condition::Pressed => Some("pressed".to_string()),
         Condition::Dark => Some("dark".to_string()),
         Condition::FirstChild => Some("first".to_string()),
+        // Named by position rather than by content: a selector can hold
+        // any character at all, and a style identifier can't. The name
+        // only has to be unique within the file and stable across a
+        // compile -- these entries are refused before anything references
+        // them, so the name never reaches the output.
+        Condition::ArbitrarySelector(_) => Some("sel".to_string()),
+        Condition::ArbitraryAtRule(_) => Some("atrule".to_string()),
         Condition::Responsive(bp) => Some(
             match bp {
                 Breakpoint::Sm => "sm",

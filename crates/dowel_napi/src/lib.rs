@@ -31,6 +31,7 @@ fn diagnostic_code_str(code: DiagnosticCode) -> &'static str {
         DiagnosticCode::DynamicClassNameNotResolved => "DYNAMIC_CLASS_NAME_NOT_RESOLVED",
         DiagnosticCode::NotWiredOnNative => "NOT_WIRED_ON_NATIVE",
         DiagnosticCode::PrimitiveNotLowered => "PRIMITIVE_NOT_LOWERED",
+        DiagnosticCode::UnreadableArbitraryValue => "UNREADABLE_ARBITRARY_VALUE",
     }
 }
 

@@ -258,6 +258,27 @@ fn build_node(
                         consumed.push(to_span(literal.span()));
                         for token in literal.value.split_whitespace() {
                             let (condition, properties) = tailwind::expand_utility(token);
+                            // Reported only for brackets. An unknown bare
+                            // class is ordinary -- projects have their own
+                            // CSS and Dowel leaves it alone -- but a
+                            // bracket is unambiguously Tailwind being
+                            // asked for something, so failing to read one
+                            // is worth saying out loud. It stayed silent
+                            // until 2026-08-16, which is how `w-[32px]`
+                            // came to compile to nothing at all.
+                            if properties.is_empty() && tailwind::is_arbitrary(token) {
+                                diagnostics.push(Diagnostic {
+                                    code: DiagnosticCode::UnreadableArbitraryValue,
+                                    severity: Severity::Warning,
+                                    message: format!(
+                                        "`{token}` uses Tailwind's arbitrary syntax and Dowel \
+                                         couldn't read it, so no style is generated for it. The \
+                                         class still reaches the DOM, so a hand-written rule for \
+                                         it will still apply."
+                                    ),
+                                    span: to_span(literal.span()),
+                                });
+                            }
                             for property in properties {
                                 style.push(StyleDeclaration { property, condition: condition.clone() });
                             }

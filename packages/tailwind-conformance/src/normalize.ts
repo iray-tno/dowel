@@ -131,8 +131,11 @@ function remToPx(value: string): string {
 function canonicalizeValue(value: string): string {
   let out = value.trim().toLowerCase().replace(/\s+/g, ' ')
   out = remToPx(out)
-  // 0 is 0 regardless of unit.
-  out = out.replace(/(^|\s)(-?0)(px|rem|%)(\s|$)/g, '$1$2$4')
+  // 0 is 0 regardless of unit. Any unit -- the list used to be `px|rem|%`,
+  // which was every unit the named catalogue could produce and three of
+  // the two dozen an arbitrary value can. `space-x-[1.5em]` reported a
+  // mismatch between `0em` and `0`, which are the same length.
+  out = out.replace(/(^|\s)(-?0)[a-z]+(\s|$)/g, '$1$2$3')
   // Trim pointless decimals: 16.0px -> 16px
   out = out.replace(/(-?\d+)\.0+(?=px|%|\s|$)/g, '$1')
   return out.trim()

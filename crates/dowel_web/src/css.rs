@@ -27,12 +27,21 @@ use dowel_ir::{
 /// Takes the theme because a spacing step's width is the project's to
 /// decide -- see `Length::Spacing`.
 fn length_px(length: Length, theme: &Theme) -> String {
-    format!("{}px", length.px(theme))
+    match length {
+        // Printed in the unit it was written in, not converted. `w-[2rem]`
+        // is `width: 2rem` in Tailwind's output, and the difference from
+        // `32px` is not cosmetic -- a reader who has scaled up their
+        // browser's font size gets a wider element from one and the same
+        // element from the other. Converting here silently opted every
+        // arbitrary `rem` out of that.
+        Length::Unit(value, unit) => format!("{value}{}", unit.css()),
+        _ => format!("{}px", length.px(theme)),
+    }
 }
 
-fn dimension_value(dim: Dimension, theme: &Theme) -> String {
+fn dimension_value(dim: &Dimension, theme: &Theme) -> String {
     match dim {
-        Dimension::Length(length) => length_px(length, theme),
+        Dimension::Length(length) => length_px(*length, theme),
         Dimension::Percent(pct) => format!("{pct}%"),
         Dimension::Auto => "auto".to_string(),
         Dimension::ViewportWidth(pct) => format!("{pct}vw"),
@@ -50,6 +59,7 @@ fn grid_tracks(tracks: &GridTracks) -> String {
         GridTracks::Count(n) => format!("repeat({n}, minmax(0, 1fr))"),
         GridTracks::None => "none".to_string(),
         GridTracks::Subgrid => "subgrid".to_string(),
+        GridTracks::Css(list) => list.clone(),
     }
 }
 
@@ -289,8 +299,8 @@ fn mask_declarations(props: &[&StyleProperty], theme: &Theme) -> Vec<(&'static s
                     MaskStop::To => g.to_color = Some(color_var(c)),
                 },
                 StyleProperty::MaskStopPosition(s, stop, d) if *s == slot => match stop {
-                    MaskStop::From => g.from_position = Some(dimension_value(*d, theme)),
-                    MaskStop::To => g.to_position = Some(dimension_value(*d, theme)),
+                    MaskStop::From => g.from_position = Some(dimension_value(d, theme)),
+                    MaskStop::To => g.to_position = Some(dimension_value(d, theme)),
                 },
                 StyleProperty::MaskAngle(s, degrees) if *s == slot => g.angle = Some(*degrees),
                 _ => {}
@@ -546,11 +556,11 @@ fn translate_value(props: &[&StyleProperty], theme: &Theme) -> Option<String> {
         props.iter().find_map(|p| f(p)).unwrap_or_else(|| "0".to_string())
     };
     let x = axis(&|p: &StyleProperty| match p {
-        StyleProperty::TranslateX(d) => Some(dimension_value(*d, theme)),
+        StyleProperty::TranslateX(d) => Some(dimension_value(d, theme)),
         _ => None,
     });
     let y = axis(&|p: &StyleProperty| match p {
-        StyleProperty::TranslateY(d) => Some(dimension_value(*d, theme)),
+        StyleProperty::TranslateY(d) => Some(dimension_value(d, theme)),
         _ => None,
     });
     let z = props.iter().find_map(|p| match p {
@@ -640,6 +650,12 @@ fn resolve_theme_color(color: &Color, theme: &Theme) -> String {
         Color::Token(token) => token,
         // Not a colour at all, so it does not go through the palette.
         Color::Keyword(keyword) => return keyword.to_string(),
+        // Already a colour. An arbitrary value is the author saying "not
+        // the palette", so looking it up would be answering a question
+        // nobody asked -- and answering it wrong, since `#ff0000` names
+        // nothing in any theme and would come back as
+        // `var(--dowel-color-#ff0000)`.
+        Color::Css(text) => return text.clone(),
     };
     match theme.color(token) {
         Some(resolved) => resolved.oklch,
@@ -654,12 +670,16 @@ fn resolve_theme_color(color: &Color, theme: &Theme) -> String {
 /// mirror Tailwind's own generated CSS where there's a choice (e.g.
 /// `align-items: flex-start` rather than the newer `start` keyword) so
 /// output stays recognizable to anyone used to reading Tailwind's CSS.
-pub fn property_and_value(prop: &StyleProperty, theme: &Theme) -> (&'static str, String) {
+pub fn property_and_value<'a>(prop: &'a StyleProperty, theme: &Theme) -> (&'a str, String) {
     // Bound once, so the thirty-odd colour arms below read exactly as they
     // did before a theme existed. Threading `theme` through each of them
     // would add a word to thirty lines and say nothing at any of them.
     let color_var = |color: &Color| resolve_theme_color(color, theme);
     match prop {
+        // Straight through, both halves. Neither is checked against
+        // anything -- see `StyleProperty::Arbitrary` for why that is the
+        // deal an arbitrary property makes rather than an omission.
+        StyleProperty::Arbitrary(property, value) => (property.as_str(), value.clone()),
         StyleProperty::Display(d) => (
             "display",
             match d {
@@ -725,24 +745,24 @@ pub fn property_and_value(prop: &StyleProperty, theme: &Theme) -> (&'static str,
         StyleProperty::Gap(l) => ("gap", length_px(*l, theme)),
         StyleProperty::RowGap(l) => ("row-gap", length_px(*l, theme)),
         StyleProperty::ColumnGap(l) => ("column-gap", length_px(*l, theme)),
-        StyleProperty::MarginTop(d) => ("margin-top", dimension_value(*d, theme)),
-        StyleProperty::MarginRight(d) => ("margin-right", dimension_value(*d, theme)),
-        StyleProperty::MarginBottom(d) => ("margin-bottom", dimension_value(*d, theme)),
-        StyleProperty::MarginLeft(d) => ("margin-left", dimension_value(*d, theme)),
+        StyleProperty::MarginTop(d) => ("margin-top", dimension_value(d, theme)),
+        StyleProperty::MarginRight(d) => ("margin-right", dimension_value(d, theme)),
+        StyleProperty::MarginBottom(d) => ("margin-bottom", dimension_value(d, theme)),
+        StyleProperty::MarginLeft(d) => ("margin-left", dimension_value(d, theme)),
         StyleProperty::PaddingTop(l) => ("padding-top", length_px(*l, theme)),
         StyleProperty::PaddingRight(l) => ("padding-right", length_px(*l, theme)),
         StyleProperty::PaddingBottom(l) => ("padding-bottom", length_px(*l, theme)),
         StyleProperty::PaddingLeft(l) => ("padding-left", length_px(*l, theme)),
-        StyleProperty::MarginInlineStart(d) => ("margin-inline-start", dimension_value(*d, theme)),
-        StyleProperty::MarginInlineEnd(d) => ("margin-inline-end", dimension_value(*d, theme)),
+        StyleProperty::MarginInlineStart(d) => ("margin-inline-start", dimension_value(d, theme)),
+        StyleProperty::MarginInlineEnd(d) => ("margin-inline-end", dimension_value(d, theme)),
         StyleProperty::PaddingInlineStart(l) => ("padding-inline-start", length_px(*l, theme)),
         StyleProperty::PaddingInlineEnd(l) => ("padding-inline-end", length_px(*l, theme)),
-        StyleProperty::Width(d) => ("width", dimension_value(*d, theme)),
-        StyleProperty::Height(d) => ("height", dimension_value(*d, theme)),
-        StyleProperty::MinWidth(d) => ("min-width", dimension_value(*d, theme)),
-        StyleProperty::MinHeight(d) => ("min-height", dimension_value(*d, theme)),
-        StyleProperty::MaxWidth(d) => ("max-width", dimension_value(*d, theme)),
-        StyleProperty::MaxHeight(d) => ("max-height", dimension_value(*d, theme)),
+        StyleProperty::Width(d) => ("width", dimension_value(d, theme)),
+        StyleProperty::Height(d) => ("height", dimension_value(d, theme)),
+        StyleProperty::MinWidth(d) => ("min-width", dimension_value(d, theme)),
+        StyleProperty::MinHeight(d) => ("min-height", dimension_value(d, theme)),
+        StyleProperty::MaxWidth(d) => ("max-width", dimension_value(d, theme)),
+        StyleProperty::MaxHeight(d) => ("max-height", dimension_value(d, theme)),
         StyleProperty::ZIndex(z) => (
             "z-index",
             z.map_or_else(|| "auto".to_string(), |z| z.to_string()),
@@ -765,16 +785,16 @@ pub fn property_and_value(prop: &StyleProperty, theme: &Theme) -> (&'static str,
             }
             .to_string(),
         ),
-        StyleProperty::InsetTop(d) => ("top", dimension_value(*d, theme)),
-        StyleProperty::InsetRight(d) => ("right", dimension_value(*d, theme)),
-        StyleProperty::InsetBottom(d) => ("bottom", dimension_value(*d, theme)),
-        StyleProperty::InsetLeft(d) => ("left", dimension_value(*d, theme)),
-        StyleProperty::InsetInlineStart(d) => ("inset-inline-start", dimension_value(*d, theme)),
-        StyleProperty::InsetInlineEnd(d) => ("inset-inline-end", dimension_value(*d, theme)),
-        StyleProperty::InsetInline(d) => ("inset-inline", dimension_value(*d, theme)),
-        StyleProperty::InsetBlock(d) => ("inset-block", dimension_value(*d, theme)),
-        StyleProperty::InsetBlockStart(d) => ("inset-block-start", dimension_value(*d, theme)),
-        StyleProperty::InsetBlockEnd(d) => ("inset-block-end", dimension_value(*d, theme)),
+        StyleProperty::InsetTop(d) => ("top", dimension_value(d, theme)),
+        StyleProperty::InsetRight(d) => ("right", dimension_value(d, theme)),
+        StyleProperty::InsetBottom(d) => ("bottom", dimension_value(d, theme)),
+        StyleProperty::InsetLeft(d) => ("left", dimension_value(d, theme)),
+        StyleProperty::InsetInlineStart(d) => ("inset-inline-start", dimension_value(d, theme)),
+        StyleProperty::InsetInlineEnd(d) => ("inset-inline-end", dimension_value(d, theme)),
+        StyleProperty::InsetInline(d) => ("inset-inline", dimension_value(d, theme)),
+        StyleProperty::InsetBlock(d) => ("inset-block", dimension_value(d, theme)),
+        StyleProperty::InsetBlockStart(d) => ("inset-block-start", dimension_value(d, theme)),
+        StyleProperty::InsetBlockEnd(d) => ("inset-block-end", dimension_value(d, theme)),
         StyleProperty::BackgroundColor(c) => ("background-color", color_var(c)),
         StyleProperty::Opacity(o) => ("opacity", format!("{o}")),
         StyleProperty::BorderColor(c) => ("border-color", color_var(c)),
@@ -877,7 +897,7 @@ pub fn property_and_value(prop: &StyleProperty, theme: &Theme) -> (&'static str,
                 LineHeight::Ratio(r) => format!("{r}"),
             },
         ),
-        StyleProperty::TextUnderlineOffset(d) => ("text-underline-offset", dimension_value(*d, theme)),
+        StyleProperty::TextUnderlineOffset(d) => ("text-underline-offset", dimension_value(d, theme)),
         StyleProperty::OverflowX(o) => ("overflow-x", overflow_keyword(o).to_string()),
         StyleProperty::OverflowY(o) => ("overflow-y", overflow_keyword(o).to_string()),
         StyleProperty::BorderLogicalWidth(edge, l) => (border_width_property(*edge), length_px(*l, theme)),
@@ -910,7 +930,7 @@ pub fn property_and_value(prop: &StyleProperty, theme: &Theme) -> (&'static str,
             "columns",
             match columns {
                 ColumnCount::Count(n) => n.to_string(),
-                ColumnCount::Width(d) => dimension_value(*d, theme),
+                ColumnCount::Width(d) => dimension_value(d, theme),
                 ColumnCount::Auto => "auto".to_string(),
             },
         ),
@@ -974,16 +994,16 @@ pub fn property_and_value(prop: &StyleProperty, theme: &Theme) -> (&'static str,
         StyleProperty::TranslateX(_) | StyleProperty::TranslateY(_) | StyleProperty::TranslateZ(_) => {
             ("translate", String::new())
         }
-        StyleProperty::FlexBasis(d) => ("flex-basis", dimension_value(*d, theme)),
-        StyleProperty::BlockSize(d) => ("block-size", dimension_value(*d, theme)),
-        StyleProperty::InlineSize(d) => ("inline-size", dimension_value(*d, theme)),
-        StyleProperty::MaxBlockSize(d) => ("max-block-size", dimension_value(*d, theme)),
-        StyleProperty::MaxInlineSize(d) => ("max-inline-size", dimension_value(*d, theme)),
-        StyleProperty::MinBlockSize(d) => ("min-block-size", dimension_value(*d, theme)),
-        StyleProperty::MinInlineSize(d) => ("min-inline-size", dimension_value(*d, theme)),
-        StyleProperty::TextIndent(d) => ("text-indent", dimension_value(*d, theme)),
-        StyleProperty::MarginBlockStart(d) => ("margin-block-start", dimension_value(*d, theme)),
-        StyleProperty::MarginBlockEnd(d) => ("margin-block-end", dimension_value(*d, theme)),
+        StyleProperty::FlexBasis(d) => ("flex-basis", dimension_value(d, theme)),
+        StyleProperty::BlockSize(d) => ("block-size", dimension_value(d, theme)),
+        StyleProperty::InlineSize(d) => ("inline-size", dimension_value(d, theme)),
+        StyleProperty::MaxBlockSize(d) => ("max-block-size", dimension_value(d, theme)),
+        StyleProperty::MaxInlineSize(d) => ("max-inline-size", dimension_value(d, theme)),
+        StyleProperty::MinBlockSize(d) => ("min-block-size", dimension_value(d, theme)),
+        StyleProperty::MinInlineSize(d) => ("min-inline-size", dimension_value(d, theme)),
+        StyleProperty::TextIndent(d) => ("text-indent", dimension_value(d, theme)),
+        StyleProperty::MarginBlockStart(d) => ("margin-block-start", dimension_value(d, theme)),
+        StyleProperty::MarginBlockEnd(d) => ("margin-block-end", dimension_value(d, theme)),
         StyleProperty::PaddingBlockStart(l) => ("padding-block-start", length_px(*l, theme)),
         StyleProperty::PaddingBlockEnd(l) => ("padding-block-end", length_px(*l, theme)),
         // `border-spacing` takes both axes at once, so these compose.
@@ -1044,32 +1064,60 @@ fn condition_expr_selector(expr: &ConditionExpr) -> String {
     }
 }
 
-/// A condition's shape as `(media query, selector suffix)` -- suffix is
-/// appended directly after the node's own class in the compound selector
-/// (e.g. `.dowel-0:hover`, `.dowel-0[data-dowel-cond-4-10]`).
+/// A condition's shape as `(at-rule prelude, selector template)`.
+///
+/// The template carries `&` where the element's own class goes, the same
+/// convention Tailwind and nested CSS use. It was a plain suffix until
+/// arbitrary variants arrived, which a suffix cannot express: `[&>*]:p-4`
+/// happens to append (`.dowel-0>*`) but `[.dark_&]:text-white` does not --
+/// the element's class lands at the *end* there, and a suffix has no way
+/// to say so.
+///
+/// The first half is a whole at-rule rather than a bare media query for
+/// the same reason. `[@supports(display:grid)]:grid` is not a media query,
+/// and hardcoding `@media` at the emission site would have made supports
+/// queries unreachable by construction.
 pub fn condition_shape(condition: &Condition) -> (Option<String>, String) {
     match condition {
-        Condition::Always => (None, String::new()),
-        Condition::Hover => (None, ":hover".to_string()),
-        Condition::Focus => (None, ":focus".to_string()),
+        Condition::Always => (None, "&".to_string()),
+        Condition::Hover => (None, "&:hover".to_string()),
+        Condition::Focus => (None, "&:focus".to_string()),
         // Only meaningful on elements that can actually be disabled (e.g.
         // <button>) -- CSS itself won't apply `:disabled` to a plain <div>.
-        Condition::Disabled => (None, ":disabled".to_string()),
+        Condition::Disabled => (None, "&:disabled".to_string()),
         // Known gotcha, not fixed here: iOS Safari doesn't reliably fire
         // `:active` from a tap unless the element has some touch-event
         // listener attached (a long-documented WebKit quirk). Dowel's
         // compiled onClick doesn't count. Fine for the common desktop/
         // Android case; tracked as a real gap, not silently "handled."
-        Condition::Pressed => (None, ":active".to_string()),
-        Condition::Responsive(bp) => {
-            (Some(format!("(min-width: {}px)", breakpoint_min_width_px(*bp))), String::new())
-        }
+        Condition::Pressed => (None, "&:active".to_string()),
+        Condition::Responsive(bp) => (
+            Some(format!("@media (min-width: {}px)", breakpoint_min_width_px(*bp))),
+            "&".to_string(),
+        ),
         // Tailwind v4's default dark strategy, and the one whose meaning
         // React Native's `useColorScheme()` shares.
-        Condition::Dark => (Some("(prefers-color-scheme: dark)".to_string()), String::new()),
-        Condition::FirstChild => (None, ":first-child".to_string()),
-        Condition::Expr(expr) => (None, condition_expr_selector(expr)),
+        Condition::Dark => {
+            (Some("@media (prefers-color-scheme: dark)".to_string()), "&".to_string())
+        }
+        Condition::FirstChild => (None, "&:first-child".to_string()),
+        // Passed through exactly as written. Dowel does not parse it and
+        // deliberately so: a selector it doesn't recognise is one the
+        // browser may well support, and the author reached past the design
+        // system on purpose. Validating it here would mean maintaining a
+        // second, worse copy of the CSS selector grammar.
+        Condition::ArbitrarySelector(selector) => (None, selector.clone()),
+        Condition::ArbitraryAtRule(rule) => (Some(rule.clone()), "&".to_string()),
+        Condition::Expr(expr) => (None, format!("&{}", condition_expr_selector(expr))),
     }
+}
+
+/// Fills a selector template in for one element.
+///
+/// `&` is replaced everywhere it appears, not just once: `[&+&]` is a
+/// legitimate selector for "this element following another of itself".
+fn fill_selector(template: &str, class_name: &str) -> String {
+    template.replace('&', &format!(".{class_name}"))
 }
 
 /// Renders one CSS rule (optionally media-wrapped) for a class + condition
@@ -1161,7 +1209,8 @@ pub fn render_rule(
     props: &[StyleProperty],
     theme: &Theme,
 ) -> String {
-    let (media, suffix) = condition_shape(condition);
+    let (at_rule, selector) = condition_shape(condition);
+    let target = fill_selector(&selector, class_name);
 
     // Some utilities target something other than the element itself, so
     // they become their own rule with a different selector rather than a
@@ -1288,7 +1337,7 @@ pub fn render_rule(
         if let Some(value) = border_spacing_value(&spacing_props, theme) {
             body.push_str(&format!("  border-spacing: {value};\n"));
         }
-        rules.push(format!(".{class_name}{suffix} {{\n{body}}}"));
+        rules.push(format!("{target} {{\n{body}}}"));
     }
     if !child_props.is_empty() {
         let mut body = String::new();
@@ -1299,7 +1348,7 @@ pub fn render_rule(
         }
         // `:where()` keeps the specificity at zero, matching Tailwind, so
         // a child's own utilities still win over the parent's spacing.
-        rules.push(format!(":where(.{class_name}{suffix} > :not(:last-child)) {{\n{body}}}"));
+        rules.push(format!(":where({target} > :not(:last-child)) {{\n{body}}}"));
     }
     if !placeholder_props.is_empty() {
         let mut body = String::new();
@@ -1307,12 +1356,12 @@ pub fn render_rule(
             let (name, value) = property_and_value(prop, theme);
             body.push_str(&format!("  {name}: {value};\n"));
         }
-        rules.push(format!(".{class_name}{suffix}::placeholder {{\n{body}}}"));
+        rules.push(format!("{target}::placeholder {{\n{body}}}"));
     }
 
     let rule = rules.join("\n\n");
-    match media {
-        Some(query) => format!("@media {query} {{\n{rule}\n}}"),
+    match at_rule {
+        Some(prelude) => format!("{prelude} {{\n{rule}\n}}"),
         None => rule,
     }
 }
@@ -1384,9 +1433,28 @@ mod tests {
         let a = ConditionExpr::Ref(ExprRef(SourceSpan { start: 0, end: 1 }));
         let b = ConditionExpr::Ref(ExprRef(SourceSpan { start: 2, end: 3 }));
         let expr = ConditionExpr::And(Box::new(a), Box::new(ConditionExpr::Not(Box::new(b))));
-        let (media, suffix) = condition_shape(&Condition::Expr(expr));
-        assert!(media.is_none());
-        assert_eq!(suffix, "[data-dowel-cond-0-1]:not([data-dowel-cond-2-3])");
+        let (at_rule, selector) = condition_shape(&Condition::Expr(expr));
+        assert!(at_rule.is_none());
+        assert_eq!(selector, "&[data-dowel-cond-0-1]:not([data-dowel-cond-2-3])");
+    }
+
+    #[test]
+    fn an_arbitrary_selector_places_the_element_where_the_ampersand_is() {
+        // The reason `condition_shape` returns a template rather than a
+        // suffix: here the element's class lands at the end, and there is
+        // no suffix that can say that.
+        let (at_rule, selector) =
+            condition_shape(&Condition::ArbitrarySelector(".dark &".to_string()));
+        assert!(at_rule.is_none());
+        assert_eq!(fill_selector(&selector, "dowel-0"), ".dark .dowel-0");
+    }
+
+    #[test]
+    fn an_arbitrary_at_rule_wraps_the_whole_rule() {
+        let (at_rule, selector) =
+            condition_shape(&Condition::ArbitraryAtRule("@supports (display:grid)".to_string()));
+        assert_eq!(at_rule.as_deref(), Some("@supports (display:grid)"));
+        assert_eq!(fill_selector(&selector, "dowel-0"), ".dowel-0");
     }
 
     #[test]
@@ -1428,7 +1496,8 @@ mod tests {
 
     #[test]
     fn known_color_token_resolves_to_real_oklch() {
-        let (name, value) = property_and_value(&StyleProperty::BackgroundColor(Color::Token("blue-500".to_string())), &Theme::default());
+        let prop = StyleProperty::BackgroundColor(Color::Token("blue-500".to_string()));
+        let (name, value) = property_and_value(&prop, &Theme::default());
         assert_eq!(name, "background-color");
         assert_eq!(value, "oklch(62.3% 0.214 259.815)");
     }

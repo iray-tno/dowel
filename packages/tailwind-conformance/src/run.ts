@@ -3,6 +3,7 @@
 
 import { auditRefusal, type RefusalAudit, type RefusalVerdict } from './audit.ts'
 import { CANDIDATE_GROUPS, ALL_CANDIDATES, stripVariant } from './candidates.ts'
+import { buildArbitraryCatalog } from './arbitrary-catalog.ts'
 import { loadFullCatalog, namespaceOf } from './catalog.ts'
 import { reactNativeCssProperties, reactNativeVersion } from './native-surface.ts'
 import { compareCandidate, type Comparison, type Verdict } from './compare.ts'
@@ -422,4 +423,34 @@ console.log(
 )
 if (dangling.length > 0) {
   console.log(`  ${dangling.join(' ')}`)
+}
+
+// == Arbitrary syntax =====================================================
+//
+// A separate denominator because it has to be built differently: the named
+// catalogue is enumerable and this one isn't, so the candidates are derived
+// by crossing every prefix Tailwind uses with a set of representative
+// values and keeping whatever Tailwind generates a rule for. See
+// `arbitrary-catalog.ts`.
+//
+// Reported apart from the main figure rather than folded into it, because
+// the two denominators mean different things: one is "every utility that
+// exists", the other is "a cross-section of a syntax with no bounds". Adding
+// them would produce a number that answers neither question.
+const arbitrary = await buildArbitraryCatalog()
+const arbitraryResults = arbitrary.candidates.map((candidate) =>
+  compareCandidate(candidate, arbitrary.oracle.rules.get(candidate), arbitrary.oracle.registerDefaults),
+)
+const arbitraryCount = (verdict: Verdict) =>
+  arbitraryResults.filter((result) => result.verdict === verdict).length
+const arbitraryMismatches = arbitraryResults.filter((r) => r.verdict === 'MISMATCH')
+console.log(
+  `\n== Arbitrary values (${arbitrary.candidates.length} candidates Tailwind generates) ==\n` +
+    `Match:       ${arbitraryCount('MATCH')}\n` +
+    `Mismatch:    ${arbitraryMismatches.length}\n` +
+    `Unsupported: ${arbitraryCount('UNSUPPORTED')}\n` +
+    `Skipped:     ${arbitraryCount('SKIPPED')}   (one side unresolvable; no claim made)`,
+)
+for (const mismatch of arbitraryMismatches) {
+  console.log(`  ${mismatch.candidate.padEnd(34)} ${mismatch.detail ?? ''}`)
 }

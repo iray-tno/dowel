@@ -60,6 +60,10 @@ fn parse_spacing_suffix(suffix: &str) -> Option<Length> {
     suffix.parse::<f64>().ok().map(Length::Spacing)
 }
 
+/// Re-exported so callers can ask "was this class asking for something?"
+/// without reaching past this module for the answer.
+pub use crate::arbitrary::is_arbitrary;
+
 pub fn parse_utility(token: &str) -> Option<StyleProperty> {
     match token {
         "flex-auto" => return Some(StyleProperty::Flex(FlexShorthand::Auto)),
@@ -468,7 +472,7 @@ fn expand_dimension_family(token: &str) -> Option<Vec<StyleProperty>> {
     }
     if let Some(rest) = token.strip_prefix("translate-") {
         return parse_dimension_suffix(rest)
-            .map(|d| vec![StyleProperty::TranslateX(d), StyleProperty::TranslateY(d)]);
+            .map(|d| vec![StyleProperty::TranslateX(d.clone()), StyleProperty::TranslateY(d)]);
     }
     parse_axis_transform(token)
 }
@@ -978,9 +982,9 @@ fn expand_inset(token: &str) -> Option<Vec<StyleProperty>> {
         Some("bs") => vec![StyleProperty::InsetBlockStart(length)],
         Some("be") => vec![StyleProperty::InsetBlockEnd(length)],
         _ => vec![
-            StyleProperty::InsetTop(length),
-            StyleProperty::InsetRight(length),
-            StyleProperty::InsetBottom(length),
+            StyleProperty::InsetTop(length.clone()),
+            StyleProperty::InsetRight(length.clone()),
+            StyleProperty::InsetBottom(length.clone()),
             StyleProperty::InsetLeft(length),
         ],
     })
@@ -2018,9 +2022,9 @@ fn parse_screen_reader_only(token: &str) -> Option<Vec<StyleProperty>> {
         StyleProperty::PaddingRight(Length::Px(0.0)),
         StyleProperty::PaddingBottom(Length::Px(0.0)),
         StyleProperty::PaddingLeft(Length::Px(0.0)),
-        StyleProperty::MarginTop(margin),
-        StyleProperty::MarginRight(margin),
-        StyleProperty::MarginBottom(margin),
+        StyleProperty::MarginTop(margin.clone()),
+        StyleProperty::MarginRight(margin.clone()),
+        StyleProperty::MarginBottom(margin.clone()),
         StyleProperty::MarginLeft(margin),
         StyleProperty::Overflow(if visually_hidden { Overflow::Hidden } else { Overflow::Visible }),
         StyleProperty::Keyword("clip-path", if visually_hidden { "inset(50%)" } else { "none" }),
@@ -2159,7 +2163,7 @@ fn blend_mode(suffix: &str, modes: &'static [&'static str]) -> Option<&'static s
 /// intrinsic sizing, the chrome-aware viewport units, and `lh`. Shared by
 /// every size family, since Tailwind offers them on all of them.
 fn parse_css_size_suffix(suffix: &str) -> Option<Dimension> {
-    Some(Dimension::Css(match suffix {
+    Some(Dimension::Css(String::from(match suffix {
         "fit" => "fit-content",
         "max" => "max-content",
         "min" => "min-content",
@@ -2171,7 +2175,7 @@ fn parse_css_size_suffix(suffix: &str) -> Option<Dimension> {
         "svw" => "100svw",
         "lh" => "1lh",
         _ => return None,
-    }))
+    })))
 }
 
 /// The values only the *max* and *min* size families take.
@@ -2180,12 +2184,12 @@ fn parse_css_size_suffix(suffix: &str) -> Option<Dimension> {
 /// general: putting `none` there made `translate-none` parse as a
 /// translation of "none none" rather than as switching the property off.
 fn parse_extremum_suffix(suffix: &str) -> Option<Dimension> {
-    Some(Dimension::Css(match suffix {
+    Some(Dimension::Css(String::from(match suffix {
         "none" => "none",
         // Tailwind's measure-of-text width, and the one place `ch` appears.
         "prose" => "65ch",
         _ => return None,
-    }))
+    })))
 }
 
 fn parse_inline_size_suffix(suffix: &str) -> Option<Dimension> {
@@ -2310,6 +2314,21 @@ fn parse_spacing_utility(token: &str) -> Option<StyleProperty> {
 /// variants (`dark:hover:...`) aren't in the Condition model at all yet, so
 /// there's nothing to strip them into.
 pub fn parse_variant_prefix(token: &str) -> (Condition, &str) {
+    // Before the named variants, because an arbitrary one can *contain*
+    // them: `[&:hover]:p-4` starts with a bracket and would otherwise be
+    // cut at the wrong colon.
+    if let Some((selector, rest)) = crate::arbitrary::split_variant(token) {
+        // An at-rule and a selector wrap a rule differently -- one around
+        // it, one through its head -- so which it is has to be decided
+        // here, where the text is, rather than by looking for a leading
+        // `@` at emit time.
+        let condition = if selector.starts_with('@') {
+            Condition::ArbitraryAtRule(selector)
+        } else {
+            Condition::ArbitrarySelector(selector)
+        };
+        return (condition, rest);
+    }
     if let Some(rest) = token.strip_prefix("hover:") {
         return (Condition::Hover, rest);
     }
@@ -2388,6 +2407,9 @@ fn negated_length(length: Length) -> Option<Length> {
     Some(match length {
         Length::Px(v) => Length::Px(signed(v, true)),
         Length::Spacing(v) => Length::Spacing(signed(v, true)),
+        // Negated in place, keeping the unit: `-mt-[2rem]` is `-2rem`, and
+        // the unit is what makes it a length at all.
+        Length::Unit(v, unit) => Length::Unit(signed(v, true), unit),
     })
 }
 
@@ -2473,6 +2495,15 @@ fn negated(prop: StyleProperty) -> Option<StyleProperty> {
 /// `gap-x-2`, `gap-y-2`) expand to more than one longhand property, so they
 /// can't fit through `parse_utility`'s one-token-to-one-property shape.
 fn expand_base_utility(token: &str) -> Vec<StyleProperty> {
+    // First, and deliberately so. Every arm below this ends in a colour
+    // catch-all that accepts whatever the specific forms declined, so a
+    // bracket reaching them came out as a palette token: `text-[14px]`
+    // compiled to `color: var(--dowel-color-[14px])`. Ordering is what
+    // fixes that -- an arbitrary value is unambiguous, and nothing further
+    // down has a better claim on it.
+    if crate::arbitrary::is_arbitrary(token) {
+        return crate::arbitrary::properties(token).unwrap_or_default();
+    }
     // `px`/`mx` are the *logical* inline axis in Tailwind
     // (`padding-inline`), not left/right. For a symmetric value the
     // rendering is identical either way, but keeping them logical matches
@@ -2499,20 +2530,20 @@ fn expand_base_utility(token: &str) -> Vec<StyleProperty> {
     }
     if let Some(rest) = token.strip_prefix("mx-") {
         if let Some(v) = parse_margin_suffix(rest) {
-            return vec![StyleProperty::MarginInlineStart(v), StyleProperty::MarginInlineEnd(v)];
+            return vec![StyleProperty::MarginInlineStart(v.clone()), StyleProperty::MarginInlineEnd(v)];
         }
     }
     if let Some(rest) = token.strip_prefix("my-") {
         if let Some(v) = parse_margin_suffix(rest) {
-            return vec![StyleProperty::MarginTop(v), StyleProperty::MarginBottom(v)];
+            return vec![StyleProperty::MarginTop(v.clone()), StyleProperty::MarginBottom(v)];
         }
     }
     if let Some(rest) = token.strip_prefix("m-") {
         if let Some(v) = parse_margin_suffix(rest) {
             return vec![
-                StyleProperty::MarginTop(v),
-                StyleProperty::MarginRight(v),
-                StyleProperty::MarginBottom(v),
+                StyleProperty::MarginTop(v.clone()),
+                StyleProperty::MarginRight(v.clone()),
+                StyleProperty::MarginBottom(v.clone()),
                 StyleProperty::MarginLeft(v),
             ];
         }
@@ -2593,7 +2624,7 @@ fn expand_base_utility(token: &str) -> Vec<StyleProperty> {
     }
     if let Some(rest) = token.strip_prefix("size-") {
         if let Some(d) = parse_dimension_suffix(rest) {
-            return vec![StyleProperty::Width(d), StyleProperty::Height(d)];
+            return vec![StyleProperty::Width(d.clone()), StyleProperty::Height(d)];
         }
     }
     // A `transition-*` utility sets the property list *and* Tailwind's
@@ -3163,13 +3194,13 @@ mod tests {
         // CSS text is carried through and React Native refuses it.
         assert_eq!(
             expand_utility("h-fit").1,
-            vec![StyleProperty::Height(Dimension::Css("fit-content"))]
+            vec![StyleProperty::Height(Dimension::Css("fit-content".to_string()))]
         );
         assert_eq!(
             expand_utility("max-w-dvh").1,
-            vec![StyleProperty::MaxWidth(Dimension::Css("100dvh"))]
+            vec![StyleProperty::MaxWidth(Dimension::Css("100dvh".to_string()))]
         );
-        assert!(!Dimension::Css("fit-content").is_supported_on_native());
+        assert!(!Dimension::Css("fit-content".to_string()).is_supported_on_native());
         // `h-screen` is the one viewport size that *is* answerable on
         // Native, from `Dimensions` -- so it stays a viewport dimension
         // rather than joining these.
@@ -3322,13 +3353,13 @@ mod tests {
             assert_eq!(props.len(), 1, "{token}: {props:?}");
             assert!(
                 matches!(
-                    props[0],
+                    &props[0],
                     StyleProperty::Width(d)
                         | StyleProperty::MinWidth(d)
                         | StyleProperty::MaxWidth(d)
                         | StyleProperty::FlexBasis(d)
                         | StyleProperty::InlineSize(d)
-                        | StyleProperty::MaxInlineSize(d) if d == scale
+                        | StyleProperty::MaxInlineSize(d) if *d == scale
                 ),
                 "{token}: {props:?}"
             );

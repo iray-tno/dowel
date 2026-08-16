@@ -100,5 +100,16 @@ function extractRegisterDefaults(css: string): Map<string, string> {
 
 /** How Tailwind escapes a candidate when writing it as a CSS selector. */
 function escapeClassName(candidate: string): string {
-  return candidate.replace(/[:/.]/g, (ch) => `\\${ch}`)
+  // Everything CSS doesn't allow bare in an identifier, which is the rule
+  // rather than a list -- the list kept being wrong. It started as `[:/.]`,
+  // which was complete for the named-utility catalogue and silently wrong
+  // for arbitrary values: every one of them looked up to nothing, so the
+  // oracle reported "Tailwind emits no rule for this" when what had
+  // happened was that this function couldn't spell the selector. Widening
+  // it to brackets fixed most of them and still hid `*`, `+` and quotes,
+  // which read as three more Tailwind limitations that weren't real.
+  //
+  // Non-ASCII is left alone: CSS allows it in an identifier unescaped, and
+  // Tailwind writes it through.
+  return candidate.replace(/[^\w-]/g, (ch) => (ch.charCodeAt(0) > 127 ? ch : `\\${ch}`))
 }

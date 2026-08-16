@@ -71,6 +71,22 @@ pub enum DiagnosticCode {
     /// vanishes the moment the user types -- which is exactly when they
     /// would want to check what the field was for.
     A11yMissingAccessibleName,
+    /// A class carries square brackets or a `(--var)` -- Tailwind's
+    /// arbitrary syntax -- and Dowel couldn't read it.
+    ///
+    /// This exists because the alternative is so much worse than silence.
+    /// Dowel's utility parsing ends in a colour catch-all: whatever the
+    /// specific forms decline becomes a palette token. Before this code
+    /// existed, `text-[14px]` -- a font size -- came out the other end as
+    /// `color: var(--dowel-color-[14px])`, and `w-[32px]` was dropped with
+    /// no trace at all. Neither failed; both produced a page that was
+    /// simply wrong somewhere the author would have to find by eye.
+    ///
+    /// Brackets are what makes this detectable. A bare unknown class is
+    /// ordinary -- projects have their own CSS and Dowel must leave it
+    /// alone -- but a bracket is unambiguously Tailwind asking for
+    /// something, so failing to read one is worth saying out loud.
+    UnreadableArbitraryValue,
     /// A prop spread appears after a statically compiled className/style and
     /// could silently override it at runtime; that node's className is not
     /// compiled and falls back instead of failing silently.
@@ -435,6 +451,27 @@ pub enum StyleProperty {
     /// declaration, so the two spellings would stop overriding each other.
     /// `keyword_utility` in `dowel_parser` is where that rule is kept.
     Keyword(&'static str, &'static str),
+    /// A declaration the source wrote out in full: `[color:red]`,
+    /// `[mask-type:luminance]`, `[--my-var:4px]`.
+    ///
+    /// Where `Keyword` is a closed list Dowel curates, this is whatever
+    /// CSS the author reached for -- so both halves are runtime strings and
+    /// neither is checked against anything. That is the deal an arbitrary
+    /// property makes: it leaves the design system, and Dowel's job shrinks
+    /// to putting it through unchanged.
+    ///
+    /// Native refuses every one of these. A CSS property name means nothing
+    /// to React Native's style system, and guessing a camelCase equivalent
+    /// would turn "this doesn't exist on Native" into "this exists and does
+    /// nothing".
+    ///
+    /// Two of these collapse against each other by property name, the same
+    /// way `Keyword` does. Neither collapses against a *typed* variant for
+    /// the same property -- `[color:red]` and `text-blue-500` both survive
+    /// into the rule, and CSS's own last-wins settles it. Correct, but it
+    /// does mean the emitted rule can carry a declaration Tailwind would
+    /// have dropped.
+    Arbitrary(String, String),
     /// Column count for `grid-cols-<n>`. Web-only: React Native's layout
     /// engine has no grid implementation at all.
     GridTemplateColumns(GridTracks),
@@ -894,7 +931,7 @@ impl StyleProperty {
     /// `100dvh`) is unusable on all of them -- and listing the properties
     /// one at a time is how the last batch of those came to be dropped in
     /// silence rather than refused.
-    pub fn dimension(&self) -> Option<Dimension> {
+    pub fn dimension(&self) -> Option<&Dimension> {
         match self {
             StyleProperty::Width(d)
             | StyleProperty::Height(d)
@@ -912,7 +949,7 @@ impl StyleProperty {
             | StyleProperty::TextIndent(d)
             | StyleProperty::TextUnderlineOffset(d)
             | StyleProperty::TranslateX(d)
-            | StyleProperty::TranslateY(d) => Some(*d),
+            | StyleProperty::TranslateY(d) => Some(d),
             _ => None,
         }
     }
@@ -1260,7 +1297,161 @@ pub enum Length {
     /// The same reasoning `Color` already followed: keep what was written,
     /// resolve where the theme is.
     Spacing(f64),
+    /// A length written with an explicit unit in an arbitrary value:
+    /// `w-[2rem]`, `p-[3ch]`, `mt-[1.5em]`.
+    ///
+    /// The unit is kept rather than converted because Web has to match
+    /// Tailwind byte for byte -- `w-[2rem]` is `width: 2rem` there, not
+    /// `width: 32px`, and the difference is visible the moment a user
+    /// changes their browser's font size. Native converts what it can and
+    /// refuses the rest by name; see `LengthUnit::px`.
+    Unit(f64, LengthUnit),
 }
+
+/// The CSS length units an arbitrary value may carry.
+///
+/// A closed set rather than a kept string, so that every consumer is a
+/// `match` the compiler checks. The alternative -- holding the unit as
+/// text -- pushes the decision to whoever formats the value, and the
+/// decision that matters (can React Native express this?) would then be
+/// made by string comparison in the one place least able to explain
+/// itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LengthUnit {
+    /// Root-relative. Converted at 16px on Native, the same root size
+    /// `@dowel/tailwind` already assumes when it reads `--spacing` out of
+    /// a project's `@theme`. Two different answers for one unit inside one
+    /// compiler would be worse than one documented assumption.
+    Rem,
+    /// Font-relative to the element. Folded against a known `font-size` on
+    /// Native and refused where there isn't one.
+    Em,
+    /// Physically fixed ratios to the pixel, defined by CSS itself
+    /// (1in = 96px, 1pc = 16px, 1pt = 96/72px, and the metric ones from
+    /// 1in = 2.54cm). Converting these is exact arithmetic, not an
+    /// assumption, so Native takes them.
+    Cm,
+    Mm,
+    Q,
+    In,
+    Pt,
+    Pc,
+    /// Viewport-relative. Web resolves them; Native can, but only through
+    /// the runtime viewport hook, so they're handled where that hook is.
+    Vw,
+    Vh,
+    Vmin,
+    Vmax,
+    /// Resolved from font metrics the compiler doesn't have -- the width of
+    /// a `0`, the height of an `x`, the computed line box. Only a browser
+    /// knows these, so Native refuses them.
+    Ch,
+    Ex,
+    Cap,
+    Ic,
+    Lh,
+    Rlh,
+    /// The viewport units that track browser chrome as it scrolls away.
+    /// There is no such chrome on a device, and no static value that would
+    /// be right, so these are Web-only.
+    Dvh,
+    Dvw,
+    Lvh,
+    Lvw,
+    Svh,
+    Svw,
+}
+
+impl LengthUnit {
+    /// The unit as CSS spells it.
+    pub fn css(self) -> &'static str {
+        match self {
+            LengthUnit::Rem => "rem",
+            LengthUnit::Em => "em",
+            LengthUnit::Cm => "cm",
+            LengthUnit::Mm => "mm",
+            LengthUnit::Q => "q",
+            LengthUnit::In => "in",
+            LengthUnit::Pt => "pt",
+            LengthUnit::Pc => "pc",
+            LengthUnit::Vw => "vw",
+            LengthUnit::Vh => "vh",
+            LengthUnit::Vmin => "vmin",
+            LengthUnit::Vmax => "vmax",
+            LengthUnit::Ch => "ch",
+            LengthUnit::Ex => "ex",
+            LengthUnit::Cap => "cap",
+            LengthUnit::Ic => "ic",
+            LengthUnit::Lh => "lh",
+            LengthUnit::Rlh => "rlh",
+            LengthUnit::Dvh => "dvh",
+            LengthUnit::Dvw => "dvw",
+            LengthUnit::Lvh => "lvh",
+            LengthUnit::Lvw => "lvw",
+            LengthUnit::Svh => "svh",
+            LengthUnit::Svw => "svw",
+        }
+    }
+
+    /// The unit this text names, or `None` if it isn't a CSS length unit.
+    pub fn parse(text: &str) -> Option<LengthUnit> {
+        Some(match text.to_ascii_lowercase().as_str() {
+            "rem" => LengthUnit::Rem,
+            "em" => LengthUnit::Em,
+            "cm" => LengthUnit::Cm,
+            "mm" => LengthUnit::Mm,
+            "q" => LengthUnit::Q,
+            "in" => LengthUnit::In,
+            "pt" => LengthUnit::Pt,
+            "pc" => LengthUnit::Pc,
+            "vw" => LengthUnit::Vw,
+            "vh" => LengthUnit::Vh,
+            "vmin" => LengthUnit::Vmin,
+            "vmax" => LengthUnit::Vmax,
+            "ch" => LengthUnit::Ch,
+            "ex" => LengthUnit::Ex,
+            "cap" => LengthUnit::Cap,
+            "ic" => LengthUnit::Ic,
+            "lh" => LengthUnit::Lh,
+            "rlh" => LengthUnit::Rlh,
+            "dvh" => LengthUnit::Dvh,
+            "dvw" => LengthUnit::Dvw,
+            "lvh" => LengthUnit::Lvh,
+            "lvw" => LengthUnit::Lvw,
+            "svh" => LengthUnit::Svh,
+            "svw" => LengthUnit::Svw,
+            _ => return None,
+        })
+    }
+
+    /// How many pixels one of this unit is, where that is knowable without
+    /// asking a browser.
+    ///
+    /// `None` means the unit needs something the compiler doesn't have --
+    /// the element's font metrics, or the size of a screen it can't see.
+    /// Callers turn that into a refusal that names the unit rather than a
+    /// number that would be wrong.
+    pub fn px(self) -> Option<f64> {
+        Some(match self {
+            LengthUnit::Rem => ROOT_FONT_SIZE_PX,
+            LengthUnit::In => 96.0,
+            LengthUnit::Pc => 16.0,
+            LengthUnit::Pt => 96.0 / 72.0,
+            LengthUnit::Cm => 96.0 / 2.54,
+            LengthUnit::Mm => 96.0 / 25.4,
+            LengthUnit::Q => 96.0 / 101.6,
+            _ => return None,
+        })
+    }
+}
+
+/// The root font size Dowel resolves `rem` against.
+///
+/// Browsers default to this and every major one lets a user change it, so
+/// Web never converts -- it prints `rem` and lets the browser decide. This
+/// constant exists for Native, which has no such concept and no browser to
+/// ask.
+pub const ROOT_FONT_SIZE_PX: f64 = 16.0;
 
 fn round(value: f64) -> f64 {
     (value * 1e6).round() / 1e6
@@ -1272,6 +1463,10 @@ impl Length {
     /// `Px` is already absolute -- a `border-2` is two pixels whatever the
     /// spacing scale is, which is exactly why the two are different
     /// variants rather than one number with a flag.
+    ///
+    /// A `Unit` this can't convert reports zero, which is why no backend
+    /// should reach here without having asked `resolvable` first. Web never
+    /// does (it prints the unit); Native refuses first.
     pub fn px(self, theme: &Theme) -> f64 {
         match self {
             Length::Px(value) => value,
@@ -1282,11 +1477,26 @@ impl Length {
             // stylesheet. Six decimals is far past any real length and
             // short of where the noise starts.
             Length::Spacing(steps) => round(steps * theme.spacing_px()),
+            Length::Unit(value, unit) => round(value * unit.px().unwrap_or(0.0)),
+        }
+    }
+
+    /// The unit standing between this length and a pixel value, if one is.
+    ///
+    /// `Px` and `Spacing` always resolve. A `Unit` resolves when the unit
+    /// has a fixed ratio to the pixel; otherwise this names it, and the
+    /// caller decides whether it can supply what's missing (an `em` against
+    /// a known font size, a `vh` against the viewport hook) or has to
+    /// refuse.
+    pub fn unresolved_unit(self) -> Option<LengthUnit> {
+        match self {
+            Length::Px(_) | Length::Spacing(_) => None,
+            Length::Unit(_, unit) => unit.px().map(|_| ()).map_or(Some(unit), |()| None),
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Dimension {
     Length(Length),
     Percent(f64),
@@ -1311,7 +1521,7 @@ pub enum Dimension {
     /// answer from `Dimensions`, these have no runtime equivalent to read:
     /// `dvh` tracks a URL bar that doesn't exist there, and `fit-content`
     /// is a layout mode Yoga doesn't implement.
-    Css(&'static str),
+    Css(String),
 }
 
 impl Dimension {
@@ -1335,6 +1545,16 @@ pub enum Color {
     /// `var(--dowel-color-none)` -- would be a plausible-looking wrong
     /// answer rather than an unresolved one.
     Keyword(&'static str),
+    /// A colour the source wrote out instead of naming: `bg-[#ff0000]`,
+    /// `text-[rgb(0_0_0)]`, `bg-(--brand)`.
+    ///
+    /// Apart from `Token` because there is nothing to look up -- sending
+    /// this through the palette resolver would produce
+    /// `var(--dowel-color-#ff0000)`, which is not a colour and not an
+    /// error either. Held as the CSS text because that is exactly what the
+    /// author asked for; the whole point of an arbitrary value is that it
+    /// escapes the design system.
+    Css(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1392,11 +1612,19 @@ pub enum FilterFunction {
 /// floor is what stops an oversized item from widening its track, and
 /// dropping it would produce a grid that behaves differently under
 /// overflow.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GridTracks {
     Count(u32),
     None,
     Subgrid,
+    /// A track list written out: `grid-cols-[1fr_auto]`,
+    /// `grid-cols-[repeat(3,minmax(0,1fr))]`.
+    ///
+    /// Tailwind's own scale only counts equal columns, which covers the
+    /// common case and none of the interesting ones -- a sidebar beside a
+    /// fluid main column is two unequal tracks and cannot be said any
+    /// other way.
+    Css(String),
 }
 
 /// One edge of a grid item's placement. A negative line counts back from
@@ -1422,7 +1650,7 @@ pub enum GridSpan {
 /// the width follow, `columns-md` fixes the width and lets the count
 /// follow. Tailwind spells both as a bare suffix, so the distinction has to
 /// survive into the IR or the output would be a plausible wrong answer.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ColumnCount {
     Count(u32),
     Width(Dimension),
@@ -1581,6 +1809,27 @@ pub enum Condition {
     /// children is possible -- but not for `.map()`-generated ones, and
     /// that's not built yet.
     FirstChild,
+    /// `[&>*]:p-4`, `[&_a]:underline`, `[&:nth-child(3)]:font-bold`. The
+    /// selector as written, with `&` still standing for the element.
+    ///
+    /// Web substitutes the generated class for `&` and emits the result.
+    /// Nothing is validated: a selector Dowel doesn't understand is one
+    /// the browser might, and the author asked for it by name.
+    ///
+    /// Native refuses all of these, and not for want of effort -- React
+    /// Native has no selector engine at all. `[&>*]` asks a question about
+    /// the rendered tree that only a matching engine can answer, and there
+    /// isn't one on the other side.
+    ArbitrarySelector(String),
+    /// `[@media(print)]:hidden`, `[@supports(display:grid)]:grid`. The
+    /// at-rule prelude as written, `@` included.
+    ///
+    /// Kept apart from `ArbitrarySelector` because the lowering differs in
+    /// kind: a selector rewrites the rule's head, an at-rule wraps the
+    /// whole rule in a block. Folding them together would mean deciding
+    /// which one this is by looking for a leading `@` at emit time, in the
+    /// one place that has the least context for it.
+    ArbitraryAtRule(String),
     /// Arbitrary structurally-dynamic condition (proposal §7): a prop,
     /// local variable, or `useState` value used as a guard.
     Expr(ConditionExpr),
@@ -1711,9 +1960,15 @@ impl StyleProperty {
     /// them apart. It is a string rather than a number on purpose --
     /// hashing into the integer would make a collision silently drop a
     /// declaration, which is the failure this key exists to prevent.
-    fn dedupe_key(&self) -> (std::mem::Discriminant<Self>, u32, &'static str) {
+    fn dedupe_key(&self) -> (std::mem::Discriminant<Self>, u32, String) {
         if let StyleProperty::Keyword(property, _) = self {
-            return (std::mem::discriminant(self), 0, property);
+            return (std::mem::discriminant(self), 0, (*property).to_string());
+        }
+        // Same reasoning as `Keyword`: one discriminant covers every
+        // arbitrary property, so the name is the only thing that tells two
+        // of them apart.
+        if let StyleProperty::Arbitrary(property, _) = self {
+            return (std::mem::discriminant(self), 0, property.clone());
         }
         let target = match self {
             StyleProperty::ScrollMargin(edge, _) | StyleProperty::ScrollPadding(edge, _) => {
@@ -1732,7 +1987,7 @@ impl StyleProperty {
             }
             _ => 0,
         };
-        (std::mem::discriminant(self), target, "")
+        (std::mem::discriminant(self), target, String::new())
     }
 }
 

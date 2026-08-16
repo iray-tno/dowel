@@ -51,9 +51,9 @@ fn number(length: Length, theme: &Theme) -> String {
     format!("{}", length.px(theme))
 }
 
-fn dimension_value(dim: Dimension, theme: &Theme) -> String {
+fn dimension_value(dim: &Dimension, theme: &Theme) -> String {
     match dim {
-        Dimension::Length(length) => number(length, theme),
+        Dimension::Length(length) => number(*length, theme),
         Dimension::Percent(pct) => format!("'{pct}%'"),
         Dimension::Auto => "'auto'".to_string(),
         // Refused upstream by `StyleProperty::unsupported_on_native`, which
@@ -75,12 +75,12 @@ pub fn transform_entry(props: &[StyleProperty], theme: &Theme) -> Option<(&'stat
     let mut parts: Vec<String> = Vec::new();
     for prop in props {
         if let StyleProperty::TranslateX(d) = prop {
-            parts.push(format!("{{ translateX: {} }}", dimension_value(*d, theme)));
+            parts.push(format!("{{ translateX: {} }}", dimension_value(d, theme)));
         }
     }
     for prop in props {
         if let StyleProperty::TranslateY(d) = prop {
-            parts.push(format!("{{ translateY: {} }}", dimension_value(*d, theme)));
+            parts.push(format!("{{ translateY: {} }}", dimension_value(d, theme)));
         }
     }
     for prop in props {
@@ -286,6 +286,11 @@ fn resolve_theme_color(color: &Color, theme: &Theme) -> String {
     let token = match color {
         Color::Token(token) => token,
         Color::Keyword(keyword) => return js_string(keyword),
+        // Written out rather than named, so there is nothing to resolve.
+        // Whether React Native can actually read it is a separate question
+        // and asked separately -- `native_color_reason` refuses the ones it
+        // can't before anything reaches here.
+        Color::Css(text) => return js_string(text),
     };
     match theme.color(token) {
         Some(resolved) => js_string(&resolved.hex),
@@ -375,9 +380,15 @@ pub fn child_property_and_value(prop: &StyleProperty, theme: &Theme) -> Vec<(&'s
 /// Maps one `StyleProperty` to one or more `(rn-style-key, value)` pairs
 /// (plural because e.g. `FlexShorthand::Auto` has no single-number RN
 /// equivalent and must expand to two keys).
-pub fn property_and_value(prop: &StyleProperty, theme: &Theme) -> Vec<(&'static str, String)> {
+pub fn property_and_value<'a>(prop: &'a StyleProperty, theme: &Theme) -> Vec<(&'a str, String)> {
     let resolve_color = |color: &Color| resolve_theme_color(color, theme);
     match prop {
+        // Refused upstream by `unsupported_on_native`, so this is only
+        // reached if something bypassed it. Emitting nothing is the safe
+        // end of that: a CSS property name means nothing to React Native,
+        // and inventing a camelCase spelling would turn a build error into
+        // a style that silently does nothing on a device.
+        StyleProperty::Arbitrary(..) => Vec::new(),
         StyleProperty::Display(d) => match d {
             Display::Flex => vec![("display", "'flex'".to_string())],
             Display::None => vec![("display", "'none'".to_string())],
@@ -446,35 +457,35 @@ pub fn property_and_value(prop: &StyleProperty, theme: &Theme) -> Vec<(&'static 
         StyleProperty::Gap(l) => vec![("gap", number(*l, theme))],
         StyleProperty::RowGap(l) => vec![("rowGap", number(*l, theme))],
         StyleProperty::ColumnGap(l) => vec![("columnGap", number(*l, theme))],
-        StyleProperty::MarginTop(d) => vec![("marginTop", dimension_value(*d, theme))],
-        StyleProperty::MarginRight(d) => vec![("marginRight", dimension_value(*d, theme))],
-        StyleProperty::MarginBottom(d) => vec![("marginBottom", dimension_value(*d, theme))],
-        StyleProperty::MarginLeft(d) => vec![("marginLeft", dimension_value(*d, theme))],
+        StyleProperty::MarginTop(d) => vec![("marginTop", dimension_value(d, theme))],
+        StyleProperty::MarginRight(d) => vec![("marginRight", dimension_value(d, theme))],
+        StyleProperty::MarginBottom(d) => vec![("marginBottom", dimension_value(d, theme))],
+        StyleProperty::MarginLeft(d) => vec![("marginLeft", dimension_value(d, theme))],
         StyleProperty::PaddingTop(l) => vec![("paddingTop", number(*l, theme))],
         StyleProperty::PaddingRight(l) => vec![("paddingRight", number(*l, theme))],
         StyleProperty::PaddingBottom(l) => vec![("paddingBottom", number(*l, theme))],
         StyleProperty::PaddingLeft(l) => vec![("paddingLeft", number(*l, theme))],
         // RN's own direction-relative props; they resolve against
         // `I18nManager.isRTL` at runtime, same role as CSS's inline-start/end.
-        StyleProperty::MarginInlineStart(d) => vec![("marginStart", dimension_value(*d, theme))],
-        StyleProperty::MarginInlineEnd(d) => vec![("marginEnd", dimension_value(*d, theme))],
+        StyleProperty::MarginInlineStart(d) => vec![("marginStart", dimension_value(d, theme))],
+        StyleProperty::MarginInlineEnd(d) => vec![("marginEnd", dimension_value(d, theme))],
         StyleProperty::PaddingInlineStart(l) => vec![("paddingStart", number(*l, theme))],
         StyleProperty::PaddingInlineEnd(l) => vec![("paddingEnd", number(*l, theme))],
-        StyleProperty::Width(d) => vec![("width", dimension_value(*d, theme))],
-        StyleProperty::Height(d) => vec![("height", dimension_value(*d, theme))],
-        StyleProperty::MinWidth(d) => vec![("minWidth", dimension_value(*d, theme))],
-        StyleProperty::FlexBasis(d) => vec![("flexBasis", dimension_value(*d, theme))],
+        StyleProperty::Width(d) => vec![("width", dimension_value(d, theme))],
+        StyleProperty::Height(d) => vec![("height", dimension_value(d, theme))],
+        StyleProperty::MinWidth(d) => vec![("minWidth", dimension_value(d, theme))],
+        StyleProperty::FlexBasis(d) => vec![("flexBasis", dimension_value(d, theme))],
         // The block/inline logical sizes only differ from height/width
         // under a vertical `writing-mode`, which React Native has no
         // concept of -- the same assumption `py-*` already lowers under.
-        StyleProperty::BlockSize(d) => vec![("height", dimension_value(*d, theme))],
-        StyleProperty::InlineSize(d) => vec![("width", dimension_value(*d, theme))],
-        StyleProperty::MaxBlockSize(d) => vec![("maxHeight", dimension_value(*d, theme))],
-        StyleProperty::MaxInlineSize(d) => vec![("maxWidth", dimension_value(*d, theme))],
-        StyleProperty::MinBlockSize(d) => vec![("minHeight", dimension_value(*d, theme))],
-        StyleProperty::MinInlineSize(d) => vec![("minWidth", dimension_value(*d, theme))],
-        StyleProperty::MarginBlockStart(d) => vec![("marginTop", dimension_value(*d, theme))],
-        StyleProperty::MarginBlockEnd(d) => vec![("marginBottom", dimension_value(*d, theme))],
+        StyleProperty::BlockSize(d) => vec![("height", dimension_value(d, theme))],
+        StyleProperty::InlineSize(d) => vec![("width", dimension_value(d, theme))],
+        StyleProperty::MaxBlockSize(d) => vec![("maxHeight", dimension_value(d, theme))],
+        StyleProperty::MaxInlineSize(d) => vec![("maxWidth", dimension_value(d, theme))],
+        StyleProperty::MinBlockSize(d) => vec![("minHeight", dimension_value(d, theme))],
+        StyleProperty::MinInlineSize(d) => vec![("minWidth", dimension_value(d, theme))],
+        StyleProperty::MarginBlockStart(d) => vec![("marginTop", dimension_value(d, theme))],
+        StyleProperty::MarginBlockEnd(d) => vec![("marginBottom", dimension_value(d, theme))],
         StyleProperty::PaddingBlockStart(l) => vec![("paddingTop", number(*l, theme))],
         StyleProperty::PaddingBlockEnd(l) => vec![("paddingBottom", number(*l, theme))],
         // Refused upstream by `unsupported_on_native`.
@@ -482,9 +493,9 @@ pub fn property_and_value(prop: &StyleProperty, theme: &Theme) -> Vec<(&'static 
         | StyleProperty::TextIndent(_)
         | StyleProperty::BorderSpacingX(_)
         | StyleProperty::BorderSpacingY(_) => Vec::new(),
-        StyleProperty::MinHeight(d) => vec![("minHeight", dimension_value(*d, theme))],
-        StyleProperty::MaxWidth(d) => vec![("maxWidth", dimension_value(*d, theme))],
-        StyleProperty::MaxHeight(d) => vec![("maxHeight", dimension_value(*d, theme))],
+        StyleProperty::MinHeight(d) => vec![("minHeight", dimension_value(d, theme))],
+        StyleProperty::MaxWidth(d) => vec![("maxWidth", dimension_value(d, theme))],
+        StyleProperty::MaxHeight(d) => vec![("maxHeight", dimension_value(d, theme))],
         // RN's zIndex is a number; `auto` is refused upstream.
         StyleProperty::ZIndex(z) => z.map_or_else(Vec::new, |z| vec![("zIndex", z.to_string())]),
         // RN's `cursor` takes `auto` and `pointer`; every other keyword is
@@ -604,23 +615,23 @@ pub fn property_and_value(prop: &StyleProperty, theme: &Theme) -> Vec<(&'static 
             }
             .to_string(),
         )],
-        StyleProperty::InsetTop(d) => vec![("top", dimension_value(*d, theme))],
-        StyleProperty::InsetRight(d) => vec![("right", dimension_value(*d, theme))],
-        StyleProperty::InsetBottom(d) => vec![("bottom", dimension_value(*d, theme))],
-        StyleProperty::InsetLeft(d) => vec![("left", dimension_value(*d, theme))],
-        StyleProperty::InsetInlineStart(d) => vec![("start", dimension_value(*d, theme))],
-        StyleProperty::InsetInlineEnd(d) => vec![("end", dimension_value(*d, theme))],
+        StyleProperty::InsetTop(d) => vec![("top", dimension_value(d, theme))],
+        StyleProperty::InsetRight(d) => vec![("right", dimension_value(d, theme))],
+        StyleProperty::InsetBottom(d) => vec![("bottom", dimension_value(d, theme))],
+        StyleProperty::InsetLeft(d) => vec![("left", dimension_value(d, theme))],
+        StyleProperty::InsetInlineStart(d) => vec![("start", dimension_value(d, theme))],
+        StyleProperty::InsetInlineEnd(d) => vec![("end", dimension_value(d, theme))],
         // No axis shorthand in React Native, so both edges are written.
         StyleProperty::InsetInline(d) => {
-            vec![("start", dimension_value(*d, theme)), ("end", dimension_value(*d, theme))]
+            vec![("start", dimension_value(d, theme)), ("end", dimension_value(d, theme))]
         }
         StyleProperty::InsetBlock(d) => {
-            vec![("top", dimension_value(*d, theme)), ("bottom", dimension_value(*d, theme))]
+            vec![("top", dimension_value(d, theme)), ("bottom", dimension_value(d, theme))]
         }
         // The block axis is only distinct from top/bottom under a vertical
         // `writing-mode`, which React Native has no concept of.
-        StyleProperty::InsetBlockStart(d) => vec![("top", dimension_value(*d, theme))],
-        StyleProperty::InsetBlockEnd(d) => vec![("bottom", dimension_value(*d, theme))],
+        StyleProperty::InsetBlockStart(d) => vec![("top", dimension_value(d, theme))],
+        StyleProperty::InsetBlockEnd(d) => vec![("bottom", dimension_value(d, theme))],
         StyleProperty::BackgroundColor(c) => vec![("backgroundColor", resolve_color(c))],
         StyleProperty::Opacity(o) => vec![("opacity", format!("{o}"))],
         StyleProperty::BorderColor(c) => vec![("borderColor", resolve_color(c))],

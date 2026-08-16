@@ -287,11 +287,30 @@ pub enum StyleProperty {
     /// `columns-*`. CSS multi-column layout, which React Native has no
     /// equivalent for at all.
     Columns(ColumnCount),
+    /// `underline-offset-*`. A length rather than a keyword, so it takes a
+    /// real property: the negative forms have to go through `negated`,
+    /// which has nothing sensible to do with a `Keyword`.
+    TextUnderlineOffset(Dimension),
     /// `mix-blend-*` / `bg-blend-*`, as the CSS keyword. React Native has
     /// `mixBlendMode` and takes the same names, so the text is shared;
     /// `background-blend-mode` has no equivalent there.
     MixBlendMode(&'static str),
     BackgroundBlendMode(&'static str),
+    /// One CSS declaration with a fixed value, as `(property, value)`.
+    ///
+    /// The deliberate escape hatch for the long tail: `touch-action`,
+    /// `break-after`, `contain`, `color-scheme` and eighty-odd others are
+    /// each a closed list of keywords that Dowel neither computes nor
+    /// reinterprets, and giving every one its own variant would be ninety
+    /// enum arms restating the CSS spec.
+    ///
+    /// Strictly for properties nothing else models. A property that *does*
+    /// have a variant must not also arrive here: `dedupe_key` tells two
+    /// `Keyword`s apart by property name but cannot see that
+    /// `Keyword("align-items", ..)` and `AlignItems(..)` are the same
+    /// declaration, so the two spellings would stop overriding each other.
+    /// `keyword_utility` in `dowel_parser` is where that rule is kept.
+    Keyword(&'static str, &'static str),
     /// Column count for `grid-cols-<n>`. Web-only: React Native's layout
     /// engine has no grid implementation at all.
     GridTemplateColumns(GridTracks),
@@ -580,7 +599,11 @@ pub enum StyleProperty {
     /// `dedupe_key` is what makes that safe -- see its doc comment.
     ScrollMargin(Edge, Length),
     ScrollPadding(Edge, Length),
-    ScrollBehaviorSmooth,
+    /// `scroll-smooth`/`scroll-auto`. One variant covering both values, not
+    /// a `Smooth` marker: the two are the same CSS property, and splitting
+    /// them across a variant and a `Keyword` would stop them overriding
+    /// each other -- see `StyleProperty::Keyword`.
+    ScrollBehavior(&'static str),
     /// SVG paint, plus the handful of colour properties that are neither
     /// text nor background. All plain declarations -- the work here was
     /// recognising the utilities, not lowering them.
@@ -752,6 +775,15 @@ impl StyleProperty {
             StyleProperty::Columns(_) => {
                 Some("`columns-*`: React Native has no multi-column layout".to_string())
             }
+            // The long tail. React Native has three of these properties and
+            // none of the rest -- checked against its own StyleSheet types
+            // rather than assumed, the same way the refusal audit checks
+            // everything else here.
+            StyleProperty::Keyword(property, _)
+                if !matches!(*property, "user-select" | "vertical-align" | "transform-origin") =>
+            {
+                Some(format!("`{property}`: React Native has no such style"))
+            }
             StyleProperty::BackgroundBlendMode(_) => Some(
                 "`bg-blend-*`: React Native has `mixBlendMode` but no background-blend-mode -- \n                 there is no separate background layer there to blend against"
                     .to_string(),
@@ -858,14 +890,18 @@ impl StyleProperty {
             ),
             StyleProperty::ScrollMargin(..)
             | StyleProperty::ScrollPadding(..)
-            | StyleProperty::ScrollBehaviorSmooth => Some(
+            | StyleProperty::ScrollBehavior(_) => Some(
                 "`scroll-m-*`/`scroll-p-*`/`scroll-smooth`: these tune CSS scroll-snap and \
                  smooth scrolling, neither of which React Native's ScrollView exposes as a style"
                     .to_string(),
             ),
-            StyleProperty::TextDecorationThickness(_) => Some(
-                "`decoration-<n>`: React Native has no text-decoration thickness".to_string(),
-            ),
+            StyleProperty::TextDecorationThickness(_) | StyleProperty::TextUnderlineOffset(_) => {
+                Some(
+                    "`decoration-<n>`/`underline-offset-*`: React Native draws its text \
+                     decorations at a fixed thickness and offset, and exposes neither"
+                        .to_string(),
+                )
+            }
             StyleProperty::BorderTopStyle(BorderStyle::Double | BorderStyle::Hidden)
             | StyleProperty::BorderRightStyle(BorderStyle::Double | BorderStyle::Hidden)
             | StyleProperty::BorderBottomStyle(BorderStyle::Double | BorderStyle::Hidden)
@@ -1331,7 +1367,16 @@ impl StyleProperty {
     /// an `Edge`, a `(MaskSlot, MaskStop)` pair, and a bare `MaskSlot`
     /// without those needing a common type. Only the variants listed here
     /// use it; everything else passes 0.
-    fn dedupe_key(&self) -> (std::mem::Discriminant<Self>, u32) {
+    ///
+    /// `Keyword` needs a third component: every one of those shares a
+    /// single discriminant, so the CSS property name is what tells two of
+    /// them apart. It is a string rather than a number on purpose --
+    /// hashing into the integer would make a collision silently drop a
+    /// declaration, which is the failure this key exists to prevent.
+    fn dedupe_key(&self) -> (std::mem::Discriminant<Self>, u32, &'static str) {
+        if let StyleProperty::Keyword(property, _) = self {
+            return (std::mem::discriminant(self), 0, property);
+        }
         let target = match self {
             StyleProperty::ScrollMargin(edge, _) | StyleProperty::ScrollPadding(edge, _) => {
                 *edge as u32
@@ -1346,7 +1391,7 @@ impl StyleProperty {
             }
             _ => 0,
         };
-        (std::mem::discriminant(self), target)
+        (std::mem::discriminant(self), target, "")
     }
 }
 

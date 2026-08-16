@@ -431,6 +431,19 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
         StyleProperty::Cursor(keyword) => vec![("cursor", format!("'{keyword}'"))],
         // RN has `mixBlendMode` and takes the same keywords;
         // `background-blend-mode` is refused upstream.
+        // Only the three React Native has; the rest are refused upstream by
+        // name. The key is the camelCase of the CSS property, which is how
+        // RN spells all three.
+        StyleProperty::Keyword("user-select", value) => {
+            vec![("userSelect", format!("'{value}'"))]
+        }
+        StyleProperty::Keyword("vertical-align", value) => {
+            vec![("verticalAlign", format!("'{value}'"))]
+        }
+        StyleProperty::Keyword("transform-origin", value) => {
+            vec![("transformOrigin", format!("'{value}'"))]
+        }
+        StyleProperty::Keyword(..) => Vec::new(),
         StyleProperty::MixBlendMode(m) => vec![("mixBlendMode", format!("'{m}'"))],
         StyleProperty::BackgroundBlendMode(_) => Vec::new(),
         // Both refused upstream: Yoga has no flex `order`, and React Native
@@ -590,9 +603,11 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
         | StyleProperty::CaretColor(_)
         | StyleProperty::PlaceholderColor(_)
         | StyleProperty::TextDecorationThickness(_)
+        // Refused upstream: RN has no text-decoration metrics at all.
+        | StyleProperty::TextUnderlineOffset(_)
         | StyleProperty::ScrollMargin(..)
         | StyleProperty::ScrollPadding(..)
-        | StyleProperty::ScrollBehaviorSmooth
+        | StyleProperty::ScrollBehavior(_)
         | StyleProperty::MaskClip(_)
         | StyleProperty::MaskOrigin(_)
         | StyleProperty::MaskMode(_)

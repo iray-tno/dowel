@@ -355,6 +355,20 @@ fn expand_dimension_family(token: &str) -> Option<Vec<StyleProperty>> {
             return Some(vec![make(value)]);
         }
     }
+    // A plain pixel count, not the spacing scale: `underline-offset-4` is
+    // 4px, where `p-4` is 16px. Tailwind uses the bare number here because
+    // an underline offset is a typographic distance rather than a layout
+    // step.
+    if let Some(rest) = token.strip_prefix("underline-offset-") {
+        if rest == "auto" {
+            return Some(vec![StyleProperty::TextUnderlineOffset(Dimension::Auto)]);
+        }
+        if let Ok(px) = rest.parse::<f64>() {
+            return Some(vec![StyleProperty::TextUnderlineOffset(Dimension::Length(
+                Length::Px(px),
+            ))]);
+        }
+    }
     if let Some(rest) = token.strip_prefix("pbs-") {
         return parse_spacing_suffix(rest).map(|l| vec![StyleProperty::PaddingBlockStart(l)]);
     }
@@ -630,10 +644,16 @@ fn expand_mask(token: &str) -> Option<StyleProperty> {
 fn expand_scroll(token: &str) -> Option<Vec<StyleProperty>> {
     let rest = token.strip_prefix("scroll-")?;
 
-    // `scroll-auto` is the initial value, so it emits nothing meaningful on
-    // its own and is left unsupported rather than approximated.
-    if rest == "smooth" {
-        return Some(vec![StyleProperty::ScrollBehaviorSmooth]);
+    // Both values of the property, handled here rather than in
+    // `KEYWORD_UTILITIES` -- splitting them would put `scroll-smooth` in a
+    // variant and `scroll-auto` in a `Keyword`, and `dedupe_key` can't see
+    // that those are the same declaration, so writing both would emit both.
+    if let Some(behavior) = match rest {
+        "smooth" => Some("smooth"),
+        "auto" => Some("auto"),
+        _ => None,
+    } {
+        return Some(vec![StyleProperty::ScrollBehavior(behavior)]);
     }
 
     let family = rest.chars().next()?;
@@ -1387,6 +1407,320 @@ fn parse_cursor(token: &str) -> Option<&str> {
 /// the conformance report rather than caught by it: a candidate Tailwind
 /// produces no rule for leaves the denominator, so Dowel accepting a class
 /// Tailwind rejects is exactly the shape of error that report can't see.
+/// The utilities that are exactly one CSS declaration with a fixed value.
+///
+/// Ninety-odd properties whose whole content is a closed list of keywords
+/// Dowel neither computes nor reinterprets -- `touch-action`, `contain`,
+/// `break-after`, `color-scheme`. Modelling each as its own
+/// `StyleProperty` would be ninety enum arms and three hundred backend
+/// arms restating the CSS spec; this states it once.
+///
+/// Generated from Tailwind's own output rather than written from memory:
+/// each row is what `tailwindcss` compiles that class to, read through the
+/// same normalizer the conformance report uses. That is why the values keep
+/// details a hand-written table would smooth over -- `place-content-center-safe`
+/// really is `safe center`, `origin-left` really is `0` and not `left`.
+///
+/// **Invariant**: no property here may also be modelled as a variant of its
+/// own. `dedupe_key` tells two `Keyword`s apart by property name but cannot
+/// see that `Keyword("align-items", ..)` and an `AlignItems(..)` are the
+/// same declaration, so both spellings would stop overriding each other.
+/// `keyword_table_avoids_the_modelled_properties` is the test that holds
+/// the line.
+const KEYWORD_UTILITIES: &[(&str, &str, &str)] = &[
+        ("align-baseline", "vertical-align", "baseline"),
+        ("align-bottom", "vertical-align", "bottom"),
+        ("align-middle", "vertical-align", "middle"),
+        ("align-sub", "vertical-align", "sub"),
+        ("align-super", "vertical-align", "super"),
+        ("align-text-bottom", "vertical-align", "text-bottom"),
+        ("align-text-top", "vertical-align", "text-top"),
+        ("align-top", "vertical-align", "top"),
+        ("appearance-auto", "appearance", "auto"),
+        ("appearance-none", "appearance", "none"),
+        ("auto-cols-auto", "grid-auto-columns", "auto"),
+        ("auto-cols-fr", "grid-auto-columns", "minmax(0, 1fr)"),
+        ("auto-cols-max", "grid-auto-columns", "max-content"),
+        ("auto-cols-min", "grid-auto-columns", "min-content"),
+        ("auto-rows-auto", "grid-auto-rows", "auto"),
+        ("auto-rows-fr", "grid-auto-rows", "minmax(0, 1fr)"),
+        ("auto-rows-max", "grid-auto-rows", "max-content"),
+        ("auto-rows-min", "grid-auto-rows", "min-content"),
+        ("bg-auto", "background-size", "auto"),
+        ("bg-bottom", "background-position", "bottom"),
+        ("bg-bottom-left", "background-position", "left bottom"),
+        ("bg-bottom-right", "background-position", "right bottom"),
+        ("bg-center", "background-position", "center"),
+        ("bg-clip-border", "background-clip", "border-box"),
+        ("bg-clip-content", "background-clip", "content-box"),
+        ("bg-clip-padding", "background-clip", "padding-box"),
+        ("bg-clip-text", "background-clip", "text"),
+        ("bg-contain", "background-size", "contain"),
+        ("bg-cover", "background-size", "cover"),
+        ("bg-fixed", "background-attachment", "fixed"),
+        ("bg-left", "background-position", "left"),
+        ("bg-local", "background-attachment", "local"),
+        ("bg-no-repeat", "background-repeat", "no-repeat"),
+        ("bg-origin-border", "background-origin", "border-box"),
+        ("bg-origin-content", "background-origin", "content-box"),
+        ("bg-origin-padding", "background-origin", "padding-box"),
+        ("bg-repeat", "background-repeat", "repeat"),
+        ("bg-repeat-round", "background-repeat", "round"),
+        ("bg-repeat-space", "background-repeat", "space"),
+        ("bg-repeat-x", "background-repeat", "repeat-x"),
+        ("bg-repeat-y", "background-repeat", "repeat-y"),
+        ("bg-right", "background-position", "right"),
+        ("bg-scroll", "background-attachment", "scroll"),
+        ("bg-top", "background-position", "top"),
+        ("bg-top-left", "background-position", "left top"),
+        ("bg-top-right", "background-position", "right top"),
+        ("border-collapse", "border-collapse", "collapse"),
+        ("border-separate", "border-collapse", "separate"),
+        ("break-after-all", "break-after", "all"),
+        ("break-after-auto", "break-after", "auto"),
+        ("break-after-avoid", "break-after", "avoid"),
+        ("break-after-avoid-page", "break-after", "avoid-page"),
+        ("break-after-column", "break-after", "column"),
+        ("break-after-left", "break-after", "left"),
+        ("break-after-page", "break-after", "page"),
+        ("break-after-right", "break-after", "right"),
+        ("break-all", "word-break", "break-all"),
+        ("break-before-all", "break-before", "all"),
+        ("break-before-auto", "break-before", "auto"),
+        ("break-before-avoid", "break-before", "avoid"),
+        ("break-before-avoid-page", "break-before", "avoid-page"),
+        ("break-before-column", "break-before", "column"),
+        ("break-before-left", "break-before", "left"),
+        ("break-before-page", "break-before", "page"),
+        ("break-before-right", "break-before", "right"),
+        ("break-inside-auto", "break-inside", "auto"),
+        ("break-inside-avoid", "break-inside", "avoid"),
+        ("break-inside-avoid-column", "break-inside", "avoid-column"),
+        ("break-inside-avoid-page", "break-inside", "avoid-page"),
+        ("break-keep", "word-break", "keep-all"),
+        ("caption-bottom", "caption-side", "bottom"),
+        ("caption-top", "caption-side", "top"),
+        ("clear-both", "clear", "both"),
+        ("clear-end", "clear", "inline-end"),
+        ("clear-left", "clear", "left"),
+        ("clear-none", "clear", "none"),
+        ("clear-right", "clear", "right"),
+        ("clear-start", "clear", "inline-start"),
+        ("contain-content", "contain", "content"),
+        ("contain-inline-size", "contain", "inline-size"),
+        ("contain-layout", "contain", "layout"),
+        ("contain-none", "contain", "none"),
+        ("contain-paint", "contain", "paint"),
+        ("contain-size", "contain", "size"),
+        ("contain-strict", "contain", "strict"),
+        ("contain-style", "contain", "style"),
+        ("delay-75", "transition-delay", "75ms"),
+        ("delay-100", "transition-delay", "100ms"),
+        ("delay-150", "transition-delay", "150ms"),
+        ("delay-200", "transition-delay", "200ms"),
+        ("delay-300", "transition-delay", "300ms"),
+        ("delay-500", "transition-delay", "500ms"),
+        ("delay-700", "transition-delay", "700ms"),
+        ("delay-1000", "transition-delay", "1000ms"),
+        ("diagonal-fractions", "font-variant-numeric", "diagonal-fractions"),
+        ("field-sizing-content", "field-sizing", "content"),
+        ("field-sizing-fixed", "field-sizing", "fixed"),
+        ("float-end", "float", "inline-end"),
+        ("float-left", "float", "left"),
+        ("float-none", "float", "none"),
+        ("float-right", "float", "right"),
+        ("float-start", "float", "inline-start"),
+        ("font-stretch-condensed", "font-stretch", "condensed"),
+        ("font-stretch-expanded", "font-stretch", "expanded"),
+        ("font-stretch-extra-condensed", "font-stretch", "extra-condensed"),
+        ("font-stretch-extra-expanded", "font-stretch", "extra-expanded"),
+        ("font-stretch-normal", "font-stretch", "normal"),
+        ("font-stretch-semi-condensed", "font-stretch", "semi-condensed"),
+        ("font-stretch-semi-expanded", "font-stretch", "semi-expanded"),
+        ("font-stretch-ultra-condensed", "font-stretch", "ultra-condensed"),
+        ("font-stretch-ultra-expanded", "font-stretch", "ultra-expanded"),
+        ("forced-color-adjust-auto", "forced-color-adjust", "auto"),
+        ("forced-color-adjust-none", "forced-color-adjust", "none"),
+        ("grid-flow-col", "grid-auto-flow", "column"),
+        ("grid-flow-col-dense", "grid-auto-flow", "column dense"),
+        ("grid-flow-dense", "grid-auto-flow", "dense"),
+        ("grid-flow-row", "grid-auto-flow", "row"),
+        ("grid-flow-row-dense", "grid-auto-flow", "row dense"),
+        ("justify-items-center", "justify-items", "center"),
+        ("justify-items-center-safe", "justify-items", "safe center"),
+        ("justify-items-end", "justify-items", "end"),
+        ("justify-items-end-safe", "justify-items", "safe end"),
+        ("justify-items-normal", "justify-items", "normal"),
+        ("justify-items-start", "justify-items", "start"),
+        ("justify-items-stretch", "justify-items", "stretch"),
+        ("justify-self-auto", "justify-self", "auto"),
+        ("justify-self-center", "justify-self", "center"),
+        ("justify-self-center-safe", "justify-self", "safe center"),
+        ("justify-self-end", "justify-self", "flex-end"),
+        ("justify-self-end-safe", "justify-self", "safe flex-end"),
+        ("justify-self-start", "justify-self", "flex-start"),
+        ("justify-self-stretch", "justify-self", "stretch"),
+        ("lining-nums", "font-variant-numeric", "lining-nums"),
+        ("list-decimal", "list-style-type", "decimal"),
+        ("list-disc", "list-style-type", "disc"),
+        ("list-image-none", "list-style-image", "none"),
+        ("list-inside", "list-style-position", "inside"),
+        ("list-none", "list-style-type", "none"),
+        ("list-outside", "list-style-position", "outside"),
+        ("normal-nums", "font-variant-numeric", "normal"),
+        ("object-bottom", "object-position", "bottom"),
+        ("object-bottom-left", "object-position", "left bottom"),
+        ("object-bottom-right", "object-position", "right bottom"),
+        ("object-center", "object-position", "center"),
+        ("object-left", "object-position", "left"),
+        ("object-right", "object-position", "right"),
+        ("object-top", "object-position", "top"),
+        ("object-top-left", "object-position", "left top"),
+        ("object-top-right", "object-position", "right top"),
+        ("oldstyle-nums", "font-variant-numeric", "oldstyle-nums"),
+        ("ordinal", "font-variant-numeric", "ordinal"),
+        ("origin-bottom", "transform-origin", "bottom"),
+        ("origin-bottom-left", "transform-origin", "0 100%"),
+        ("origin-bottom-right", "transform-origin", "100% 100%"),
+        ("origin-center", "transform-origin", "center"),
+        ("origin-left", "transform-origin", "0"),
+        ("origin-right", "transform-origin", "100%"),
+        ("origin-top", "transform-origin", "top"),
+        ("origin-top-left", "transform-origin", "0 0"),
+        ("origin-top-right", "transform-origin", "100% 0"),
+        ("overscroll-auto", "overscroll-behavior", "auto"),
+        ("overscroll-contain", "overscroll-behavior", "contain"),
+        ("overscroll-none", "overscroll-behavior", "none"),
+        ("overscroll-x-auto", "overscroll-behavior-x", "auto"),
+        ("overscroll-x-contain", "overscroll-behavior-x", "contain"),
+        ("overscroll-x-none", "overscroll-behavior-x", "none"),
+        ("overscroll-y-auto", "overscroll-behavior-y", "auto"),
+        ("overscroll-y-contain", "overscroll-behavior-y", "contain"),
+        ("overscroll-y-none", "overscroll-behavior-y", "none"),
+        ("perspective-distant", "perspective", "1200px"),
+        ("perspective-dramatic", "perspective", "100px"),
+        ("perspective-midrange", "perspective", "800px"),
+        ("perspective-near", "perspective", "300px"),
+        ("perspective-none", "perspective", "none"),
+        ("perspective-normal", "perspective", "500px"),
+        ("perspective-origin-bottom", "perspective-origin", "bottom"),
+        ("perspective-origin-bottom-left", "perspective-origin", "0 100%"),
+        ("perspective-origin-bottom-right", "perspective-origin", "100% 100%"),
+        ("perspective-origin-center", "perspective-origin", "center"),
+        ("perspective-origin-left", "perspective-origin", "0"),
+        ("perspective-origin-right", "perspective-origin", "100%"),
+        ("perspective-origin-top", "perspective-origin", "top"),
+        ("perspective-origin-top-left", "perspective-origin", "0 0"),
+        ("perspective-origin-top-right", "perspective-origin", "100% 0"),
+        ("place-content-around", "place-content", "space-around"),
+        ("place-content-baseline", "place-content", "baseline"),
+        ("place-content-between", "place-content", "space-between"),
+        ("place-content-center", "place-content", "center"),
+        ("place-content-center-safe", "place-content", "safe center"),
+        ("place-content-end", "place-content", "end"),
+        ("place-content-end-safe", "place-content", "safe end"),
+        ("place-content-evenly", "place-content", "space-evenly"),
+        ("place-content-start", "place-content", "start"),
+        ("place-content-stretch", "place-content", "stretch"),
+        ("place-items-baseline", "place-items", "baseline"),
+        ("place-items-center", "place-items", "center"),
+        ("place-items-center-safe", "place-items", "safe center"),
+        ("place-items-end", "place-items", "end"),
+        ("place-items-end-safe", "place-items", "safe end"),
+        ("place-items-start", "place-items", "start"),
+        ("place-items-stretch", "place-items", "stretch"),
+        ("place-self-auto", "place-self", "auto"),
+        ("place-self-center", "place-self", "center"),
+        ("place-self-center-safe", "place-self", "safe center"),
+        ("place-self-end", "place-self", "end"),
+        ("place-self-end-safe", "place-self", "safe end"),
+        ("place-self-start", "place-self", "start"),
+        ("place-self-stretch", "place-self", "stretch"),
+        ("proportional-nums", "font-variant-numeric", "proportional-nums"),
+        ("resize", "resize", "both"),
+        ("resize-none", "resize", "none"),
+        ("resize-x", "resize", "horizontal"),
+        ("resize-y", "resize", "vertical"),
+        ("scheme-dark", "color-scheme", "dark"),
+        ("scheme-light", "color-scheme", "light"),
+        ("scheme-light-dark", "color-scheme", "light dark"),
+        ("scheme-normal", "color-scheme", "normal"),
+        ("scheme-only-dark", "color-scheme", "only dark"),
+        ("scheme-only-light", "color-scheme", "only light"),
+        ("slashed-zero", "font-variant-numeric", "slashed-zero"),
+        ("snap-align-none", "scroll-snap-align", "none"),
+        ("snap-always", "scroll-snap-stop", "always"),
+        ("snap-both", "scroll-snap-type", "both proximity"),
+        ("snap-center", "scroll-snap-align", "center"),
+        ("snap-end", "scroll-snap-align", "end"),
+        ("snap-none", "scroll-snap-type", "none"),
+        ("snap-normal", "scroll-snap-stop", "normal"),
+        ("snap-start", "scroll-snap-align", "start"),
+        ("snap-x", "scroll-snap-type", "x proximity"),
+        ("snap-y", "scroll-snap-type", "y proximity"),
+        ("stacked-fractions", "font-variant-numeric", "stacked-fractions"),
+        ("tab-2", "tab-size", "2"),
+        ("tab-4", "tab-size", "4"),
+        ("tab-8", "tab-size", "8"),
+        ("table-auto", "table-layout", "auto"),
+        ("table-fixed", "table-layout", "fixed"),
+        ("tabular-nums", "font-variant-numeric", "tabular-nums"),
+        ("text-balance", "text-wrap", "balance"),
+        ("text-nowrap", "text-wrap", "nowrap"),
+        ("text-pretty", "text-wrap", "pretty"),
+        ("text-shadow-2xs", "text-shadow", "0 1px 0 rgb(0 0 0 / 0.15)"),
+        ("text-shadow-lg", "text-shadow", "0 1px 2px rgb(0 0 0 / 0.1), 0 3px 2px rgb(0 0 0 / 0.1), 0 4px 8px rgb(0 0 0 / 0.1)"),
+        ("text-shadow-md", "text-shadow", "0 1px 1px rgb(0 0 0 / 0.1), 0 1px 2px rgb(0 0 0 / 0.1), 0 2px 4px rgb(0 0 0 / 0.1)"),
+        ("text-shadow-none", "text-shadow", "none"),
+        ("text-shadow-sm", "text-shadow", "0 1px 0 rgb(0 0 0 / 0.075), 0 1px 1px rgb(0 0 0 / 0.075), 0 2px 2px rgb(0 0 0 / 0.075)"),
+        ("text-shadow-xs", "text-shadow", "0 1px 1px rgb(0 0 0 / 0.2)"),
+        ("text-wrap", "text-wrap", "wrap"),
+        ("touch-auto", "touch-action", "auto"),
+        ("touch-manipulation", "touch-action", "manipulation"),
+        ("touch-none", "touch-action", "none"),
+        ("touch-pan-down", "touch-action", "pan-down"),
+        ("touch-pan-left", "touch-action", "pan-left"),
+        ("touch-pan-right", "touch-action", "pan-right"),
+        ("touch-pan-up", "touch-action", "pan-up"),
+        ("touch-pan-x", "touch-action", "pan-x"),
+        ("touch-pan-y", "touch-action", "pan-y"),
+        ("touch-pinch-zoom", "touch-action", "pinch-zoom"),
+        ("transform-3d", "transform-style", "preserve-3d"),
+        ("transform-border", "transform-box", "border-box"),
+        ("transform-content", "transform-box", "content-box"),
+        ("transform-fill", "transform-box", "fill-box"),
+        ("transform-flat", "transform-style", "flat"),
+        ("transform-stroke", "transform-box", "stroke-box"),
+        ("transform-view", "transform-box", "view-box"),
+        ("transition-discrete", "transition-behavior", "allow-discrete"),
+        ("transition-normal", "transition-behavior", "normal"),
+        ("will-change-auto", "will-change", "auto"),
+        ("will-change-contents", "will-change", "contents"),
+        ("will-change-scroll", "will-change", "scroll-position"),
+        ("will-change-transform", "will-change", "transform"),
+        ("wrap-anywhere", "overflow-wrap", "anywhere"),
+        ("wrap-break-word", "overflow-wrap", "break-word"),
+        ("wrap-normal", "overflow-wrap", "normal"),
+        ("zoom-50", "zoom", "50%"),
+        ("zoom-75", "zoom", "75%"),
+        ("zoom-90", "zoom", "90%"),
+        ("zoom-95", "zoom", "95%"),
+        ("zoom-100", "zoom", "100%"),
+        ("zoom-105", "zoom", "105%"),
+        ("zoom-110", "zoom", "110%"),
+        ("zoom-125", "zoom", "125%"),
+        ("zoom-150", "zoom", "150%"),
+        ("zoom-200", "zoom", "200%"),
+];
+
+/// The one-declaration utilities; see `KEYWORD_UTILITIES`.
+fn keyword_utility(token: &str) -> Option<StyleProperty> {
+    KEYWORD_UTILITIES
+        .iter()
+        .find(|(name, _, _)| *name == token)
+        .map(|(_, property, value)| StyleProperty::Keyword(property, value))
+}
+
 /// The families that are a fixed list of CSS keywords and nothing else:
 /// `flex-<n>`, the two blend modes, and the display keywords beyond the
 /// three Yoga implements.
@@ -1662,6 +1996,7 @@ fn negated(prop: StyleProperty) -> Option<StyleProperty> {
         StyleProperty::MarginBlockStart(d) => StyleProperty::MarginBlockStart(flip(d)?),
         StyleProperty::MarginBlockEnd(d) => StyleProperty::MarginBlockEnd(flip(d)?),
         StyleProperty::TextIndent(d) => StyleProperty::TextIndent(flip(d)?),
+        StyleProperty::TextUnderlineOffset(d) => StyleProperty::TextUnderlineOffset(flip(d)?),
         StyleProperty::InsetTop(d) => StyleProperty::InsetTop(flip(d)?),
         StyleProperty::InsetRight(d) => StyleProperty::InsetRight(flip(d)?),
         StyleProperty::InsetBottom(d) => StyleProperty::InsetBottom(flip(d)?),
@@ -1782,6 +2117,9 @@ fn expand_base_utility(token: &str) -> Vec<StyleProperty> {
         return props;
     }
     if let Some(prop) = parse_keyword_utility(token) {
+        return vec![prop];
+    }
+    if let Some(prop) = keyword_utility(token) {
         return vec![prop];
     }
     if let Some(prop) = expand_scrollbar(token) {
@@ -2197,6 +2535,73 @@ mod tests {
     }
 
     #[test]
+    fn underline_offset_is_plain_pixels_not_the_spacing_scale() {
+        // `underline-offset-4` is 4px where `p-4` is 16px: an underline
+        // offset is a typographic distance, not a layout step, so Tailwind
+        // uses the bare number. Running it through the spacing scale
+        // multiplied everything by four, which the oracle caught.
+        assert_eq!(
+            expand_utility("underline-offset-4").1,
+            vec![StyleProperty::TextUnderlineOffset(Dimension::Length(Length::Px(4.0)))]
+        );
+        assert_eq!(
+            expand_utility("-underline-offset-2").1,
+            vec![StyleProperty::TextUnderlineOffset(Dimension::Length(Length::Px(-2.0)))]
+        );
+        assert_eq!(
+            expand_utility("underline-offset-auto").1,
+            vec![StyleProperty::TextUnderlineOffset(Dimension::Auto)]
+        );
+    }
+
+    #[test]
+    fn the_keyword_table_carries_tailwinds_own_values() {
+        // Spot checks on details a table written from memory would smooth
+        // over. Each of these came out of Tailwind's compiled output.
+        for (token, property, value) in [
+            // "safe" is a prefix on the alignment, not a separate keyword.
+            ("place-content-center-safe", "place-content", "safe center"),
+            // A percentage, not the keyword `left`.
+            ("origin-left", "transform-origin", "0"),
+            // Two values, in the order CSS wants them.
+            ("bg-top-right", "background-position", "right top"),
+            ("touch-pan-x", "touch-action", "pan-x"),
+            ("scheme-only-dark", "color-scheme", "only dark"),
+        ] {
+            assert_eq!(
+                expand_utility(token).1,
+                vec![StyleProperty::Keyword(property, value)],
+                "{token}"
+            );
+        }
+    }
+
+    #[test]
+    fn keyword_table_avoids_the_modelled_properties() {
+        // The invariant `StyleProperty::Keyword` documents: no property may
+        // be reachable both as a `Keyword` and as a variant of its own,
+        // because `dedupe_key` tells two `Keyword`s apart by property name
+        // and cannot see that a `Keyword("scroll-behavior", ..)` and a
+        // `ScrollBehavior(..)` are the same declaration. Writing both would
+        // then emit both.
+        //
+        // Checked against the *Web emitter's* own answer rather than a
+        // hand-kept list: `property_and_value` is what decides a variant's
+        // CSS property, so asking it is the only way to be sure. This is
+        // how `scroll-auto` was caught -- it slipped into the table because
+        // `scroll-behavior` wasn't on the list I wrote by hand.
+        for (token, property, _) in KEYWORD_UTILITIES {
+            let (_, props) = expand_utility(token);
+            assert_eq!(props.len(), 1, "{token} should be one declaration: {props:?}");
+            assert!(
+                matches!(props[0], StyleProperty::Keyword(p, _) if p == *property),
+                "{token} is shadowed by a modelled utility: {:?}",
+                props[0]
+            );
+        }
+    }
+
+    #[test]
     fn the_sizes_css_can_state_and_dowel_cannot_compute_are_kept_as_text() {
         // Every one of these is resolved by the browser against state the
         // compiler doesn't have -- an intrinsic content size, or a viewport
@@ -2562,10 +2967,16 @@ mod tests {
         );
         // Padding takes no negative value, in CSS or in Tailwind.
         assert!(expand_utility("-scroll-p-4").1.is_empty());
-        assert_eq!(expand_utility("scroll-smooth").1, vec![StyleProperty::ScrollBehaviorSmooth]);
-        // `scroll-auto` is the initial value; left unsupported rather than
-        // emitted as a no-op declaration.
-        assert!(expand_utility("scroll-auto").1.is_empty());
+        // Both values live in the same variant. `scroll-auto` used to be
+        // left unsupported -- a coverage gap justified as a choice, since
+        // it *is* the initial value -- but Tailwind emits a declaration for
+        // it, and once it lowered it had to lower here rather than as a
+        // `Keyword`, or `scroll-smooth scroll-auto` would emit both.
+        assert_eq!(
+            expand_utility("scroll-smooth").1,
+            vec![StyleProperty::ScrollBehavior("smooth")]
+        );
+        assert_eq!(expand_utility("scroll-auto").1, vec![StyleProperty::ScrollBehavior("auto")]);
     }
 
     #[test]

@@ -287,6 +287,11 @@ pub enum StyleProperty {
     /// `columns-*`. CSS multi-column layout, which React Native has no
     /// equivalent for at all.
     Columns(ColumnCount),
+    /// `mix-blend-*` / `bg-blend-*`, as the CSS keyword. React Native has
+    /// `mixBlendMode` and takes the same names, so the text is shared;
+    /// `background-blend-mode` has no equivalent there.
+    MixBlendMode(&'static str),
+    BackgroundBlendMode(&'static str),
     /// Column count for `grid-cols-<n>`. Web-only: React Native's layout
     /// engine has no grid implementation at all.
     GridTemplateColumns(GridTracks),
@@ -666,6 +671,11 @@ pub enum Display {
     Block,
     InlineFlex,
     Grid,
+    /// The rest of CSS's display keywords, as authored. Grouped rather than
+    /// enumerated because Yoga implements none of them, so the only thing
+    /// the Native backend does with any of them is name it in a refusal --
+    /// there is no per-keyword behaviour to model.
+    Css(&'static str),
 }
 
 impl Display {
@@ -720,6 +730,7 @@ impl StyleProperty {
                     Display::Block => "block",
                     Display::InlineFlex => "inline-flex",
                     Display::Grid => "grid",
+                    Display::Css(keyword) => keyword,
                     _ => unreachable!("guarded by is_supported_on_native"),
                 }
             )),
@@ -741,6 +752,10 @@ impl StyleProperty {
             StyleProperty::Columns(_) => {
                 Some("`columns-*`: React Native has no multi-column layout".to_string())
             }
+            StyleProperty::BackgroundBlendMode(_) => Some(
+                "`bg-blend-*`: React Native has `mixBlendMode` but no background-blend-mode -- \n                 there is no separate background layer there to blend against"
+                    .to_string(),
+            ),
             // `filter` is real on React Native; `backdrop-filter` is not --
             // there is no such style key, and blurring what is *behind* a
             // view needs a native blur component (`@react-native-community/
@@ -926,11 +941,27 @@ pub enum Dimension {
     /// rotation.
     ViewportWidth(f64),
     ViewportHeight(f64),
+    /// A size CSS can state and React Native cannot compute: an intrinsic
+    /// keyword (`fit-content`, `max-content`), or one of the viewport units
+    /// that track browser chrome (`100dvh`, `100lvh`, `100svh`) and the
+    /// line-height unit (`1lh`).
+    ///
+    /// Kept as the exact CSS text because there is nothing to compute --
+    /// every one of them is resolved by the browser against state Dowel
+    /// doesn't have, and React Native can express none of them. Unlike
+    /// `ViewportWidth`/`ViewportHeight`, which the Native backend *can*
+    /// answer from `Dimensions`, these have no runtime equivalent to read:
+    /// `dvh` tracks a URL bar that doesn't exist there, and `fit-content`
+    /// is a layout mode Yoga doesn't implement.
+    Css(&'static str),
 }
 
 impl Dimension {
     pub fn is_supported_on_native(self) -> bool {
-        !matches!(self, Dimension::ViewportWidth(_) | Dimension::ViewportHeight(_))
+        !matches!(
+            self,
+            Dimension::ViewportWidth(_) | Dimension::ViewportHeight(_) | Dimension::Css(_)
+        )
     }
 }
 

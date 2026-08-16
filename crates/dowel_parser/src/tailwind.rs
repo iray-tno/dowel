@@ -55,7 +55,6 @@ fn parse_spacing_suffix(suffix: &str) -> Option<Length> {
 
 pub fn parse_utility(token: &str) -> Option<StyleProperty> {
     match token {
-        "flex-1" => return Some(StyleProperty::Flex(FlexShorthand::Grow(1.0))),
         "flex-auto" => return Some(StyleProperty::Flex(FlexShorthand::Auto)),
         "flex-initial" => return Some(StyleProperty::Flex(FlexShorthand::Initial)),
         "flex-none" => return Some(StyleProperty::Flex(FlexShorthand::None)),
@@ -1388,6 +1387,73 @@ fn parse_cursor(token: &str) -> Option<&str> {
 /// the conformance report rather than caught by it: a candidate Tailwind
 /// produces no rule for leaves the denominator, so Dowel accepting a class
 /// Tailwind rejects is exactly the shape of error that report can't see.
+/// The families that are a fixed list of CSS keywords and nothing else:
+/// `flex-<n>`, the two blend modes, and the display keywords beyond the
+/// three Yoga implements.
+fn parse_keyword_utility(token: &str) -> Option<StyleProperty> {
+    // `flex-<n>` is `n 1 0%`, i.e. grow by n and start from nothing --
+    // which is `FlexShorthand::Grow`, the same shape `flex-1` already had.
+    if let Some(rest) = token.strip_prefix("flex-") {
+        if let Ok(grow) = rest.parse::<f64>() {
+            return Some(StyleProperty::Flex(FlexShorthand::Grow(grow)));
+        }
+    }
+    /// CSS's blend modes. Shared by `mix-blend-*` and `bg-blend-*`, which
+    /// take the same list applied to different things.
+    const BLEND_MODES: &[&str] = &[
+        "normal", "multiply", "screen", "overlay", "darken", "lighten", "color-dodge",
+        "color-burn", "hard-light", "soft-light", "difference", "exclusion", "hue", "saturation",
+        "color", "luminosity", "plus-darker", "plus-lighter",
+    ];
+    if let Some(rest) = token.strip_prefix("mix-blend-") {
+        return blend_mode(rest, BLEND_MODES).map(StyleProperty::MixBlendMode);
+    }
+    if let Some(rest) = token.strip_prefix("bg-blend-") {
+        return blend_mode(rest, BLEND_MODES).map(StyleProperty::BackgroundBlendMode);
+    }
+
+    // The display keywords Yoga doesn't implement. `inline-flex`, `block`
+    // and `grid` are modelled individually because the Native backend
+    // refuses each by name; the rest share one refusal.
+    const DISPLAYS: &[&str] = &[
+        "inline", "inline-block", "inline-grid", "inline-table", "flow-root", "list-item",
+        "table", "table-caption", "table-cell", "table-column", "table-column-group",
+        "table-footer-group", "table-header-group", "table-row", "table-row-group", "hidden",
+    ];
+    if let Some(keyword) = DISPLAYS.iter().find(|k| **k == token) {
+        // `hidden` is Tailwind's name for `display: none`, which Yoga does
+        // have -- so it is not one of the grouped keywords.
+        if *keyword == "hidden" {
+            return Some(StyleProperty::Display(Display::None));
+        }
+        return Some(StyleProperty::Display(Display::Css(keyword)));
+    }
+    None
+}
+
+fn blend_mode(suffix: &str, modes: &'static [&'static str]) -> Option<&'static str> {
+    modes.iter().copied().find(|m| *m == suffix)
+}
+
+/// The sizes CSS states as a keyword or a unit Dowel can't resolve:
+/// intrinsic sizing, the chrome-aware viewport units, and `lh`. Shared by
+/// every size family, since Tailwind offers them on all of them.
+fn parse_css_size_suffix(suffix: &str) -> Option<Dimension> {
+    Some(Dimension::Css(match suffix {
+        "fit" => "fit-content",
+        "max" => "max-content",
+        "min" => "min-content",
+        "dvh" => "100dvh",
+        "dvw" => "100dvw",
+        "lvh" => "100lvh",
+        "lvw" => "100lvw",
+        "svh" => "100svh",
+        "svw" => "100svw",
+        "lh" => "1lh",
+        _ => return None,
+    }))
+}
+
 fn parse_inline_size_suffix(suffix: &str) -> Option<Dimension> {
     let rem = match suffix {
         "3xs" => 16.0,
@@ -1403,7 +1469,7 @@ fn parse_inline_size_suffix(suffix: &str) -> Option<Dimension> {
         "5xl" => 64.0,
         "6xl" => 72.0,
         "7xl" => 80.0,
-        _ => return parse_dimension_suffix(suffix),
+        _ => return parse_css_size_suffix(suffix).or_else(|| parse_dimension_suffix(suffix)),
     };
     Some(Dimension::Length(Length::Px(rem * 16.0)))
 }
@@ -1411,6 +1477,9 @@ fn parse_inline_size_suffix(suffix: &str) -> Option<Dimension> {
 /// Width/height accept more than the spacing scale: `w-1/2` fractions and
 /// `w-full`/`w-auto` keywords (the latter handled by the exact-match table).
 fn parse_dimension_suffix(suffix: &str) -> Option<Dimension> {
+    if let Some(css) = parse_css_size_suffix(suffix) {
+        return Some(css);
+    }
     match suffix {
         "auto" => return Some(Dimension::Auto),
         "full" => return Some(Dimension::Percent(100.0)),
@@ -1711,6 +1780,9 @@ fn expand_base_utility(token: &str) -> Vec<StyleProperty> {
     }
     if let Some(props) = expand_filter(token) {
         return props;
+    }
+    if let Some(prop) = parse_keyword_utility(token) {
+        return vec![prop];
     }
     if let Some(prop) = expand_scrollbar(token) {
         return vec![prop];
@@ -2122,6 +2194,60 @@ mod tests {
             expand_utility("translate-x-2"),
             (Condition::Always, vec![StyleProperty::TranslateX(Dimension::Length(Length::Px(8.0)))])
         );
+    }
+
+    #[test]
+    fn the_sizes_css_can_state_and_dowel_cannot_compute_are_kept_as_text() {
+        // Every one of these is resolved by the browser against state the
+        // compiler doesn't have -- an intrinsic content size, or a viewport
+        // that tracks browser chrome. There is nothing to compute, so the
+        // CSS text is carried through and React Native refuses it.
+        assert_eq!(
+            expand_utility("h-fit").1,
+            vec![StyleProperty::Height(Dimension::Css("fit-content"))]
+        );
+        assert_eq!(
+            expand_utility("max-w-dvh").1,
+            vec![StyleProperty::MaxWidth(Dimension::Css("100dvh"))]
+        );
+        assert!(!Dimension::Css("fit-content").is_supported_on_native());
+        // `h-screen` is the one viewport size that *is* answerable on
+        // Native, from `Dimensions` -- so it stays a viewport dimension
+        // rather than joining these.
+        assert_eq!(
+            expand_utility("h-screen").1,
+            vec![StyleProperty::Height(Dimension::ViewportHeight(100.0))]
+        );
+    }
+
+    #[test]
+    fn the_keyword_families_are_flat_tables() {
+        // `flex-<n>` is `n 1 0%` -- grow by n, start from nothing -- which
+        // is the same shape `flex-1` always had.
+        assert_eq!(
+            expand_utility("flex-7").1,
+            vec![StyleProperty::Flex(FlexShorthand::Grow(7.0))]
+        );
+        assert_eq!(
+            expand_utility("mix-blend-multiply").1,
+            vec![StyleProperty::MixBlendMode("multiply")]
+        );
+        assert_eq!(
+            expand_utility("bg-blend-screen").1,
+            vec![StyleProperty::BackgroundBlendMode("screen")]
+        );
+        assert_eq!(expand_utility("mix-blend-nonsense").1, vec![]);
+
+        assert_eq!(
+            expand_utility("inline-block").1,
+            vec![StyleProperty::Display(Display::Css("inline-block"))]
+        );
+        // `hidden` is Tailwind's name for `display: none`, which Yoga does
+        // have -- so it must not land in the grouped keywords that get
+        // refused on Native.
+        assert_eq!(expand_utility("hidden").1, vec![StyleProperty::Display(Display::None)]);
+        assert!(Display::None.is_supported_on_native());
+        assert!(!Display::Css("inline-block").is_supported_on_native());
     }
 
     #[test]

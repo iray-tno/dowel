@@ -50,7 +50,11 @@ fn dimension_value(dim: Dimension) -> String {
         // Refused upstream by `StyleProperty::unsupported_on_native`, which
         // fails the build. Nothing is emitted here so a build that swallowed
         // that error still can't ship a value RN would reject.
-        Dimension::ViewportWidth(_) | Dimension::ViewportHeight(_) => String::new(),
+        // Also refused upstream: an intrinsic size or a chrome-aware
+        // viewport unit has no runtime equivalent to read on this platform.
+        Dimension::ViewportWidth(_) | Dimension::ViewportHeight(_) | Dimension::Css(_) => {
+            String::new()
+        }
     }
 }
 
@@ -335,7 +339,7 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
             // raises `WebOnlyPropertyOnNative` and fails the build; nothing
             // is emitted here so a build that ignored the error can't ship
             // an invalid style value either.
-            Display::Block | Display::InlineFlex | Display::Grid => Vec::new(),
+            Display::Block | Display::InlineFlex | Display::Grid | Display::Css(_) => Vec::new(),
         },
         StyleProperty::FlexDirection(dir) => vec![(
             "flexDirection",
@@ -425,6 +429,10 @@ pub fn property_and_value(prop: &StyleProperty) -> Vec<(&'static str, String)> {
         // refused upstream by `unsupported_on_native`, so anything reaching
         // here is one of the two.
         StyleProperty::Cursor(keyword) => vec![("cursor", format!("'{keyword}'"))],
+        // RN has `mixBlendMode` and takes the same keywords;
+        // `background-blend-mode` is refused upstream.
+        StyleProperty::MixBlendMode(m) => vec![("mixBlendMode", format!("'{m}'"))],
+        StyleProperty::BackgroundBlendMode(_) => Vec::new(),
         // Both refused upstream: Yoga has no flex `order`, and React Native
         // has no multi-column layout.
         StyleProperty::Order(_) | StyleProperty::Columns(_) => Vec::new(),

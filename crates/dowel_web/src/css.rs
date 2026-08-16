@@ -34,6 +34,7 @@ fn dimension_value(dim: Dimension) -> String {
         Dimension::Auto => "auto".to_string(),
         Dimension::ViewportWidth(pct) => format!("{pct}vw"),
         Dimension::ViewportHeight(pct) => format!("{pct}vh"),
+        Dimension::Css(text) => text.to_string(),
     }
 }
 
@@ -581,6 +582,7 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
                 Display::Block => "block",
                 Display::InlineFlex => "inline-flex",
                 Display::Grid => "grid",
+                Display::Css(keyword) => keyword,
             }
             .to_string(),
         ),
@@ -780,6 +782,8 @@ pub fn property_and_value(prop: &StyleProperty) -> (&'static str, String) {
                 LineHeight::Ratio(r) => format!("{r}"),
             },
         ),
+        StyleProperty::MixBlendMode(m) => ("mix-blend-mode", m.to_string()),
+        StyleProperty::BackgroundBlendMode(m) => ("background-blend-mode", m.to_string()),
         StyleProperty::Order(n) => ("order", n.to_string()),
         StyleProperty::Cursor(keyword) => ("cursor", keyword.clone()),
         StyleProperty::Columns(columns) => (

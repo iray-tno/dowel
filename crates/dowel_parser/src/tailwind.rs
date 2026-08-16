@@ -849,6 +849,21 @@ fn expand_outline(token: &str) -> Option<Vec<StyleProperty>> {
             .ok()
             .map(|px| vec![StyleProperty::OutlineOffset(Length::Px(px))]);
     }
+    // Before the style keywords, which would read `hidden` as
+    // `BorderStyle::Hidden`. `outline-style: hidden` is not valid CSS --
+    // an outline takes `auto | none | <border-style except hidden>` --
+    // and Tailwind writes `none` here. It also adds a forced-colors
+    // branch restoring a transparent outline, which Dowel doesn't emit:
+    // that is a real gap, but a smaller one than an invalid declaration.
+    //
+    // This arm existed before and sat *after* the keyword match, so it
+    // never ran. Nothing caught it because the rule Tailwind writes for
+    // `outline-hidden` contains a nested at-rule, and the harness's rule
+    // extractor used to drop any rule shaped like that -- the candidate
+    // read as "Tailwind emits nothing for this" and left the denominator.
+    if suffix == "hidden" {
+        return Some(vec![StyleProperty::OutlineStyle(BorderStyle::None)]);
+    }
     if let Some(style) = border_style_keyword(suffix) {
         return Some(vec![StyleProperty::OutlineStyle(style)]);
     }
@@ -857,12 +872,6 @@ fn expand_outline(token: &str) -> Option<Vec<StyleProperty>> {
             StyleProperty::OutlineStyle(BorderStyle::Solid),
             StyleProperty::OutlineWidth(Length::Px(px)),
         ]);
-    }
-    // `outline-hidden` is Tailwind's accessible "no visible outline, but
-    // keep one for forced-colors mode"; it emits nothing standalone, so
-    // it's left unsupported rather than approximated as `none`.
-    if suffix == "hidden" {
-        return None;
     }
     Some(vec![StyleProperty::OutlineColor(Color::Token(suffix.to_string()))])
 }
@@ -1691,6 +1700,10 @@ fn parse_extended_value(token: &str) -> Option<StyleProperty> {
 /// `keyword_table_avoids_the_modelled_properties` is the test that holds
 /// the line.
 const KEYWORD_UTILITIES: &[(&str, &str, &str)] = &[
+        // Not variants, despite the `@`: these declare an element *as* a
+        // container, where `@lg:` and `@container/main:` query one.
+        ("@container", "container-type", "inline-size"),
+        ("@container-normal", "container-type", "normal"),
         ("backface-hidden", "backface-visibility", "hidden"),
         ("backface-visible", "backface-visibility", "visible"),
         ("bg-none", "background-image", "none"),
@@ -1814,6 +1827,19 @@ const KEYWORD_UTILITIES: &[(&str, &str, &str)] = &[
         ("float-none", "float", "none"),
         ("float-right", "float", "right"),
         ("float-start", "float", "inline-start"),
+        // The percentage forms, spelled out rather than parsed: Tailwind
+        // defines exactly these ten, and accepting any number would
+        // compile `font-stretch-63%`, which it does not.
+        ("font-stretch-50%", "font-stretch", "50%"),
+        ("font-stretch-75%", "font-stretch", "75%"),
+        ("font-stretch-90%", "font-stretch", "90%"),
+        ("font-stretch-95%", "font-stretch", "95%"),
+        ("font-stretch-100%", "font-stretch", "100%"),
+        ("font-stretch-105%", "font-stretch", "105%"),
+        ("font-stretch-110%", "font-stretch", "110%"),
+        ("font-stretch-125%", "font-stretch", "125%"),
+        ("font-stretch-150%", "font-stretch", "150%"),
+        ("font-stretch-200%", "font-stretch", "200%"),
         ("font-stretch-condensed", "font-stretch", "condensed"),
         ("font-stretch-expanded", "font-stretch", "expanded"),
         ("font-stretch-extra-condensed", "font-stretch", "extra-condensed"),

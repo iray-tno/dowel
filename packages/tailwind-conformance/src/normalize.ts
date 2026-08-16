@@ -60,11 +60,21 @@ function resolveVars(value: string, vars: Map<string, string>, depth = 0): strin
   // looping forever, not to bound normal nesting -- an earlier limit of 8
   // silently left the tail of that `filter` unresolved.
   if (depth > 100) return value
-  const re = /var\(\s*(--[a-z0-9-]+)\s*(?:,\s*([^]*?)\s*)?\)/i
-  const match = re.exec(value)
-  if (!match) return value
+  // Scanned rather than matched, because a `var()` fallback can contain
+  // another `var()` and a regex has no way to find the matching paren.
+  // `/var\(\s*(--[a-z0-9-]+)\s*(?:,\s*([^]*?)\s*)?\)/` stopped at the
+  // *first* `)`, so
+  // `var(--a, var(--b), var(--c) var(--d))` was read as the whole call
+  // with fallback `var(--b` -- one truncated name substituted in, the
+  // rest of the list dropped, and the result quietly missing a value and
+  // carrying a stray paren. Gradients are built almost entirely out of
+  // nested fallbacks like that, which is why nothing noticed until one
+  // was measured.
+  const call = firstVarCall(value)
+  if (!call) return value
 
-  const [full, name, fallback] = match
+  const { start, end, name, fallback } = call
+  const full = value.slice(start, end + 1)
   let replacement: string | undefined
   if (name === '--tw-border-style') {
     // Registered by Tailwind with `initial-value: solid`.
@@ -80,6 +90,62 @@ function resolveVars(value: string, vars: Map<string, string>, depth = 0): strin
   }
   if (replacement === undefined) return value
   return resolveVars(value.replace(full, replacement), vars, depth + 1)
+}
+
+interface VarCall {
+  start: number
+  /** Index of the closing paren. */
+  end: number
+  name: string
+  fallback?: string
+}
+
+/**
+ * The outermost `var()` in `value`, with its name and fallback.
+ *
+ * Outermost first is deliberate: an inner `var()` inside a fallback may
+ * never be used, and resolving it before knowing whether the fallback
+ * applies would substitute a value the browser never reaches.
+ */
+function firstVarCall(value: string): VarCall | undefined {
+  const start = value.search(/\bvar\(/i)
+  if (start === -1) return undefined
+  const open = value.indexOf('(', start)
+  let depth = 0
+  let end = -1
+  for (let i = open; i < value.length; i += 1) {
+    if (value[i] === '(') depth += 1
+    else if (value[i] === ')') {
+      depth -= 1
+      if (depth === 0) {
+        end = i
+        break
+      }
+    }
+  }
+  if (end === -1) return undefined
+
+  const inner = value.slice(open + 1, end)
+  // The first *top-level* comma separates the name from the fallback;
+  // everything after it is the fallback, commas included.
+  let comma = -1
+  depth = 0
+  for (let i = 0; i < inner.length; i += 1) {
+    if (inner[i] === '(') depth += 1
+    else if (inner[i] === ')') depth -= 1
+    else if (inner[i] === ',' && depth === 0) {
+      comma = i
+      break
+    }
+  }
+  const name = (comma === -1 ? inner : inner.slice(0, comma)).trim()
+  if (!name.startsWith('--')) return undefined
+  return {
+    start,
+    end,
+    name,
+    fallback: comma === -1 ? undefined : inner.slice(comma + 1).trim(),
+  }
 }
 
 /** Evaluates `calc(...)` for the +,-,*,/ arithmetic Tailwind actually emits. */

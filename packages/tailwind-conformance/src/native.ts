@@ -11,7 +11,26 @@
 
 import { compileNative } from '@dowel/compiler'
 
-export type NativeVerdict = 'COVERED' | 'REFUSED' | 'SILENT'
+export type NativeVerdict = 'COVERED' | 'REFUSED' | 'SILENT' | 'NO_OP'
+
+/**
+ * Utilities whose effect React Native already has by default, so lowering
+ * them to nothing honours them rather than dropping them.
+ *
+ * Separated from SILENT because the two look identical from outside -- no
+ * style, no diagnostic -- and mean opposite things. Leaving them in the
+ * silent count would make that number read "unexplained" when it should
+ * read "unaccounted for", which is the number that has to stay at zero for
+ * the refuse-loudly discipline to mean anything.
+ *
+ * Each entry needs its reason, for the same reason `ACCEPTED_DIFFERENCES`
+ * does: an unexplained allowlist is where a real drop goes to hide.
+ */
+const DELIBERATE_NO_OPS: Record<string, string> = {
+  'whitespace-normal': "React Native's Text wraps by default, so this asks for what it already does",
+  'line-clamp-none':
+    'not clamping is the absence of `numberOfLines`, not a value for it -- there is no prop to emit',
+}
 
 export interface NativeComparison {
   candidate: string
@@ -130,6 +149,10 @@ function probe(candidate: string, context: (typeof PROBE_CONTEXTS)[number]): Nat
 
   if (rendered.length > 0 || inlineStyle || emitsProp) {
     return { candidate, verdict: 'COVERED' }
+  }
+  const noOp = DELIBERATE_NO_OPS[candidate]
+  if (noOp && unreferenced.length === 0) {
+    return { candidate, verdict: 'NO_OP', detail: noOp }
   }
   return {
     candidate,

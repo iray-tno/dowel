@@ -834,7 +834,46 @@ impl StyleProperty {
         }
     }
 
+    /// The `Dimension` this property carries, if it carries one.
+    ///
+    /// Exists so `unsupported_on_native` can ask about a *value* once
+    /// instead of per property. Every size utility takes the same value
+    /// vocabulary, so a value React Native can't hold (`fit-content`,
+    /// `100dvh`) is unusable on all of them -- and listing the properties
+    /// one at a time is how the last batch of those came to be dropped in
+    /// silence rather than refused.
+    pub fn dimension(&self) -> Option<Dimension> {
+        match self {
+            StyleProperty::Width(d)
+            | StyleProperty::Height(d)
+            | StyleProperty::MinWidth(d)
+            | StyleProperty::MinHeight(d)
+            | StyleProperty::MaxWidth(d)
+            | StyleProperty::MaxHeight(d)
+            | StyleProperty::BlockSize(d)
+            | StyleProperty::InlineSize(d)
+            | StyleProperty::MinBlockSize(d)
+            | StyleProperty::MinInlineSize(d)
+            | StyleProperty::MaxBlockSize(d)
+            | StyleProperty::MaxInlineSize(d)
+            | StyleProperty::FlexBasis(d)
+            | StyleProperty::TextIndent(d)
+            | StyleProperty::TextUnderlineOffset(d)
+            | StyleProperty::TranslateX(d)
+            | StyleProperty::TranslateY(d) => Some(*d),
+            _ => None,
+        }
+    }
+
     pub fn unsupported_on_native(&self) -> Option<String> {
+        // Asked before the property-by-property match: a value React Native
+        // has no way to hold is unusable whichever size carries it.
+        if let Some(Dimension::Css(value)) = self.dimension() {
+            return Some(format!(
+                "`{value}`: React Native has no intrinsic sizing and no viewport unit that tracks \
+                 browser chrome -- there is nothing to resolve it against"
+            ));
+        }
         // Viewport-relative sizes were refused here until 2026-08-15. They
         // are not impossible on React Native, only impossible *statically*:
         // the value changes when the device rotates, so it can't live in a
@@ -879,6 +918,17 @@ impl StyleProperty {
                 "`rotate-none`/`scale-none`/`translate-none`/`transform-none`: React Native builds 
                  one transform array, so there is no property to switch off -- omit the transform 
                  instead"
+                    .to_string(),
+            ),
+            StyleProperty::Flex(FlexShorthand::Fraction(n, d)) => Some(format!(
+                "`flex-{n}/{d}`: React Native's `flex` is a grow factor, not a fraction of the 
+                 parent -- use a percentage width instead"
+            )),
+            // RN's transform array has scaleX and scaleY and no scaleZ, so
+            // the third axis and the switch that writes it are both out.
+            StyleProperty::ScaleZ(_) | StyleProperty::Scale3d => Some(
+                "`scale-z-*`/`scale-3d`: React Native scales in two dimensions -- its transform 
+                 has scaleX and scaleY and no scaleZ"
                     .to_string(),
             ),
             StyleProperty::ZIndex(None) => Some(

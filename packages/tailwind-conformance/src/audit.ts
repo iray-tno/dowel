@@ -48,12 +48,17 @@ function expressible(property: string, value: string): { ok: boolean; reason?: s
   // anything useful about values. Everything else -- numbers, colours,
   // dimensions -- is a conversion question Dowel already answers elsewhere,
   // not an expressibility one.
-  if (key.values && !key.values.has(value.trim())) {
-    return { ok: false, reason: `${key.name} does not accept ${value.trim()}` }
-  }
-  // A CSS keyword is provably not assignable to a numeric-only key.
-  if (key.numeric && !/^-?[\d.]+$/.test(value.trim())) {
-    return { ok: false, reason: `${key.name} is a number, not \`${value.trim()}\`` }
+  const text = value.trim()
+  const numeric = /^-?[\d.]+(px)?$/.test(text)
+  const percent = /^-?[\d.]+%$/.test(text)
+  // Anything the type admits: a listed keyword, a number where numbers go,
+  // a percentage where `DimensionValue` allows one.
+  if (key.values?.has(text)) return { ok: true }
+  if (key.numeric && numeric) return { ok: true }
+  if (key.percent && percent) return { ok: true }
+  // Otherwise, if the type said anything at all, it said no.
+  if (key.values || key.numeric || key.percent) {
+    return { ok: false, reason: `${key.name} does not accept \`${text}\`` }
   }
   return { ok: true }
 }

@@ -72,12 +72,29 @@ test('marks the numeric-only keys, and only those', () => {
   assert.equal(keys.get('display')?.numeric, undefined)
 })
 
-test('leaves open types unconstrained', () => {
+test('reads DimensionValue, which is closed enough to settle a size', () => {
   const keys = reactNativeStyleKeys()
-  // Anything taking a number, colour or dimension has no useful value-level
-  // check, and claiming one would refuse valid styles.
-  for (const key of ['width', 'backgroundColor', 'zIndex', 'borderTopWidth']) {
-    assert.equal(keys.get(key)?.values, undefined, `${key} should be unconstrained`)
+  // `height?: DimensionValue` is `number | 'auto' | ` + '`${number}%`' + `.
+  // Not a closed union -- the percentage is a template literal -- but it
+  // genuinely rules out `fit-content` and `100dvh`, and reading it is what
+  // lets the audit confirm those refusals instead of calling them suspect.
+  const height = keys.get('height')
+  assert.equal(height?.numeric, true)
+  assert.equal(height?.percent, true)
+  assert.deepEqual(height?.values, new Set(['auto']))
+})
+
+test('leaves genuinely open types unconstrained', () => {
+  const keys = reactNativeStyleKeys()
+  // A colour admits far too much to check, and claiming otherwise would
+  // refuse valid styles. `aspectRatio?: number | string` is open for the
+  // same reason -- the `string` swallows everything, which is why
+  // `aspect-auto` needs an acknowledged entry rather than a type check.
+  for (const key of ['backgroundColor', 'aspectRatio']) {
+    const entry = keys.get(key)
+    assert.equal(entry?.values, undefined, `${key} should be unconstrained`)
+    assert.equal(entry?.numeric, undefined, `${key} should be unconstrained`)
+    assert.equal(entry?.percent, undefined, `${key} should be unconstrained`)
   }
 })
 

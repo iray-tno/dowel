@@ -1105,6 +1105,14 @@ fn viewport_dimension(prop: &StyleProperty) -> Option<(&'static str, &'static st
         StyleProperty::MinHeight(d) => ("minHeight", d),
         StyleProperty::MaxWidth(d) => ("maxWidth", d),
         StyleProperty::MaxHeight(d) => ("maxHeight", d),
+        // The logical sizes map to the same two axes on this platform, so a
+        // viewport value on them resolves the same way.
+        StyleProperty::BlockSize(d) => ("height", d),
+        StyleProperty::InlineSize(d) => ("width", d),
+        StyleProperty::MinBlockSize(d) => ("minHeight", d),
+        StyleProperty::MinInlineSize(d) => ("minWidth", d),
+        StyleProperty::MaxBlockSize(d) => ("maxHeight", d),
+        StyleProperty::MaxInlineSize(d) => ("maxWidth", d),
         _ => return None,
     };
     axis(dim).map(|(axis, pct)| (key, axis, pct))

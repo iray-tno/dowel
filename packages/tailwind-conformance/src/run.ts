@@ -113,6 +113,7 @@ console.table(
     restricted: list.filter((r) => r.restrictedTo).length,
     refused: nativeCount('REFUSED', list),
     silent: nativeCount('SILENT', list),
+    noOp: nativeCount('NO_OP', list),
   })),
 )
 
@@ -123,8 +124,17 @@ console.log(
 console.log(
   `Refused:     ${nativeCount('REFUSED')}   (named at build time; error, or warning where the ` +
     `gap is unbuilt rather than impossible)\n` +
-    `Silent:      ${nativeCount('SILENT')}   (no style, no diagnostic)`,
+    `Silent:      ${nativeCount('SILENT')}   (no style, no diagnostic -- the one that has to stay at zero)\n` +
+    `No-op:       ${nativeCount('NO_OP')}   (React Native already does this, so there is nothing to emit)`,
 )
+
+const noOps = nativeAll.filter((r) => r.verdict === 'NO_OP')
+if (noOps.length > 0) {
+  console.log(`\nNo-op (${noOps.length}) -- honoured by doing nothing, not dropped:`)
+  for (const n of noOps) {
+    console.log(`  ${n.candidate}: ${n.detail}`)
+  }
+}
 
 const restricted = nativeAll.filter((r) => r.restrictedTo)
 if (restricted.length > 0) {

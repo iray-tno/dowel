@@ -55,6 +55,14 @@ export interface StyleKey {
    * otherwise.
    */
   numeric?: boolean
+  /**
+   * Set when the type admits a percentage through the template literal
+   * `` `${number}%` ``. Together with `numeric` and `values` this makes
+   * React Native's `DimensionValue` fully readable -- it is exactly
+   * `number | 'auto' | ` + '`${number}%`' + `, which genuinely rules out
+   * `fit-content` and `100dvh` even though it isn't a closed union.
+   */
+  percent?: boolean
 }
 
 /// Only the interfaces that describe a style. The file also declares the
@@ -93,11 +101,20 @@ export function reactNativeStyleKeys(): Map<string, StyleKey> {
     for (const match of body.matchAll(/^ {2}(?:readonly )?([a-zA-Z][a-zA-Z0-9]*)\??:([^;]*);/gm)) {
       const [, name, type] = match
       const values = literalUnion(type, aliases)
-      if (values === undefined && numericOnly(type, aliases)) {
-        // Same widening rule as below: a key that is numeric in one
-        // interface and open in another counts as open.
-        if (!keys.has(name)) keys.set(name, { name, numeric: true })
-        continue
+      if (values === undefined) {
+        // Two shapes that aren't closed unions but are still closed enough
+        // to settle a question: numbers only, and React Native's
+        // `DimensionValue`. Same widening rule as below -- a key that is
+        // constrained in one interface and open in another counts as open.
+        const dimension = dimensionValue(type, aliases)
+        if (dimension && !keys.has(name)) {
+          keys.set(name, { name, ...dimension })
+          continue
+        }
+        if (numericOnly(type, aliases) && !keys.has(name)) {
+          keys.set(name, { name, numeric: true })
+          continue
+        }
       }
       // A key seen in two interfaces keeps the looser constraint: `overflow`
       // is narrower on ImageStyle than on ViewStyle, and the question here
@@ -212,6 +229,57 @@ export function reactNativeCssProperties(): Set<string> | undefined {
     properties.add(match[1])
   }
   return properties.size > 0 ? properties : undefined
+}
+
+/**
+ * React Native's `DimensionValue`: a number, `auto`, or a percentage.
+ *
+ * Not a closed union, because the percentage arrives as the template
+ * literal `` `${number}%` `` -- but closed enough to settle every question
+ * a size utility raises. Reading it is what lets the audit confirm that
+ * `h-fit` and `h-dvh` are correctly refused: `fit-content` is none of those
+ * three, and no amount of the property `height` existing changes that.
+ */
+function dimensionValue(
+  type: string,
+  aliases: Map<string, string>,
+  depth = 0,
+): { values: Set<string>; numeric: true; percent: true } | undefined {
+  if (depth > 4) return undefined
+  const keywords = new Set<string>()
+  let sawNumber = false
+  let sawPercent = false
+  for (const part of type.split('|')) {
+    const term = part.trim()
+    if (term === '' || term === 'undefined' || term === 'null') continue
+    if (term === 'number') {
+      sawNumber = true
+      continue
+    }
+    if (term === 'Animated.AnimatedNode') continue
+    if (/^`\$\{number\}%`$/.test(term)) {
+      sawPercent = true
+      continue
+    }
+    const literal = /^'([^']*)'$/.exec(term)
+    if (literal) {
+      keywords.add(literal[1])
+      continue
+    }
+    const alias = aliases.get(term)
+    if (alias) {
+      const nested = dimensionValue(alias, aliases, depth + 1)
+      if (!nested) return undefined
+      for (const value of nested.values) keywords.add(value)
+      sawNumber = true
+      sawPercent = true
+      continue
+    }
+    return undefined
+  }
+  return sawNumber && sawPercent
+    ? { values: keywords, numeric: true, percent: true }
+    : undefined
 }
 
 /**

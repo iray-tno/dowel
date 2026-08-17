@@ -1,0 +1,64 @@
+import { compile, compileNative } from '@dowel/compiler'
+
+interface RnwFreeCase {
+  primitive: string
+  jsx: string
+  webMarker: string
+  nativeMarker: string
+}
+
+export interface RnwFreeResult extends RnwFreeCase {
+  covered: boolean
+  detail?: string
+}
+
+export const RNW_FREE_CASES: RnwFreeCase[] = [
+  { primitive: 'View', jsx: '<View />', webMarker: '<div', nativeMarker: '<View' },
+  { primitive: 'Text', jsx: '<Text>Hello</Text>', webMarker: '<span', nativeMarker: '<Text' },
+  { primitive: 'Button', jsx: '<Button>Save</Button>', webMarker: '<button', nativeMarker: '<Pressable' },
+  {
+    primitive: 'Pressable',
+    jsx: '<Pressable accessibilityRole="button">Open</Pressable>',
+    webMarker: '<div',
+    nativeMarker: '<Pressable',
+  },
+  {
+    primitive: 'Link',
+    jsx: '<Link href="https://example.com">Docs</Link>',
+    webMarker: '<a',
+    nativeMarker: '<DowelLink',
+  },
+  {
+    primitive: 'TextInput',
+    jsx: '<TextInput accessibilityLabel="Email" />',
+    webMarker: '<input',
+    nativeMarker: '<TextInput',
+  },
+  {
+    primitive: 'Dialog',
+    jsx: '<Dialog open={showing} onClose={dismiss} accessibilityLabel="Confirm" />',
+    webMarker: '<DowelDialog',
+    nativeMarker: '<DowelDialog',
+  },
+]
+
+export function compareRnwFree(testCase: RnwFreeCase): RnwFreeResult {
+  const source =
+    `import { View, Text, Button, Pressable, Link, TextInput, Dialog } from '@dowel/core'\n` +
+    `export function C() { return ${testCase.jsx} }\n`
+  const [web] = compile(source)
+  const [native] = compileNative(source)
+  if (!web || !native) return { ...testCase, covered: false, detail: 'one backend emitted no component' }
+  const failures: string[] = []
+  if (!web.jsx.includes(testCase.webMarker)) failures.push(`Web marker ${testCase.webMarker}`)
+  if (!native.jsx.includes(testCase.nativeMarker)) failures.push(`Native marker ${testCase.nativeMarker}`)
+  const combined = `${web.jsx}\n${native.jsx}\n${native.runtimeImports.join('\n')}`
+  if (/react-native-web|from ['"]react-native['"]/.test(combined)) {
+    failures.push('backend output contains a compatibility-layer import')
+  }
+  if (web.diagnostics.length > 0) failures.push(`Web diagnostic ${web.diagnostics[0].code}`)
+  if (native.diagnostics.length > 0) failures.push(`Native diagnostic ${native.diagnostics[0].code}`)
+  return failures.length === 0
+    ? { ...testCase, covered: true }
+    : { ...testCase, covered: false, detail: failures.join(', ') }
+}

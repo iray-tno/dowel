@@ -21,6 +21,7 @@ import { compile as dowelCompile, compileNative } from '@dowel/compiler'
 import { buildOracle } from './oracle.ts'
 import { loadThemeVars, tailwindVersion } from './theme.ts'
 import { A11Y_CONTEXTUAL_CASES, compareA11yContextual } from './a11y-contextual.ts'
+import { compareRnwFree, RNW_FREE_CASES } from './rnw-free.ts'
 
 const oracle = await buildOracle(ALL_CANDIDATES)
 // Theme values plus the `@property` register defaults the utilities
@@ -212,6 +213,19 @@ console.log(
 for (const result of contextualA11y) {
   console.log(
     `  ${result.name}: ${result.covered ? 'COVERED' : 'MISMATCH'} -- ${result.purpose}` +
+      (result.detail ? ` (${result.detail})` : ''),
+  )
+}
+
+const rnwFree = RNW_FREE_CASES.map(compareRnwFree)
+const rnwFreeCovered = rnwFree.filter((result) => result.covered).length
+console.log(
+  `\nRNW-free primitive contract: ${rnwFreeCovered}/${rnwFree.length} = ` +
+    `${pct(rnwFreeCovered, rnwFree.length)}  (direct DOM and Native/runtime lowering)`,
+)
+for (const result of rnwFree) {
+  console.log(
+    `  ${result.primitive}: ${result.covered ? 'COVERED' : 'MISMATCH'}` +
       (result.detail ? ` (${result.detail})` : ''),
   )
 }

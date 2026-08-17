@@ -64,17 +64,24 @@ export interface FlatListProps<T> {
   data: readonly T[]
   renderItem: (info: FlatListRenderInfo<T>) => ReactNode
   keyExtractor?: (item: T, index: number) => string
+  ListHeaderComponent?: ReactNode
+  ListFooterComponent?: ReactNode
+  ListEmptyComponent?: ReactNode
+  accessibilityLabel?: string
 }
 
 /** Web fallback; Native compilation replaces this with the virtualized RN FlatList. */
-export function FlatList<T>({ className, data, renderItem, keyExtractor }: FlatListProps<T>) {
+export function FlatList<T>({ className, data, renderItem, keyExtractor, ListHeaderComponent, ListFooterComponent, ListEmptyComponent, accessibilityLabel }: FlatListProps<T>) {
   return (
-    <div className={className} role="list">
+    <div className={className} role="list" aria-label={accessibilityLabel}>
+      {ListHeaderComponent}
+      {data.length === 0 ? ListEmptyComponent : null}
       {data.map((item, index) => (
         <div key={keyExtractor?.(item, index) ?? index} role="listitem">
           {renderItem({ item, index })}
         </div>
       ))}
+      {ListFooterComponent}
     </div>
   )
 }

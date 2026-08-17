@@ -25,11 +25,14 @@ const expect = (condition, description) => {
 }
 
 // Every primitive the example uses reaches the bundle bound to something.
-for (const component of ['View', 'Text', 'TextInput']) {
+for (const component of ['View', 'Text', 'TextInput', 'Image', 'ScrollView', 'FlatList']) {
   expect(app.includes(`_reactNative.${component}`), `${component} is imported from react-native`)
 }
 expect(/DowelSpaced/.test(bundle), 'DowelSpaced is bundled')
 expect(/DowelDialog/.test(bundle), 'DowelDialog is bundled')
+expect(/smoke-grid/.test(bundle), 'the device acceptance grid is bundled')
+expect(/smoke-horizontal-scroll/.test(bundle), 'the horizontal ScrollView fixture is bundled')
+expect(/smoke-row-/.test(bundle), 'the virtualized renderItem fixture is bundled')
 
 // The utilities became styles and props, and no className survived.
 expect(app.includes('placeholderTextColor'), 'placeholder-* became a TextInput prop')

@@ -52,3 +52,9 @@ test('row spans reserve a two-dimensional rectangle from later items', () => {
   ])
   assert.deepEqual(gridRowSizes(layout, [70, 20, 30], 10), [25, 35])
 })
+
+test('explicit fr rows share one flex fraction under intrinsic height', () => {
+  const layout = gridLayout([{ span: 1, rowStart: 0 }, { span: 1, rowStart: 1 }], 2)
+  const rows: GridTrack[] = [{ kind: 'fr', value: 1 }, { kind: 'fr', value: 1 }, { kind: 'fr', value: 1 }]
+  assert.deepEqual(gridRowSizes(layout, [10, 30], 0, rows), [30, 30, 30])
+})

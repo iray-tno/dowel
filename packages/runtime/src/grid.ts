@@ -118,19 +118,35 @@ export function gridRowSizes(
   layout: readonly PlacedGridItem[],
   measuredHeights: readonly number[],
   rowGap: number,
+  explicitTracks: readonly GridTrack[] = [],
 ): number[] {
-  const count = Math.max(0, ...layout.map((item) => item.row + item.rowSpan))
-  const rows = Array.from({ length: count }, () => 0)
+  const count = Math.max(explicitTracks.length, 0, ...layout.map((item) => item.row + item.rowSpan))
+  const rows = Array.from({ length: count }, (_, row) =>
+    explicitTracks[row]?.kind === 'points' ? explicitTracks[row].value : 0)
   for (const item of layout.filter((item) => item.rowSpan === 1)) {
-    rows[item.row] = Math.max(rows[item.row], measuredHeights[item.child] ?? 0)
+    const track = explicitTracks[item.row]
+    if (track?.kind === 'points') continue
+    const factor = track?.kind === 'fr' ? track.value : 1
+    const unit = (measuredHeights[item.child] ?? 0) / factor
+    if (track?.kind === 'fr') {
+      for (let row = 0; row < explicitTracks.length; row += 1) {
+        const candidate = explicitTracks[row]
+        if (candidate.kind === 'fr') rows[row] = Math.max(rows[row], unit * candidate.value)
+      }
+    } else {
+      rows[item.row] = Math.max(rows[item.row], measuredHeights[item.child] ?? 0)
+    }
   }
   for (const item of [...layout].sort((a, b) => a.rowSpan - b.rowSpan)) {
     if (item.rowSpan === 1) continue
     const current = rows.slice(item.row, item.row + item.rowSpan).reduce((a, b) => a + b, 0)
       + (item.rowSpan - 1) * rowGap
     const deficit = Math.max(0, (measuredHeights[item.child] ?? 0) - current)
-    for (let row = item.row; row < item.row + item.rowSpan; row += 1) {
-      rows[row] += deficit / item.rowSpan
+    const flexible = Array.from({ length: item.rowSpan }, (_, offset) => item.row + offset)
+      .filter((row) => explicitTracks[row]?.kind !== 'points')
+    const targets = flexible.length > 0 ? flexible : []
+    for (const row of targets) {
+      rows[row] += deficit / targets.length
     }
   }
   return rows

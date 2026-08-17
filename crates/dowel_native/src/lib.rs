@@ -131,6 +131,7 @@ pub fn lower(root: &Node, source: &str, theme: &Theme) -> LowerOutput {
         SiblingPosition::UNKNOWN,
         false,
         None,
+        None,
         theme,
         &[],
         source,
@@ -368,6 +369,7 @@ fn render_node(
     position: SiblingPosition,
     interaction_context: bool,
     grid_columns: Option<usize>,
+    grid_rows: Option<usize>,
     theme: &Theme,
     // Text properties inherited from an ancestor. CSS inherits these;
     // React Native inherits them only from a `Text` to a `Text`. So a
@@ -429,7 +431,7 @@ fn render_node(
     // check, so only the ones that genuinely can't be resolved are refused.
     let style = lower_inline_flex(fold_font_relative(&node.style, inherited));
     let grid = native_grid(&style, theme);
-    let grid_item = native_grid_item(&style, grid_columns);
+    let grid_item = native_grid_item(&style, grid_columns, grid_rows);
     // The fast Native transition path is deliberately narrow: opacity on
     // Pressable interaction state can stay entirely on the native driver.
     let transition = native_driver_transition(node, &style);
@@ -771,6 +773,7 @@ fn render_node(
                     child_position,
                     interaction_context || rendered_component == "DowelPressable",
                     grid.as_ref().map(|grid| grid.track_count),
+                    grid.as_ref().and_then(|grid| grid.row_track_count),
                     theme,
                     &descend,
                     source,
@@ -827,8 +830,13 @@ fn render_node(
             ));
         }
         runtime.need_component("DowelGrid");
+        let row_tracks = grid
+            .row_tracks_js
+            .as_ref()
+            .map(|tracks| format!(" rowTracks={{{tracks}}}"))
+            .unwrap_or_default();
         format!(
-            "<DowelGrid tracks={{{}}} columnGap={{{}}} rowGap={{{}}}>{inner}</DowelGrid>",
+            "<DowelGrid tracks={{{}}}{row_tracks} columnGap={{{}}} rowGap={{{}}}>{inner}</DowelGrid>",
             grid.tracks_js, grid.column_gap, grid.row_gap
         )
     } else {
@@ -910,16 +918,21 @@ struct NativeGrid {
     column_gap: f64,
     row_gap: f64,
     track_count: usize,
+    row_tracks_js: Option<String>,
+    row_track_count: Option<usize>,
 }
 
 fn grid_absorbs(property: &StyleProperty) -> bool {
     matches!(
         property,
-        StyleProperty::Display(Display::Grid) | StyleProperty::GridTemplateColumns(_)
+        StyleProperty::Display(Display::Grid)
+            | StyleProperty::GridTemplateColumns(_)
+            | StyleProperty::GridTemplateRows(_)
     )
 }
 
-/// Builds the measurement-free subset of the future grid solver input.
+/// Builds the supported subset of the Native grid solver input. Columns can
+/// stay on the measurement-free path; explicit rows select its measured path.
 /// Conditions are deliberately declined for now: changing a track list at
 /// runtime belongs at this boundary, but requires passing the same guards as
 /// conditional styles rather than pretending one static list is sufficient.
@@ -930,6 +943,7 @@ fn native_grid(declarations: &[StyleDeclaration], theme: &Theme) -> Option<Nativ
                 declaration.property,
                 StyleProperty::Display(_)
                     | StyleProperty::GridTemplateColumns(_)
+                    | StyleProperty::GridTemplateRows(_)
                     | StyleProperty::Gap(_)
                     | StyleProperty::ColumnGap(_)
                     | StyleProperty::RowGap(_)
@@ -966,6 +980,24 @@ fn native_grid(declarations: &[StyleDeclaration], theme: &Theme) -> Option<Nativ
         Some(GridTracks::None | GridTracks::Subgrid | GridTracks::Count(_)) => return None,
     };
 
+    let rows = declarations.iter().rev().find_map(|declaration| {
+        if !matches!(declaration.condition, Condition::Always) {
+            return None;
+        }
+        match &declaration.property {
+            StyleProperty::GridTemplateRows(rows) => Some(rows),
+            _ => None,
+        }
+    });
+    let row_tracks = match rows {
+        None => None,
+        Some(GridTracks::Count(count)) if *count > 0 => {
+            Some(vec![("fr", 1.0); *count as usize])
+        }
+        Some(GridTracks::Css(css)) => Some(parse_native_grid_tracks(css)?),
+        Some(GridTracks::None | GridTracks::Subgrid | GridTracks::Count(_)) => return None,
+    };
+
     let track_count = tracks.len();
     let tracks_js = format!(
         "[{}]",
@@ -975,6 +1007,17 @@ fn native_grid(declarations: &[StyleDeclaration], theme: &Theme) -> Option<Nativ
             .collect::<Vec<_>>()
             .join(", ")
     );
+    let row_track_count = row_tracks.as_ref().map(Vec::len);
+    let row_tracks_js = row_tracks.map(|tracks| {
+        format!(
+            "[{}]",
+            tracks
+                .into_iter()
+                .map(|(kind, value)| format!("{{ kind: '{kind}', value: {value} }}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    });
     let column_gap = declarations
         .iter()
         .rev()
@@ -1005,7 +1048,14 @@ fn native_grid(declarations: &[StyleDeclaration], theme: &Theme) -> Option<Nativ
             }
         })
         .unwrap_or(0.0);
-    Some(NativeGrid { tracks_js, column_gap, row_gap, track_count })
+    Some(NativeGrid {
+        tracks_js,
+        column_gap,
+        row_gap,
+        track_count,
+        row_tracks_js,
+        row_track_count,
+    })
 }
 
 struct NativeGridItem {
@@ -1018,6 +1068,7 @@ struct NativeGridItem {
 fn native_grid_item(
     declarations: &[StyleDeclaration],
     grid_columns: Option<usize>,
+    grid_rows: Option<usize>,
 ) -> Option<NativeGridItem> {
     let columns = grid_columns?;
     if declarations.iter().any(|declaration| {
@@ -1101,12 +1152,15 @@ fn native_grid_item(
         start = end.checked_sub(span);
     }
     let start_fits = start.map_or(true, |start| start + span <= columns);
-    let mut row_start = row_start_line.and_then(resolve_open_grid_line);
-    let row_end = row_end_line.and_then(resolve_open_grid_line);
+    let mut row_start = row_start_line.and_then(|line| resolve_row_line(line, grid_rows));
+    let row_end = row_end_line.and_then(|line| resolve_row_line(line, grid_rows));
     let mut row_span = match row_shorthand {
         Some(GridSpan::Span(span)) => span as usize,
         Some(GridSpan::Auto) | None => 1,
-        Some(GridSpan::Full) => return None,
+        Some(GridSpan::Full) => {
+            row_start = Some(0);
+            grid_rows?
+        }
     };
     if let (Some(start), Some(end)) = (row_start, row_end) {
         row_span = end.checked_sub(start)?;
@@ -1121,10 +1175,17 @@ fn native_grid_item(
     })
 }
 
-fn resolve_open_grid_line(line: GridLine) -> Option<usize> {
+fn resolve_row_line(line: GridLine, rows: Option<usize>) -> Option<usize> {
     match line {
         GridLine::Line(line) if line > 0 => Some(line as usize - 1),
-        GridLine::Auto | GridLine::Line(_) => None,
+        GridLine::Line(line) => {
+            let rows = rows?;
+            (rows as i32 + 1 + line)
+                .try_into()
+                .ok()
+                .filter(|line: &usize| *line <= rows)
+        }
+        GridLine::Auto => None,
     }
 }
 
@@ -1331,6 +1392,7 @@ fn render_verbatim(
             &entry.node,
             SiblingPosition::UNKNOWN,
             interaction_context,
+            None,
             None,
             theme,
             inherited,
@@ -2588,6 +2650,23 @@ export function Login() {
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert!(output.jsx.contains("rowSpan={2}"), "{}", output.jsx);
         assert!(output.jsx.contains("rowGap={8}"), "{}", output.jsx);
+    }
+
+    #[test]
+    fn explicit_grid_rows_resolve_full_row_spans() {
+        let source = r#"
+            import { View } from '@dowel/core'
+            const el = <View className="grid grid-cols-2 grid-rows-3"><View className="row-span-full" /></View>
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert!(output.jsx.contains("rowTracks={[{ kind: 'fr', value: 1 }, { kind: 'fr', value: 1 }, { kind: 'fr', value: 1 }]}"), "{}", output.jsx);
+        assert!(output.jsx.contains("rowSpan={3} rowStart={0}"), "{}", output.jsx);
+        assert_eq!(resolve_row_line(GridLine::Line(-1), Some(3)), Some(3));
+        assert_eq!(resolve_row_line(GridLine::Line(-2), Some(3)), Some(2));
+        assert_eq!(resolve_row_line(GridLine::Line(-1), None), None);
     }
 
     #[test]

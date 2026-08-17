@@ -12,6 +12,7 @@ import {
 
 interface Props {
   tracks: readonly GridTrack[]
+  rowTracks?: readonly GridTrack[]
   columnGap?: number
   rowGap?: number
   children?: ReactNode
@@ -22,7 +23,7 @@ interface Props {
  * measurement: fixed tracks and fr tracks are solved by one Yoga flex row.
  * Empty cells preserve track widths on the final row.
  */
-export function DowelGrid({ tracks, columnGap = 0, rowGap = 0, children }: Props): ReactNode {
+export function DowelGrid({ tracks, rowTracks = [], columnGap = 0, rowGap = 0, children }: Props): ReactNode {
   const [width, setWidth] = useState(0)
   const [heights, setHeights] = useState<number[]>([])
   const list = Children.toArray(children)
@@ -37,10 +38,11 @@ export function DowelGrid({ tracks, columnGap = 0, rowGap = 0, children }: Props
       : { span: 1 },
   )
   const layout = gridLayout(placements, tracks.length)
-  const measured = placements.some((item) => (item.rowSpan ?? 1) > 1 || item.rowStart !== undefined)
+  const measured = rowTracks.length > 0
+    || placements.some((item) => (item.rowSpan ?? 1) > 1 || item.rowStart !== undefined)
   if (measured) {
     const columns = gridTrackSizes(tracks, width, columnGap)
-    const rows = gridRowSizes(layout, heights, rowGap)
+    const rows = gridRowSizes(layout, heights, rowGap, rowTracks)
     const offsets = (sizes: readonly number[], gap: number) =>
       sizes.map((_, index) => sizes.slice(0, index).reduce((a, b) => a + b, 0) + index * gap)
     const left = offsets(columns, columnGap)

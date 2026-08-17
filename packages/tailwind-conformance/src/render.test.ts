@@ -76,6 +76,20 @@ test('a View keeps its base class even with nothing else on it', () => {
   assert.equal(rendered.html, '<div class="dowel-view"></div>')
 })
 
+test('Image renders a semantic img with its universal source and alternative', () => {
+  const { rendered } = round(`
+    import { Image } from '@dowel/core'
+    export function Cover() {
+      return <Image className="w-20 h-20 object-cover" src="https://example.com/cover.jpg" alt="Cover" />
+    }
+  `)
+  assert.equal(
+    rendered.html,
+    '<link rel="preload" as="image" href="https://example.com/cover.jpg"/>' +
+      '<img class="dowel-0" src="https://example.com/cover.jpg" alt="Cover"/>',
+  )
+})
+
 test('text kept its spacing around an interpolation', () => {
   // JSX whitespace rules, checked through the DOM rather than through the
   // emitted string -- `Hello {name}` losing its space is invisible in a

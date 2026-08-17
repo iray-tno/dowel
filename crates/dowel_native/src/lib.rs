@@ -726,6 +726,9 @@ fn render_node(
     if let Some(hint) = node.props.accessibility_hint {
         props_text.push_str(&format!(" accessibilityHint={{{}}}", source_text(source, hint)));
     }
+    if let Some(src) = node.props.image_src {
+        props_text.push_str(&format!(" source={{{{ uri: {} }}}}", source_text(source, src)));
+    }
     if let Some(open) = &node.props.open {
         props_text.push_str(&format!(" open={{{}}}", render_condition_expr(source, open)));
     }
@@ -874,7 +877,7 @@ fn render_node(
     };
 
     // React Native's TextInput takes no children either.
-    let rendered = if component == "TextInput" {
+    let rendered = if component == "TextInput" || component == "Image" {
         format!("<{rendered_component}{props_text} />")
     } else {
         format!("<{rendered_component}{props_text}>{inner}</{rendered_component}>")

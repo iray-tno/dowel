@@ -16,6 +16,13 @@ export interface A11yContextualResult extends A11yContextualCase {
 
 export const A11Y_CONTEXTUAL_CASES: A11yContextualCase[] = [
   {
+    name: 'described Image',
+    purpose: 'one alternative text input reaches native semantics on both platforms',
+    source: '<Image src="https://example.com/cover.jpg" alt="Cover art" />',
+    web: ['<img', 'src={"https://example.com/cover.jpg"}', 'alt={"Cover art"}'],
+    native: ['<Image', 'source={{ uri: "https://example.com/cover.jpg" }}', 'accessibilityLabel={"Cover art"}'],
+  },
+  {
     name: 'semantic Link',
     purpose: 'a destination remains an anchor on Web and an opening link interaction on Native',
     source: '<Link href="https://example.com" accessibilityLabel="Documentation">Docs</Link>',
@@ -84,7 +91,7 @@ export const A11Y_CONTEXTUAL_CASES: A11yContextualCase[] = [
 
 export function compareA11yContextual(testCase: A11yContextualCase): A11yContextualResult {
   const source =
-    `import { Button, Dialog, Link, Pressable, TextInput } from '@dowel/core'\n` +
+    `import { Button, Dialog, Image, Link, Pressable, TextInput } from '@dowel/core'\n` +
     `export function C() { return ${testCase.source} }\n`
   const [web] = compile(source)
   const [native] = compileNative(source)

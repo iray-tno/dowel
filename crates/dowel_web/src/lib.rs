@@ -247,17 +247,27 @@ fn render_node(
     // Written under the DOM's name for it. See the parser: the source may
     // spell this either way, and re-emitting `accessibilityLabel` here
     // would leave the field with no accessible name at all.
-    if let Some(label) = node.props.accessibility_label {
+    if node.primitive != Primitive::Image {
+      if let Some(label) = node.props.accessibility_label {
         // `aria-label` for a real DOM element; `accessibilityLabel` for a
         // Dowel component, which maps it to `aria-label` itself. Writing
         // the DOM spelling on a component would make it an unknown prop
         // that React drops.
         let name = if tag.starts_with("Dowel") { "accessibilityLabel" } else { "aria-label" };
-        attrs.push_str(&format!(" {name}={{{}}}", source_text(source, label)));
+          attrs.push_str(&format!(" {name}={{{}}}", source_text(source, label)));
+      }
     }
     if let Some(hint) = node.props.accessibility_hint {
         let name = if tag.starts_with("Dowel") { "accessibilityHint" } else { "aria-description" };
         attrs.push_str(&format!(" {name}={{{}}}", source_text(source, hint)));
+    }
+    if let Some(src) = node.props.image_src {
+        attrs.push_str(&format!(" src={{{}}}", source_text(source, src)));
+    }
+    if node.primitive == Primitive::Image {
+        if let Some(label) = node.props.accessibility_label {
+            attrs.push_str(&format!(" alt={{{}}}", source_text(source, label)));
+        }
     }
     if let Some(open) = &node.props.open {
         attrs.push_str(&format!(" open={{{}}}", render_condition_expr(source, open)));
@@ -325,7 +335,7 @@ fn render_node(
     // `<input>` is a void element: HTML forbids a closing tag and React
     // throws on children. Nothing can be inside one, so there is no inner
     // to lose by self-closing.
-    if tag == "input" {
+    if tag == "input" || tag == "img" {
         return format!("<{tag}{attrs} />");
     }
     format!("<{tag}{attrs}>{inner}</{tag}>")

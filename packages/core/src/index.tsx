@@ -25,6 +25,18 @@ export function Text({ className, children }: TextProps) {
   return <span className={className}>{children}</span>
 }
 
+export interface ImageProps {
+  className?: string
+  src: string
+  /** Empty string marks a decorative image. */
+  alt?: string
+  accessibilityLabel?: string
+}
+
+export function Image({ className, src, alt, accessibilityLabel }: ImageProps) {
+  return <img className={className} src={src} alt={alt ?? accessibilityLabel ?? ''} />
+}
+
 export interface PressableProps {
   className?: string
   children?: ReactNode

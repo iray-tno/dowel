@@ -159,6 +159,7 @@ fn primitive_name(name: &str) -> Option<&'static str> {
         "Link" => Some("Link"),
         "TextInput" => Some("TextInput"),
         "Dialog" => Some("Dialog"),
+        "Image" => Some("Image"),
         _ => None,
     }
 }
@@ -194,6 +195,7 @@ fn primitive_for_name(name: &str) -> Option<Primitive> {
         "Dialog" => Some(Primitive::Dialog),
         "Button" => Some(Primitive::Button),
         "Link" => Some(Primitive::Link),
+        "Image" => Some(Primitive::Image),
         _ => None,
     }
 }
@@ -357,6 +359,28 @@ fn build_node(
                 }
                 Some(JSXAttributeValue::StringLiteral(literal)) => {
                     props.accessibility_hint = Some(to_expr_ref(literal.span));
+                }
+                _ => props
+                    .passthrough
+                    .push(PassthroughProp { span: to_expr_ref(attr.span()), is_spread: false }),
+            },
+            "src" if primitive == Primitive::Image => match &attr.value {
+                Some(JSXAttributeValue::ExpressionContainer(container)) => {
+                    props.image_src = Some(to_expr_ref(container.expression.span()));
+                }
+                Some(JSXAttributeValue::StringLiteral(literal)) => {
+                    props.image_src = Some(to_expr_ref(literal.span));
+                }
+                _ => props
+                    .passthrough
+                    .push(PassthroughProp { span: to_expr_ref(attr.span()), is_spread: false }),
+            },
+            "alt" if primitive == Primitive::Image => match &attr.value {
+                Some(JSXAttributeValue::ExpressionContainer(container)) => {
+                    props.accessibility_label = Some(to_expr_ref(container.expression.span()));
+                }
+                Some(JSXAttributeValue::StringLiteral(literal)) => {
+                    props.accessibility_label = Some(to_expr_ref(literal.span));
                 }
                 _ => props
                     .passthrough

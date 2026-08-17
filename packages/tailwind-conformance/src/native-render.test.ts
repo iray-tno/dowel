@@ -222,6 +222,22 @@ test('Link renders as a native link interaction with its destination', () => {
   assert.equal(typeof tree?.props.onPress, 'function')
 })
 
+test('Image maps its URI and alternative onto React Native Image props', () => {
+  const tree = renderNative(
+    `
+    import { Image } from '@dowel/core'
+    export function Cover() {
+      return <Image className="w-20 h-20 object-cover" src="https://example.com/cover.jpg" alt="Cover" />
+    }
+    `,
+    'Cover',
+  )
+  assert.equal(tree?.type, 'Image')
+  assert.deepEqual(tree?.props.source, { uri: 'https://example.com/cover.jpg' })
+  assert.equal(tree?.props.accessibilityLabel, 'Cover')
+  assert.deepEqual(tree?.props.style, { width: 80, height: 80, objectFit: 'cover' })
+})
+
 test('focus-visible installs modality events only on an interaction that asks for them', () => {
   const tree = renderNative(
     `

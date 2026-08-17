@@ -47,6 +47,19 @@ test('injects a StyleSheet.create declaration and rewrites the JSX span', () => 
   )
 })
 
+test('imports and directly lowers the canonical Image primitive', () => {
+  const source = `import { Image } from '@dowel/core'
+export function Cover() {
+  return <Image className="w-20 h-20 object-cover" src="https://example.com/cover.jpg" alt="Cover" />
+}
+`
+  const output = transformDowelSource(source, 'Cover.tsx')
+  assert.ok(output)
+  assert.match(output!, /import \{[^}]*Image[^}]*\} from 'react-native'/)
+  assert.match(output!, /<Image style=\{styles\.dowel_r0_0\} accessibilityLabel=\{"Cover"\} source=\{\{ uri: "https:\/\/example\.com\/cover\.jpg" \}\} \/>/)
+  assert.ok(!output!.includes("from '@dowel/core'"))
+})
+
 test('fails the build on a Web-only utility instead of dropping it', () => {
   // `inline-block` has no React Native equivalent, so there is no correct output
   // to fall back to -- compiling anyway would look right on Web and be

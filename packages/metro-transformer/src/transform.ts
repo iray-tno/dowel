@@ -28,7 +28,7 @@ const DOWEL_CORE_IMPORT_RE = /import\s*\{[^}]*\}\s*from\s*['"]@dowel\/core['"]\s
 /// -- an undefined identifier is only an error when it runs -- so the
 /// example built cleanly and would have crashed on first render. Reading
 /// the bundle is what found it; building it was not enough.
-const RN_PRIMITIVE_TAGS = ['View', 'Text', 'Pressable', 'TextInput'] as const
+const RN_PRIMITIVE_TAGS = ['View', 'Text', 'Pressable', 'TextInput', 'Image'] as const
 
 /// Renames this component's `dowelN`/`dowelN_suffix` style/JSX identifiers
 /// to be unique across every component in the file -- each `compileNative`

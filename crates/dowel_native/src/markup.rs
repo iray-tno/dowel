@@ -20,6 +20,7 @@ pub fn native_component(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'st
         Primitive::Text => ("Text", Vec::new()),
         Primitive::Button => ("Pressable", vec![("accessibilityRole", "button".to_string())]),
         Primitive::Link => ("DowelLink", Vec::new()),
+        Primitive::Image => ("Image", image_attrs(node, diagnostics)),
         Primitive::Pressable => {
             let mut props = Vec::new();
             match node.props.accessibility_role {
@@ -50,6 +51,19 @@ pub fn native_component(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'st
         Primitive::TextInput => ("TextInput", missing_label(node, diagnostics)),
         Primitive::Dialog => ("DowelDialog", dialog_attrs(node, diagnostics)),
     }
+}
+
+fn image_attrs(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> Vec<(&'static str, String)> {
+    if node.props.accessibility_label.is_none() {
+        diagnostics.push(Diagnostic {
+            code: DiagnosticCode::A11yMissingAccessibleName,
+            severity: Severity::Warning,
+            message: "Image has no alternative text. Add `alt` (use an empty string for a decorative image) or `accessibilityLabel`."
+                .to_string(),
+            span: node.span,
+        });
+    }
+    Vec::new()
 }
 
 /// Diagnoses a text field with no accessible name (proposal §10.2). The
@@ -140,6 +154,7 @@ mod tests {
                 accessibility_role: None,
                 accessibility_label: None,
                 accessibility_hint: None,
+                image_src: None,
                 has_placeholder: false,
                 open: None,
                 has_on_close: false,

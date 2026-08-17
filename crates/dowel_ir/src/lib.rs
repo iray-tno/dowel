@@ -162,6 +162,9 @@ pub enum Primitive {
     /// React Native carries that colour as a prop on this component
     /// rather than as a style on anything.
     TextInput,
+    /// An image with a universal string `src`: `<img src>` on Web and
+    /// React Native's `<Image source={{ uri }}>` on Native.
+    Image,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -266,6 +269,9 @@ pub struct PropSet {
     /// Supplemental screen-reader guidance. Lowered to `aria-description`
     /// on DOM elements and `accessibilityHint` on React Native.
     pub accessibility_hint: Option<ExprRef>,
+    /// The universal `Image` source expression. Its spelling changes by
+    /// platform, so it cannot be an opaque passthrough prop.
+    pub image_src: Option<ExprRef>,
     /// A `Dialog`'s `open` guard, re-emitted verbatim like `disabled`.
     pub open: Option<ConditionExpr>,
     /// Whether a `Dialog` was given an `onClose`. A modal with no way to

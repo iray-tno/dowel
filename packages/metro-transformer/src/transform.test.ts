@@ -73,6 +73,20 @@ export function Rail() {
   assert.ok(!output!.includes('DowelScrollView'))
 })
 
+test('lowers Dowel primitives nested inside FlatList renderItem', () => {
+  const source = `import { FlatList, Text } from '@dowel/core'
+export function Rows() {
+  return <FlatList className="h-40" data={rows} renderItem={({ item }) => <Text className="p-2">{item}</Text>} />
+}
+`
+  const output = transformDowelSource(source, 'Rows.tsx')
+  assert.ok(output)
+  assert.match(output!, /import \{[^}]*FlatList[^}]*\} from 'react-native'/)
+  assert.match(output!, /import \{[^}]*Text[^}]*\} from 'react-native'/)
+  assert.match(output!, /renderItem=\{\(\{ item \}\) => <Text style=\{styles\.dowel_r0_1\}>\{item\}<\/Text>\}/)
+  assert.ok(!output!.includes("from '@dowel/core'"))
+})
+
 test('fails the build on a Web-only utility instead of dropping it', () => {
   // `inline-block` has no React Native equivalent, so there is no correct output
   // to fall back to -- compiling anyway would look right on Web and be

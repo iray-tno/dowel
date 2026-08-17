@@ -341,7 +341,16 @@ fn render_node(
     // mapping those to Web equivalents is a separate piece of work.
     for prop in &node.props.passthrough {
         attrs.push(' ');
-        attrs.push_str(source_text(source, prop.span));
+        attrs.push_str(&render_verbatim(
+            prop.span,
+            &prop.nested,
+            source,
+            theme,
+            allocator,
+            rules,
+            diagnostics,
+            uses_view_base,
+        ));
     }
 
     // In source order, and every child emitted -- `Verbatim` covers the
@@ -598,6 +607,21 @@ export function Login() {
         assert!(output.css.contains("padding-top: 8px;"), "{}", output.css);
         // Text and expression keep their order.
         assert!(output.jsx.contains(">Hello {name}<"), "{}", output.jsx);
+    }
+
+    #[test]
+    fn flat_list_keeps_its_web_renderer_and_compiles_the_render_item_body() {
+        let source = r#"
+            import { FlatList, Text } from '@dowel/core'
+            const el = <FlatList className="h-40" data={rows}
+              renderItem={({ item }) => <Text className="p-2">{item}</Text>} />
+        "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+        assert!(output.jsx.starts_with("<FlatList className=\"dowel-0\""), "{}", output.jsx);
+        assert!(output.jsx.contains("renderItem={({ item }) => <span className=\"dowel-1\">{item}</span>}"), "{}", output.jsx);
+        assert!(output.css.contains("height: 160px"), "{}", output.css);
+        assert!(output.css.contains("padding-top: 8px"), "{}", output.css);
     }
 
     #[test]

@@ -262,6 +262,27 @@ test('ScrollView directly uses the Native viewport and keeps child layout explic
   }
 })
 
+test('FlatList stays virtualized and its renderItem body is compiled', () => {
+  const tree = renderNative(
+    `
+    import { FlatList, Text } from '@dowel/core'
+    export function Rows() {
+      return <FlatList className="h-40" data={rows} renderItem={({ item }) => <Text className="p-2">{item}</Text>} />
+    }
+    `,
+    'Rows',
+    { rows: ['One', 'Two'] },
+  )
+  assert.equal(tree?.type, 'FlatList')
+  assert.equal(tree?.props.accessibilityRole, 'list')
+  assert.deepEqual(tree?.props.data, ['One', 'Two'])
+  const renderItem = tree?.props.renderItem as ((info: { item: string }) => { type: string; props: Record<string, unknown> }) | undefined
+  assert.equal(typeof renderItem, 'function')
+  const item = renderItem!({ item: 'One' })
+  assert.equal(item.type, 'Text')
+  assert.deepEqual(item.props.style, { paddingTop: 8, paddingRight: 8, paddingBottom: 8, paddingLeft: 8 })
+})
+
 test('focus-visible installs modality events only on an interaction that asks for them', () => {
   const tree = renderNative(
     `

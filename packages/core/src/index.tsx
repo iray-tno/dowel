@@ -54,6 +54,31 @@ export function ScrollView({ className, children, horizontal }: ScrollViewProps)
   )
 }
 
+export interface FlatListRenderInfo<T> {
+  item: T
+  index: number
+}
+
+export interface FlatListProps<T> {
+  className?: string
+  data: readonly T[]
+  renderItem: (info: FlatListRenderInfo<T>) => ReactNode
+  keyExtractor?: (item: T, index: number) => string
+}
+
+/** Web fallback; Native compilation replaces this with the virtualized RN FlatList. */
+export function FlatList<T>({ className, data, renderItem, keyExtractor }: FlatListProps<T>) {
+  return (
+    <div className={className} role="list">
+      {data.map((item, index) => (
+        <div key={keyExtractor?.(item, index) ?? index} role="listitem">
+          {renderItem({ item, index })}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export interface PressableProps {
   className?: string
   children?: ReactNode

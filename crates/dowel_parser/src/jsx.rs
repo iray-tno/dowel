@@ -15,7 +15,7 @@ use dowel_ir::{
     PassthroughProp, Primitive, PropSet, Severity, SourceSpan, StyleDeclaration,
 };
 use oxc_ast::ast::{
-    ArrowFunctionExpression, Function, JSXAttributeItem, JSXAttributeName, JSXAttributeValue,
+    ArrowFunctionExpression, Function, JSXAttribute, JSXAttributeItem, JSXAttributeName, JSXAttributeValue,
     JSXChild, JSXElement, JSXElementName, JSXExpression,
 };
 use oxc_ast_visit::walk::{walk_arrow_function_expression, walk_function};
@@ -161,6 +161,7 @@ fn primitive_name(name: &str) -> Option<&'static str> {
         "Dialog" => Some("Dialog"),
         "Image" => Some("Image"),
         "ScrollView" => Some("ScrollView"),
+        "FlatList" => Some("FlatList"),
         _ => None,
     }
 }
@@ -187,6 +188,26 @@ fn carry_verbatim(
     Child::Verbatim { source: to_expr_ref(span), nested: finder.nested }
 }
 
+fn passthrough_prop(
+    attr: &JSXAttribute,
+    module_record: &ModuleRecord,
+    diagnostics: &mut Vec<Diagnostic>,
+    consumed: &mut Vec<SourceSpan>,
+) -> PassthroughProp {
+    let mut finder = PrimitiveFinder {
+        module_record,
+        diagnostics,
+        consumed,
+        nested: Vec::new(),
+    };
+    finder.visit_jsx_attribute(attr);
+    PassthroughProp {
+        span: to_expr_ref(attr.span()),
+        is_spread: false,
+        nested: finder.nested,
+    }
+}
+
 fn primitive_for_name(name: &str) -> Option<Primitive> {
     match name {
         "View" => Some(Primitive::View),
@@ -198,6 +219,7 @@ fn primitive_for_name(name: &str) -> Option<Primitive> {
         "Link" => Some(Primitive::Link),
         "Image" => Some(Primitive::Image),
         "ScrollView" => Some(Primitive::ScrollView),
+        "FlatList" => Some(Primitive::FlatList),
         _ => None,
     }
 }
@@ -241,7 +263,7 @@ fn build_node(
                 }
                 props
                     .passthrough
-                    .push(PassthroughProp { span: to_expr_ref(spread.span()), is_spread: true });
+                    .push(PassthroughProp { span: to_expr_ref(spread.span()), is_spread: true, nested: Vec::new() });
                 continue;
             }
         };
@@ -250,7 +272,7 @@ fn build_node(
             // still survive to output rather than being dropped.
             props
                 .passthrough
-                .push(PassthroughProp { span: to_expr_ref(attr.span()), is_spread: false });
+                .push(passthrough_prop(attr, module_record, diagnostics, consumed));
             continue;
         };
         match attr_name.name.as_str() {
@@ -320,7 +342,7 @@ fn build_node(
                 }
                 _ => props
                     .passthrough
-                    .push(PassthroughProp { span: to_expr_ref(attr.span()), is_spread: false }),
+                    .push(passthrough_prop(attr, module_record, diagnostics, consumed)),
             },
             "disabled" => match &attr.value {
                 None => props.disabled = Some(ConditionExpr::Static(true)),
@@ -329,7 +351,7 @@ fn build_node(
                 }
                 _ => props
                     .passthrough
-                    .push(PassthroughProp { span: to_expr_ref(attr.span()), is_spread: false }),
+                    .push(passthrough_prop(attr, module_record, diagnostics, consumed)),
             },
             "horizontal" if primitive == Primitive::ScrollView => match &attr.value {
                 None => props.scroll_horizontal = Some(ConditionExpr::Static(true)),
@@ -338,7 +360,7 @@ fn build_node(
                 }
                 _ => props
                     .passthrough
-                    .push(PassthroughProp { span: to_expr_ref(attr.span()), is_spread: false }),
+                    .push(passthrough_prop(attr, module_record, diagnostics, consumed)),
             },
             // Both spellings are accepted and neither is passed through:
             // the two platforms name this prop differently, so the value is
@@ -362,7 +384,7 @@ fn build_node(
                 }
                 _ => props
                     .passthrough
-                    .push(PassthroughProp { span: to_expr_ref(attr.span()), is_spread: false }),
+                    .push(passthrough_prop(attr, module_record, diagnostics, consumed)),
             },
             "accessibilityHint" | "aria-description" => match &attr.value {
                 Some(JSXAttributeValue::ExpressionContainer(container)) => {
@@ -373,7 +395,7 @@ fn build_node(
                 }
                 _ => props
                     .passthrough
-                    .push(PassthroughProp { span: to_expr_ref(attr.span()), is_spread: false }),
+                    .push(passthrough_prop(attr, module_record, diagnostics, consumed)),
             },
             "src" if primitive == Primitive::Image => match &attr.value {
                 Some(JSXAttributeValue::ExpressionContainer(container)) => {
@@ -384,7 +406,7 @@ fn build_node(
                 }
                 _ => props
                     .passthrough
-                    .push(PassthroughProp { span: to_expr_ref(attr.span()), is_spread: false }),
+                    .push(passthrough_prop(attr, module_record, diagnostics, consumed)),
             },
             "alt" if primitive == Primitive::Image => match &attr.value {
                 Some(JSXAttributeValue::ExpressionContainer(container)) => {
@@ -395,7 +417,7 @@ fn build_node(
                 }
                 _ => props
                     .passthrough
-                    .push(PassthroughProp { span: to_expr_ref(attr.span()), is_spread: false }),
+                    .push(passthrough_prop(attr, module_record, diagnostics, consumed)),
             },
             "open" => match &attr.value {
                 Some(JSXAttributeValue::ExpressionContainer(container)) => {
@@ -403,19 +425,19 @@ fn build_node(
                 }
                 _ => props
                     .passthrough
-                    .push(PassthroughProp { span: to_expr_ref(attr.span()), is_spread: false }),
+                    .push(passthrough_prop(attr, module_record, diagnostics, consumed)),
             },
             "onClose" => {
                 props.has_on_close = true;
                 props
                     .passthrough
-                    .push(PassthroughProp { span: to_expr_ref(attr.span()), is_spread: false });
+                    .push(passthrough_prop(attr, module_record, diagnostics, consumed));
             }
             "placeholder" => {
                 props.has_placeholder = true;
                 props
                     .passthrough
-                    .push(PassthroughProp { span: to_expr_ref(attr.span()), is_spread: false });
+                    .push(passthrough_prop(attr, module_record, diagnostics, consumed));
             }
             "accessibilityRole" => {
                 props.accessibility_role = accessibility_role_from_value(&attr.value);
@@ -425,12 +447,12 @@ fn build_node(
                     // *reason* about it, not to emit it.
                     props
                         .passthrough
-                        .push(PassthroughProp { span: to_expr_ref(attr.span()), is_spread: false });
+                        .push(passthrough_prop(attr, module_record, diagnostics, consumed));
                 }
             }
             _ => props
                 .passthrough
-                .push(PassthroughProp { span: to_expr_ref(attr.span()), is_spread: false }),
+                    .push(passthrough_prop(attr, module_record, diagnostics, consumed)),
         }
     }
 
@@ -594,6 +616,27 @@ mod tests {
         );
         assert!(root.props.passthrough[0].is_spread);
         assert!(!root.props.passthrough[1].is_spread);
+    }
+
+    #[test]
+    fn primitives_inside_a_render_prop_are_retained_for_nested_lowering() {
+        let source = r#"
+            import { FlatList, Text } from '@dowel/core'
+            const el = <FlatList data={rows} renderItem={({ item }) => <Text className="p-2">{item}</Text>} />
+            "#;
+        let output = crate::parse_tsx(source);
+        let render_item = output.roots[0]
+            .node
+            .props
+            .passthrough
+            .iter()
+            .find(|prop| {
+                let text = &source[prop.span.0.start as usize..prop.span.0.end as usize];
+                text.starts_with("renderItem")
+            })
+            .expect("renderItem should carry its nested primitive");
+        assert_eq!(render_item.nested.len(), 1);
+        assert_eq!(render_item.nested[0].node.primitive, dowel_ir::Primitive::Text);
     }
 
     #[test]

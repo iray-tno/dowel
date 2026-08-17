@@ -16,6 +16,7 @@ export const Pressable = 'Pressable'
 export const TextInput = 'TextInput'
 export const Image = 'Image'
 export const ScrollView = 'ScrollView'
+export const FlatList = 'FlatList'
 export const Modal = 'Modal'
 
 export const Linking = {

@@ -21,6 +21,7 @@ pub fn element_shape(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'stati
         Primitive::Link => ("a", Vec::new()),
         Primitive::Image => ("img", image_attrs(node, diagnostics)),
         Primitive::ScrollView => ("div", Vec::new()),
+        Primitive::FlatList => ("FlatList", Vec::new()),
         Primitive::Pressable => {
             let mut attrs = Vec::new();
             match node.props.accessibility_role {

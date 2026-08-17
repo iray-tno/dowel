@@ -168,6 +168,9 @@ pub enum Primitive {
     /// A viewport that scrolls vertically by default and horizontally when
     /// `horizontal` is set. Its content layout stays explicit in children.
     ScrollView,
+    /// A data-driven list. Web keeps the lightweight core renderer while
+    /// Native lowers to React Native's virtualized FlatList.
+    FlatList,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -245,7 +248,7 @@ impl Child {
 /// uniformly -- `testID="row"`, `onLayout={fn}`, bare `autoFocus`, and
 /// `{...rest}` (which has no name at all, so a name/value pair couldn't
 /// represent it).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PassthroughProp {
     pub span: ExprRef,
     /// True for `{...expr}`. Tracked separately because a spread's
@@ -253,6 +256,9 @@ pub struct PassthroughProp {
     /// spread after Dowel's compiled className can silently override it at
     /// runtime (see `DiagnosticCode::UnsafePropSpreadAfterStyle`).
     pub is_spread: bool,
+    /// Dowel primitives inside an opaque prop expression such as
+    /// `renderItem={() => <View />}`.
+    pub nested: Vec<NestedNode>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]

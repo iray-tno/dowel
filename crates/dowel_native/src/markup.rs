@@ -22,6 +22,7 @@ pub fn native_component(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'st
         Primitive::Link => ("DowelLink", Vec::new()),
         Primitive::Image => ("Image", image_attrs(node, diagnostics)),
         Primitive::ScrollView => ("ScrollView", Vec::new()),
+        Primitive::FlatList => ("FlatList", vec![("accessibilityRole", "list".to_string())]),
         Primitive::Pressable => {
             let mut props = Vec::new();
             match node.props.accessibility_role {

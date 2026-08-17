@@ -758,7 +758,18 @@ fn render_node(
     // ordering semantics.
     for prop in &node.props.passthrough {
         props_text.push(' ');
-        props_text.push_str(source_text(source, prop.span));
+        props_text.push_str(&render_verbatim(
+            prop.span,
+            &prop.nested,
+            theme,
+            &descend,
+            source,
+            allocator,
+            style_entries,
+            diagnostics,
+            runtime,
+            interaction_context || rendered_component == "DowelPressable",
+        ));
     }
 
     // Every child, in source order. A `Verbatim` is re-emitted from source

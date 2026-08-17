@@ -11,6 +11,10 @@ import { reactNativeCssProperties, reactNativeVersion } from './native-surface.t
 import { compareCandidate, type Comparison, type Verdict } from './compare.ts'
 import { compareNativeCandidate, type NativeComparison, type NativeVerdict } from './native.ts'
 import { compareNativeContextual, NATIVE_CONTEXTUAL_CASES } from './native-contextual.ts'
+import {
+  compareNativeGridContextual,
+  NATIVE_GRID_CONTEXTUAL_CASES,
+} from './native-grid-contextual.ts'
 import { typeCheckStyles } from './typecheck.ts'
 import { classesDefinedIn, renderWeb } from './render.ts'
 import { compile as dowelCompile, compileNative } from '@dowel/compiler'
@@ -181,6 +185,19 @@ console.log(
 for (const result of contextual) {
   console.log(
     `  ${result.candidate}: ${result.verdict} -- ${result.purpose}` +
+      (result.detail ? ` (${result.detail})` : ''),
+  )
+}
+
+const contextualGrid = NATIVE_GRID_CONTEXTUAL_CASES.map(compareNativeGridContextual)
+const contextualGridCovered = contextualGrid.filter((result) => result.verdict === 'COVERED').length
+console.log(
+  `\nNative contextual grid: ${contextualGridCovered}/${contextualGrid.length} = ` +
+    `${pct(contextualGridCovered, contextualGrid.length)}  (container tracks plus child placement)`,
+)
+for (const result of contextualGrid) {
+  console.log(
+    `  ${result.name}: ${result.verdict} -- ${result.purpose}` +
       (result.detail ? ` (${result.detail})` : ''),
   )
 }

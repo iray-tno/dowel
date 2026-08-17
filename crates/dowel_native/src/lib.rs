@@ -430,7 +430,7 @@ fn render_node(
     // React Native's equivalents aren't. Resolved here, before the refusal
     // check, so only the ones that genuinely can't be resolved are refused.
     let style = lower_inline_flex(fold_font_relative(&node.style, inherited));
-    let grid = native_grid(&style, theme);
+    let grid = native_grid(&style, theme, runtime);
     let grid_item = native_grid_item(&style, grid_columns, grid_rows);
     // The fast Native transition path is deliberately narrow: opacity on
     // Pressable interaction state can stay entirely on the native driver.
@@ -782,7 +782,7 @@ fn render_node(
                     child_node,
                     child_position,
                     interaction_context || rendered_component == "DowelPressable",
-                    grid.as_ref().map(|grid| grid.track_count),
+                    grid.as_ref().and_then(|grid| grid.track_count),
                     grid.as_ref().and_then(|grid| grid.row_track_count),
                     theme,
                     &descend,
@@ -925,9 +925,12 @@ fn lower_inline_flex(mut declarations: Vec<StyleDeclaration>) -> Vec<StyleDeclar
 
 struct NativeGrid {
     tracks_js: String,
-    column_gap: f64,
-    row_gap: f64,
-    track_count: usize,
+    column_gap: String,
+    row_gap: String,
+    /// Static only when every responsive branch has the same count. Item
+    /// line resolution needs a compile-time explicit grid; auto-placement
+    /// itself does not.
+    track_count: Option<usize>,
     row_tracks_js: Option<String>,
     row_track_count: Option<usize>,
 }
@@ -943,12 +946,16 @@ fn grid_absorbs(property: &StyleProperty) -> bool {
 
 /// Builds the supported subset of the Native grid solver input. Columns can
 /// stay on the measurement-free path; explicit rows select its measured path.
-/// Conditions are deliberately declined for now: changing a track list at
-/// runtime belongs at this boundary, but requires passing the same guards as
-/// conditional styles rather than pretending one static list is sufficient.
-fn native_grid(declarations: &[StyleDeclaration], theme: &Theme) -> Option<NativeGrid> {
+/// Responsive track and gap changes reuse the same coarse breakpoint hooks
+/// as ordinary Native variants. The ordinary column-only branch still stays
+/// measurement-free: changing `tracks` only rebuilds Yoga flex rows.
+fn native_grid(
+    declarations: &[StyleDeclaration],
+    theme: &Theme,
+    runtime: &mut RuntimeNeeds,
+) -> Option<NativeGrid> {
     if declarations.iter().any(|declaration| {
-        !matches!(declaration.condition, Condition::Always)
+        !matches!(declaration.condition, Condition::Always | Condition::Responsive(_))
             && matches!(
                 declaration.property,
                 StyleProperty::Display(_)
@@ -974,90 +981,33 @@ fn native_grid(declarations: &[StyleDeclaration], theme: &Theme) -> Option<Nativ
         return None;
     }
 
-    let columns = declarations.iter().rev().find_map(|declaration| {
-        if !matches!(declaration.condition, Condition::Always) {
-            return None;
-        }
-        match &declaration.property {
-            StyleProperty::GridTemplateColumns(columns) => Some(columns),
+    let (tracks_js, track_count) = responsive_grid_value(
+        declarations,
+        |property| match property {
+            StyleProperty::GridTemplateColumns(tracks) => Some(parse_grid_tracks(tracks)),
             _ => None,
-        }
-    });
-    let tracks = match columns {
-        None => vec![("fr", 1.0)],
-        Some(GridTracks::Count(count)) if *count > 0 => vec![("fr", 1.0); *count as usize],
-        Some(GridTracks::Css(css)) => parse_native_grid_tracks(css)?,
-        Some(GridTracks::None | GridTracks::Subgrid | GridTracks::Count(_)) => return None,
-    };
-
-    let rows = declarations.iter().rev().find_map(|declaration| {
-        if !matches!(declaration.condition, Condition::Always) {
-            return None;
-        }
-        match &declaration.property {
-            StyleProperty::GridTemplateRows(rows) => Some(rows),
-            _ => None,
-        }
-    });
-    let row_tracks = match rows {
-        None => None,
-        Some(GridTracks::Count(count)) if *count > 0 => {
-            Some(vec![("fr", 1.0); *count as usize])
-        }
-        Some(GridTracks::Css(css)) => Some(parse_native_grid_tracks(css)?),
-        Some(GridTracks::None | GridTracks::Subgrid | GridTracks::Count(_)) => return None,
-    };
-
-    let track_count = tracks.len();
-    let tracks_js = format!(
-        "[{}]",
-        tracks
-            .into_iter()
-            .map(|(kind, value)| format!("{{ kind: '{kind}', value: {value} }}"))
-            .collect::<Vec<_>>()
-            .join(", ")
-    );
-    let row_track_count = row_tracks.as_ref().map(Vec::len);
-    let row_tracks_js = row_tracks.map(|tracks| {
-        format!(
-            "[{}]",
-            tracks
-                .into_iter()
-                .map(|(kind, value)| format!("{{ kind: '{kind}', value: {value} }}"))
-                .collect::<Vec<_>>()
-                .join(", ")
-        )
-    });
-    let column_gap = declarations
-        .iter()
-        .rev()
-        .find_map(|declaration| {
-            if !matches!(declaration.condition, Condition::Always) {
-                return None;
-            }
-            match declaration.property {
-                StyleProperty::Gap(length) | StyleProperty::ColumnGap(length) => {
-                    Some(length.px(theme))
-                }
+        },
+        Some(vec![("fr", 1.0)]),
+        runtime,
+    )?;
+    let has_rows = declarations.iter().any(|declaration|
+        matches!(declaration.property, StyleProperty::GridTemplateRows(_)));
+    let (row_tracks_js, row_track_count) = if has_rows {
+        let (value, count) = responsive_grid_value(
+            declarations,
+            |property| match property {
+                StyleProperty::GridTemplateRows(tracks) => Some(parse_grid_tracks(tracks)),
                 _ => None,
-            }
-        })
-        .unwrap_or(0.0);
-    let row_gap = declarations
-        .iter()
-        .rev()
-        .find_map(|declaration| {
-            if !matches!(declaration.condition, Condition::Always) {
-                return None;
-            }
-            match declaration.property {
-                StyleProperty::Gap(length) | StyleProperty::RowGap(length) => {
-                    Some(length.px(theme))
-                }
-                _ => None,
-            }
-        })
-        .unwrap_or(0.0);
+            },
+            Some(Vec::new()),
+            runtime,
+        )?;
+        (Some(value), count)
+    } else {
+        (None, None)
+    };
+    let column_gap = responsive_gap(declarations, theme, true, runtime);
+    let row_gap = responsive_gap(declarations, theme, false, runtime);
     Some(NativeGrid {
         tracks_js,
         column_gap,
@@ -1066,6 +1016,116 @@ fn native_grid(declarations: &[StyleDeclaration], theme: &Theme) -> Option<Nativ
         row_tracks_js,
         row_track_count,
     })
+}
+
+type NativeTracks = Vec<(&'static str, f64)>;
+
+fn parse_grid_tracks(tracks: &GridTracks) -> Option<NativeTracks> {
+    match tracks {
+        GridTracks::Count(count) if *count > 0 => Some(vec![("fr", 1.0); *count as usize]),
+        GridTracks::Css(css) => parse_native_grid_tracks(css),
+        GridTracks::None | GridTracks::Subgrid | GridTracks::Count(_) => None,
+    }
+}
+
+fn tracks_js(tracks: &NativeTracks) -> String {
+    format!(
+        "[{}]",
+        tracks
+            .iter()
+            .map(|(kind, value)| format!("{{ kind: '{kind}', value: {value} }}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+fn breakpoint_rank(bp: &Breakpoint) -> u8 {
+    match bp {
+        Breakpoint::Sm => 0,
+        Breakpoint::Md => 1,
+        Breakpoint::Lg => 2,
+        Breakpoint::Xl => 3,
+        Breakpoint::Xl2 => 4,
+    }
+}
+
+fn responsive_grid_value<F>(
+    declarations: &[StyleDeclaration],
+    pick: F,
+    default: Option<NativeTracks>,
+    runtime: &mut RuntimeNeeds,
+) -> Option<(String, Option<usize>)>
+where
+    F: Fn(&StyleProperty) -> Option<Option<NativeTracks>>,
+{
+    let mut base = default;
+    let mut responsive: Vec<(Breakpoint, NativeTracks)> = Vec::new();
+    for declaration in declarations {
+        let Some(parsed) = pick(&declaration.property) else { continue };
+        let parsed = parsed?;
+        match declaration.condition {
+            Condition::Always => base = Some(parsed),
+            Condition::Responsive(bp) => {
+                if let Some(entry) = responsive.iter_mut().find(|(known, _)| known == &bp) {
+                    entry.1 = parsed;
+                } else {
+                    responsive.push((bp, parsed));
+                }
+            }
+            _ => return None,
+        }
+    }
+    let base = base?;
+    let mut counts = vec![base.len()];
+    // Hooks are min-width predicates and therefore overlap. Wrap from the
+    // smallest to the largest so the largest active breakpoint is outermost
+    // and wins, matching Tailwind's media-query ordering.
+    responsive.sort_by_key(|(bp, _)| breakpoint_rank(bp));
+    let mut value = tracks_js(&base);
+    for (bp, tracks) in &responsive {
+        runtime.hooks.push(RuntimeHook::Breakpoint(*bp));
+        counts.push(tracks.len());
+        value = format!("{} ? {} : ({value})", RuntimeHook::Breakpoint(*bp).binding(), tracks_js(tracks));
+    }
+    let count = counts.iter().all(|count| *count == counts[0]).then_some(counts[0]);
+    Some((value, count))
+}
+
+fn responsive_gap(
+    declarations: &[StyleDeclaration],
+    theme: &Theme,
+    column: bool,
+    runtime: &mut RuntimeNeeds,
+) -> String {
+    let mut base = 0.0;
+    let mut responsive: Vec<(Breakpoint, f64)> = Vec::new();
+    for declaration in declarations {
+        let value = match declaration.property {
+            StyleProperty::Gap(length) => Some(length.px(theme)),
+            StyleProperty::ColumnGap(length) if column => Some(length.px(theme)),
+            StyleProperty::RowGap(length) if !column => Some(length.px(theme)),
+            _ => None,
+        };
+        let Some(value) = value else { continue };
+        match declaration.condition {
+            Condition::Always => base = value,
+            Condition::Responsive(bp) => {
+                if let Some(entry) = responsive.iter_mut().find(|(known, _)| known == &bp) {
+                    entry.1 = value;
+                } else {
+                    responsive.push((bp, value));
+                }
+            }
+            _ => return base.to_string(),
+        }
+    }
+    responsive.sort_by_key(|(bp, _)| breakpoint_rank(bp));
+    let mut value = base.to_string();
+    for (bp, gap) in responsive {
+        runtime.hooks.push(RuntimeHook::Breakpoint(bp));
+        value = format!("{} ? {gap} : ({value})", RuntimeHook::Breakpoint(bp).binding());
+    }
+    value
 }
 
 struct NativeGridItem {
@@ -2690,6 +2750,26 @@ export function Login() {
 
         assert!(!output.diagnostics.is_empty());
         assert!(!output.runtime_imports.contains(&"DowelGrid"));
+    }
+
+    #[test]
+    fn responsive_grid_tracks_and_gaps_reuse_breakpoint_hooks() {
+        let source = r#"
+            import { View } from '@dowel/core'
+            function Cards() {
+              return <View className="grid grid-cols-1 gap-2 md:grid-cols-3 md:gap-4 lg:grid-cols-4"><View /><View /></View>
+            }
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert!(output.jsx.contains("tracks={__dowelBp_lg ?"), "{}", output.jsx);
+        assert!(output.jsx.contains("__dowelBp_md ?"), "{}", output.jsx);
+        assert!(output.jsx.contains("columnGap={__dowelBp_md ? 16 : (8)}"), "{}", output.jsx);
+        assert!(output.jsx.contains("rowGap={__dowelBp_md ? 16 : (8)}"), "{}", output.jsx);
+        assert!(output.prelude.contains(&"const __dowelBp_md = useDowelBreakpoint('md')".to_string()));
+        assert!(output.prelude.contains(&"const __dowelBp_lg = useDowelBreakpoint('lg')".to_string()));
     }
 
     #[test]

@@ -24,6 +24,18 @@ export interface NativeGridContextualResult extends NativeGridContextualCase {
  */
 export const NATIVE_GRID_CONTEXTUAL_CASES: NativeGridContextualCase[] = [
   {
+    name: 'responsive columns and gap',
+    purpose: 'breakpoint changes replace tracks without selecting measured layout',
+    className: 'grid grid-cols-1 gap-2 md:grid-cols-3 md:gap-4',
+    children: '<View /><View /><View />',
+    expected: [
+      'useDowelBreakpoint',
+      '__dowelBp_md ?',
+      'columnGap={__dowelBp_md ? 16 : (8)}',
+      'rowGap={__dowelBp_md ? 16 : (8)}',
+    ],
+  },
+  {
     name: 'equal columns and gap',
     purpose: 'ordinary equal-column grid selects the measurement-free renderer',
     className: 'grid grid-cols-3 gap-4',

@@ -90,6 +90,16 @@ const PROBE_CONTEXTS = [
       `export function C() {\n  return <Text className="${candidate}">x</Text>\n}\n`,
   },
   {
+    // `disabled:` has a real driver only when the element also has a
+    // disabled prop. Probing it exclusively on View/Text made a supported
+    // conditional style look globally refused, unlike the target-aware
+    // TextInput and first-child probes below.
+    name: 'disabled Button',
+    render: (candidate: string) =>
+      `import { Button } from '@dowel/core'\n` +
+      `export function C() {\n  return <Button disabled={true} className="${candidate}">x</Button>\n}\n`,
+  },
+  {
     // `placeholder-*` only means anything where a placeholder exists, and
     // React Native carries that colour as a prop on this component rather
     // than as a style on anything -- so a probe set without a TextInput

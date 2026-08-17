@@ -47,6 +47,20 @@ export const Animated = {
   Value: class {
     constructor(value) {
       this.value = value
+      this.listeners = new Map()
+      this.nextListener = 0
+    }
+    setValue(value) {
+      this.value = value
+      for (const listener of this.listeners.values()) listener({ value })
+    }
+    addListener(listener) {
+      const id = String(this.nextListener++)
+      this.listeners.set(id, listener)
+      return id
+    }
+    removeListener(id) {
+      this.listeners.delete(id)
     }
     interpolate(config) {
       return { __animatedInterpolation: config }

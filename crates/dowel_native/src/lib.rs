@@ -642,9 +642,9 @@ fn render_node(
     } else if !style_array_parts.is_empty() {
         props_text.push_str(&format!(" style={{[{}]}}", style_array_parts.join(", ")));
     }
-    if let Some((duration, easing, opacity, transform)) = transition {
+    if let Some((duration, easing, opacity, transform, colors)) = transition {
         props_text.push_str(&format!(
-            " dowelTransition={{{{ duration: {duration}, easing: '{easing}', opacity: {opacity}, transform: {transform} }}}}"
+            " dowelTransition={{{{ duration: {duration}, easing: '{easing}', opacity: {opacity}, transform: {transform}, colors: {colors} }}}}"
         ));
     }
     for (key, value) in &extra_props {
@@ -798,7 +798,7 @@ fn condition_contains(condition: &Condition, predicate: impl Fn(&Condition) -> b
 fn native_driver_transition(
     node: &Node,
     declarations: &[StyleDeclaration],
-) -> Option<(u32, &'static str, bool, bool)> {
+) -> Option<(u32, &'static str, bool, bool, bool)> {
     if !matches!(node.primitive, Primitive::Pressable | Primitive::Button) {
         return None;
     }
@@ -822,7 +822,10 @@ fn native_driver_transition(
             | StyleProperty::ScaleX(_)
             | StyleProperty::ScaleY(_)
     ));
-    if !interactive_opacity && !interactive_transform {
+    let interactive_colors = interactive(|property| {
+        matches!(property, StyleProperty::BackgroundColor(_))
+    });
+    if !interactive_opacity && !interactive_transform && !interactive_colors {
         return None;
     }
     let properties = declarations.iter().rev().find_map(|declaration| match &declaration.property {
@@ -838,7 +841,8 @@ fn native_driver_transition(
     };
     let opacity = interactive_opacity && includes(&["opacity"]);
     let transform = interactive_transform && includes(&["transform", "translate", "scale", "rotate"]);
-    if !opacity && !transform { return None; }
+    let colors = interactive_colors && includes(&["color", "background-color"]);
+    if !opacity && !transform && !colors { return None; }
     let duration = declarations.iter().rev().find_map(|declaration| match declaration.property {
         StyleProperty::TransitionDuration(duration) => Some(duration),
         _ => None,
@@ -853,7 +857,7 @@ fn native_driver_transition(
         "cubic-bezier(0, 0, 0.2, 1)" => "ease-out",
         _ => "ease-in-out",
     };
-    Some((duration, easing, opacity, transform))
+    Some((duration, easing, opacity, transform, colors))
 }
 
 /// Wraps `inner` in `DowelSpaced` when the element carries `space-*` or
@@ -2273,11 +2277,27 @@ export function Login() {
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert!(output.jsx.starts_with("<DowelPressable"), "{}", output.jsx);
         assert!(
-            output.jsx.contains("dowelTransition={{ duration: 200, easing: 'ease-in-out', opacity: true, transform: false }}"),
+            output.jsx.contains("dowelTransition={{ duration: 200, easing: 'ease-in-out', opacity: true, transform: false, colors: false }}"),
             "{}",
             output.jsx
         );
         assert!(output.jsx.contains("hovered && styles.dowel0_hover"), "{}", output.jsx);
+    }
+
+    #[test]
+    fn interactive_color_transition_uses_the_js_driver_config() {
+        let source = r#"
+            import { Pressable } from '@dowel/core'
+            const el = (
+              <Pressable className="bg-white transition duration-200 hover:bg-blue-500 focus:bg-red-500"
+                accessibilityRole="button">Save</Pressable>
+            )
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert!(output.jsx.contains("colors: true"), "{}", output.jsx);
     }
 
     #[test]

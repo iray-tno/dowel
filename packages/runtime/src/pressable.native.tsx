@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Animated,
   Easing,
@@ -14,11 +14,14 @@ import {
   type ViewStyle,
 } from 'react-native'
 
+import { blendColor } from './color-transition.ts'
+
 export interface DowelTransition {
   duration: number
   easing: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out'
   opacity: boolean
   transform: boolean
+  colors: boolean
 }
 
 export interface DowelPressableState extends PressableStateCallbackType {
@@ -76,6 +79,20 @@ function identityFor(target: TransformTarget) {
   return target.key.startsWith('scale') ? 1 : 0
 }
 
+const COLOR_KEYS = ['backgroundColor'] as const
+type ColorKey = (typeof COLOR_KEYS)[number]
+type ColorRange = { from: string; to: string }
+
+function colorTargets(style: StyleProp<ViewStyle>) {
+  const flattened = StyleSheet.flatten(style) as Record<string, unknown> | undefined
+  const colors = new Map<ColorKey, string>()
+  for (const key of COLOR_KEYS) {
+    const value = flattened?.[key]
+    if (typeof value === 'string') colors.set(key, value)
+  }
+  return colors
+}
+
 export function DowelPressable({
   style,
   onHoverIn,
@@ -96,6 +113,38 @@ export function DowelPressable({
   const opacity = useRef(new Animated.Value(
     typeof initialOpacity === 'number' ? initialOpacity : 1,
   )).current
+  const colorSpecs = useMemo(() => {
+    if (!dowelTransition?.colors || typeof style !== 'function') return [] as ColorKey[]
+    const found = new Set<ColorKey>()
+    for (const pressed of [false, true]) {
+      for (const hovered of [false, true]) {
+        for (const focused of [false, true]) {
+          for (const key of colorTargets(style({ pressed, hovered, focused })).keys()) found.add(key)
+        }
+      }
+    }
+    return [...found]
+  }, [dowelTransition?.colors, style])
+  const initialColors = colorTargets(initialStyle)
+  const colorRanges = useRef(new Map<ColorKey, ColorRange>()).current
+  for (const key of colorSpecs) {
+    if (!colorRanges.has(key)) {
+      const initial = initialColors.get(key) ?? (key === 'backgroundColor' ? 'transparent' : '')
+      if (initial) colorRanges.set(key, { from: initial, to: initial })
+    }
+  }
+  const colorProgress = useRef(new Animated.Value(0)).current
+  const colorFraction = useRef(0)
+  useEffect(() => {
+    const listener = colorProgress.addListener(({ value }) => { colorFraction.current = value })
+    return () => colorProgress.removeListener(listener)
+  }, [colorProgress])
+  const animatedColors = Object.fromEntries(
+    [...colorRanges].map(([key, range]) => [key, colorProgress.interpolate({
+      inputRange: [0, 1],
+      outputRange: [range.from, range.to],
+    })]),
+  )
   const transformSpecs = useMemo(() => {
     if (!dowelTransition?.transform || typeof style !== 'function') return []
     const states = [false, true].flatMap((pressed) =>
@@ -159,8 +208,28 @@ export function DowelPressable({
         }))
       }
     }
+    if (dowelTransition.colors) {
+      const targets = colorTargets(style({
+        pressed: (next & PRESSED) !== 0,
+        hovered: (next & HOVERED) !== 0,
+        focused: (next & FOCUSED) !== 0,
+      }))
+      for (const [key, range] of colorRanges) {
+        const current = blendColor(range.from, range.to, colorFraction.current)
+        const target = targets.get(key) ?? (key === 'backgroundColor' ? 'transparent' : current)
+        colorRanges.set(key, { from: current, to: target })
+      }
+      colorProgress.setValue(0)
+      colorFraction.current = 0
+      animations.push(Animated.timing(colorProgress, {
+        toValue: 1,
+        duration: dowelTransition.duration,
+        easing: easingFor(dowelTransition.easing),
+        useNativeDriver: false,
+      }))
+    }
     Animated.parallel(animations).start()
-  }, [dowelTransition, opacity, style, transformSpecs, transformValues])
+  }, [colorProgress, colorRanges, dowelTransition, opacity, style, transformSpecs, transformValues])
   const setFlag = useCallback((flag: number, active: boolean) => {
     const current = interactionRef.current
     const next = active ? current | flag : current & ~flag
@@ -208,6 +277,7 @@ export function DowelPressable({
         return [resolved, {
           ...(dowelTransition.opacity ? { opacity } : null),
           ...(dowelTransition.transform ? { transform: animatedTransform } : null),
+          ...(dowelTransition.colors ? animatedColors : null),
         }]
       }}
     />

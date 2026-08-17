@@ -413,6 +413,10 @@ fn render_node(
     // absorbed before the refusal check so the thing that *does* express it
     // isn't reported as impossible.
     let placeholder = placeholder_props(node, theme);
+    // The caret colour is another TextInput prop rather than a style. Kept
+    // separate from placeholder because React Native names the two props
+    // independently and either utility may appear alone.
+    let caret = caret_props(node, theme);
 
     // `leading-tight`/`tracking-wide` are relative to the font size, which
     // React Native's equivalents aren't. Resolved here, before the refusal
@@ -431,6 +435,17 @@ fn render_node(
                 diagnostics.push(unwired_variant(node, &reason, Severity::Error));
                 continue;
             }
+        }
+        if matches!(declaration.property, StyleProperty::CaretColor(_)) {
+            if caret.is_some() {
+                continue;
+            }
+            diagnostics.push(unwired_variant(
+                node,
+                &caret_only_reason(),
+                Severity::Error,
+            ));
+            continue;
         }
         if let Some(reason) = truncation_only_reason(&declaration.property) {
             diagnostics.push(Diagnostic {
@@ -591,6 +606,9 @@ fn render_node(
     // Styles that RN expresses as props (see `truncation_props`).
     // `numberOfLines` takes a number, so it's braced rather than quoted.
     for (key, value) in placeholder.into_iter().flatten() {
+        props_text.push_str(&format!(" {key}={{{value}}}"));
+    }
+    for (key, value) in caret.into_iter().flatten() {
         props_text.push_str(&format!(" {key}={{{value}}}"));
     }
     for (key, value) in truncation.into_iter().flatten() {
@@ -1462,6 +1480,22 @@ fn placeholder_only_reason(property: &StyleProperty) -> Option<String> {
         "`placeholder-*`: React Native carries this as `TextInput`'s `placeholderTextColor` \n         prop, so it only means something on a TextInput"
             .to_string()
     })
+}
+
+/// `caret-*` as React Native carries it: `cursorColor` on TextInput.
+fn caret_props(node: &Node, theme: &Theme) -> Option<Vec<(&'static str, String)>> {
+    let colour = node.style.iter().find_map(|d| match &d.property {
+        StyleProperty::CaretColor(c) => Some(c),
+        _ => None,
+    })?;
+    (node.primitive == Primitive::TextInput)
+        .then(|| vec![("cursorColor", style::placeholder_color(colour, theme))])
+}
+
+fn caret_only_reason() -> String {
+    "`caret-*`: React Native carries this as `TextInput`'s `cursorColor` prop, so it only means \
+     something on a TextInput"
+        .to_string()
 }
 
 /// React Native expresses text truncation as props on `Text` --
@@ -2361,6 +2395,18 @@ export function Login() {
     }
 
     #[test]
+    fn caret_colour_lowers_to_text_inputs_cursor_prop() {
+        let source = r#"
+            import { TextInput } from '@dowel/core'
+            const el = <TextInput className="caret-blue-500" accessibilityLabel="Email" />
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert!(output.jsx.contains("cursorColor={'#2b7fff'}"), "{}", output.jsx);
+    }
+
+    #[test]
     fn a_text_input_without_an_accessible_name_is_diagnosed() {
         // The whole reason `TextInput` was added with a rule attached: a
         // placeholder reads like a label and isn't one.
@@ -2393,19 +2439,17 @@ export function Login() {
     fn colour_families_react_native_has_no_home_for_are_refused_by_name() {
         // Each of these is a perfectly ordinary CSS colour that React
         // Native either doesn't have (SVG paint, form-control accents) or
-        // keeps on a component prop rather than in a style
-        // (`placeholderTextColor`, `cursorColor`). Named, not dropped.
+        // keeps on a component prop rather than in a style. On the wrong
+        // primitive those prop-backed colours are named, not dropped.
         //
         // The code each is filed under is part of the assertion. Only the
-        // first three are impossible on the platform; `placeholder-*` is a
-        // primitive Dowel hasn't built, and filing that as Web-only both
-        // says something false and hides it from the refusal audit, which
-        // only re-checks the Web-only claims.
+        // first three are impossible on the platform; the last two work on
+        // TextInput and are therefore filed as a target mismatch instead.
         for (candidate, expected, code) in [
             ("fill-red-500", "SVG", DiagnosticCode::WebOnlyPropertyOnNative),
             ("stroke-red-500", "SVG", DiagnosticCode::WebOnlyPropertyOnNative),
             ("accent-red-500", "form controls", DiagnosticCode::WebOnlyPropertyOnNative),
-            ("caret-red-500", "TextInput", DiagnosticCode::WebOnlyPropertyOnNative),
+            ("caret-red-500", "TextInput", DiagnosticCode::NotWiredOnNative),
             ("placeholder-red-500", "TextInput", DiagnosticCode::NotWiredOnNative),
         ] {
             let source = format!(

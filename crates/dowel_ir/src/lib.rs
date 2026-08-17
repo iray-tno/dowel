@@ -1261,8 +1261,8 @@ impl StyleProperty {
                     .to_string(),
             ),
             StyleProperty::CaretColor(_) => Some(
-                "`caret-*`: React Native puts the caret colour on `TextInput` as a prop \
-                 (`cursorColor`/`selectionColor`), and Dowel doesn't model `TextInput` yet"
+                "`caret-*`: React Native carries this on `TextInput`'s `cursorColor` prop, not \
+                 in a StyleSheet; a runtime-resolved class has no target primitive to put it on"
                     .to_string(),
             ),
             StyleProperty::MaskClip(_)

@@ -16,12 +16,15 @@ interface Props {
  */
 export function DowelGrid({ tracks, columnGap = 0, children }: Props): ReactNode {
   const list = Children.toArray(children)
-  const spans = list.map((child) =>
-    isValidElement<{ columnSpan?: number }>(child) && child.type === DowelGridItem
-      ? child.props.columnSpan ?? 1
-      : 1,
+  const placements = list.map((child) =>
+    isValidElement<ItemProps>(child) && child.type === DowelGridItem
+      ? {
+          span: child.props.columnSpan ?? 1,
+          columnStart: child.props.columnStart,
+        }
+      : { span: 1 },
   )
-  const rows = gridRows(spans, tracks)
+  const rows = gridRows(placements, tracks)
 
   return rows.map((cells, row) => (
     <View key={row} style={{ flexDirection: 'row', columnGap }}>
@@ -36,6 +39,7 @@ export function DowelGrid({ tracks, columnGap = 0, children }: Props): ReactNode
 
 interface ItemProps {
   columnSpan?: number
+  columnStart?: number
   children?: ReactNode
 }
 

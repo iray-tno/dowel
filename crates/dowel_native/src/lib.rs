@@ -56,7 +56,7 @@ mod style;
 
 use dowel_ir::{
     AlignSelf, Breakpoint, Condition, ConditionExpr, Diagnostic, DiagnosticCode, Display, ExprRef,
-    GridSpan, GridTracks, Length, Node, Primitive,
+    GridLine, GridSpan, GridTracks, Length, Node, Primitive,
     Severity, StyleDeclaration, StyleProperty, TextOverflow, Theme, WhiteSpace,
 };
 
@@ -429,7 +429,7 @@ fn render_node(
     // check, so only the ones that genuinely can't be resolved are refused.
     let style = lower_inline_flex(fold_font_relative(&node.style, inherited));
     let grid = native_grid(&style, theme);
-    let grid_item_span = native_grid_item_span(&style, grid_columns);
+    let grid_item = native_grid_item(&style, grid_columns);
     // The fast Native transition path is deliberately narrow: opacity on
     // Pressable interaction state can stay entirely on the native driver.
     let transition = native_driver_transition(node, &style);
@@ -438,8 +438,13 @@ fn render_node(
         if grid.is_some() && grid_absorbs(&declaration.property) {
             continue;
         }
-        if grid_item_span.is_some()
-            && matches!(declaration.property, StyleProperty::GridColumn(_))
+        if grid_item.is_some()
+            && matches!(
+                declaration.property,
+                StyleProperty::GridColumn(_)
+                    | StyleProperty::GridColumnStart(_)
+                    | StyleProperty::GridColumnEnd(_)
+            )
         {
             continue;
         }
@@ -584,7 +589,14 @@ fn render_node(
         if grid.is_some() && grid_absorbs(&d.property) {
             return false;
         }
-        if grid_item_span.is_some() && matches!(d.property, StyleProperty::GridColumn(_)) {
+        if grid_item.is_some()
+            && matches!(
+                d.property,
+                StyleProperty::GridColumn(_)
+                    | StyleProperty::GridColumnStart(_)
+                    | StyleProperty::GridColumnEnd(_)
+            )
+        {
             return false;
         }
         !matches!(
@@ -833,9 +845,16 @@ fn render_node(
     } else {
         format!("<{rendered_component}{props_text}>{inner}</{rendered_component}>")
     };
-    if let Some(span) = grid_item_span {
+    if let Some(item) = grid_item {
         runtime.need_component("DowelGridItem");
-        format!("<DowelGridItem columnSpan={{{span}}}>{rendered}</DowelGridItem>")
+        let start = item
+            .column_start
+            .map(|start| format!(" columnStart={{{start}}}"))
+            .unwrap_or_default();
+        format!(
+            "<DowelGridItem columnSpan={{{}}}{start}>{rendered}</DowelGridItem>",
+            item.span
+        )
     } else {
         rendered
     }
@@ -959,29 +978,86 @@ fn native_grid(declarations: &[StyleDeclaration], theme: &Theme) -> Option<Nativ
     Some(NativeGrid { tracks_js, column_gap, track_count })
 }
 
-fn native_grid_item_span(
+struct NativeGridItem {
+    span: usize,
+    column_start: Option<usize>,
+}
+
+fn native_grid_item(
     declarations: &[StyleDeclaration],
     grid_columns: Option<usize>,
-) -> Option<usize> {
+) -> Option<NativeGridItem> {
     let columns = grid_columns?;
     if declarations.iter().any(|declaration| {
         !matches!(declaration.condition, Condition::Always)
-            && matches!(declaration.property, StyleProperty::GridColumn(_))
+            && matches!(
+                declaration.property,
+                StyleProperty::GridColumn(_)
+                    | StyleProperty::GridColumnStart(_)
+                    | StyleProperty::GridColumnEnd(_)
+            )
     }) {
         return None;
     }
-    let span = declarations.iter().rev().find_map(|declaration| {
+    let find = |pick: fn(&StyleProperty) -> Option<GridLine>| {
+        declarations.iter().rev().find_map(|declaration| {
+            matches!(declaration.condition, Condition::Always)
+                .then(|| pick(&declaration.property))
+                .flatten()
+        })
+    };
+    let mut start = find(|property| match property {
+        StyleProperty::GridColumnStart(line) => Some(*line),
+        _ => None,
+    })
+    .and_then(|line| resolve_grid_line(line, columns));
+    let end = find(|property| match property {
+        StyleProperty::GridColumnEnd(line) => Some(*line),
+        _ => None,
+    })
+    .and_then(|line| resolve_grid_line(line, columns));
+    let shorthand = declarations.iter().rev().find_map(|declaration| {
         if !matches!(declaration.condition, Condition::Always) {
             return None;
         }
         match declaration.property {
-            StyleProperty::GridColumn(GridSpan::Span(span)) => Some(span as usize),
-            StyleProperty::GridColumn(GridSpan::Full) => Some(columns),
-            StyleProperty::GridColumn(GridSpan::Auto) => Some(1),
+            StyleProperty::GridColumn(value) => Some(value),
             _ => None,
         }
-    })?;
-    (span > 0 && span <= columns).then_some(span)
+    });
+    if start.is_none() && end.is_none() && shorthand.is_none() {
+        return None;
+    }
+
+    let mut span = match shorthand {
+        Some(GridSpan::Span(span)) => span as usize,
+        Some(GridSpan::Full) => {
+            start = Some(0);
+            columns
+        }
+        Some(GridSpan::Auto) | None => 1,
+    };
+    if let (Some(start), Some(end)) = (start, end) {
+        span = end.checked_sub(start)?;
+    } else if let (None, Some(end)) = (start, end) {
+        start = end.checked_sub(span);
+    }
+    let start_fits = start.map_or(true, |start| start + span <= columns);
+    (span > 0 && span <= columns && start_fits).then_some(NativeGridItem {
+        span,
+        column_start: start,
+    })
+}
+
+fn resolve_grid_line(line: GridLine, columns: usize) -> Option<usize> {
+    match line {
+        GridLine::Auto => None,
+        GridLine::Line(line) if line > 0 => Some(line as usize - 1),
+        GridLine::Line(line) => (columns as i32 + 1 + line)
+            .try_into()
+            .ok()
+            .filter(|line: &usize| *line <= columns),
+    }
 }
 
 fn parse_native_grid_tracks(css: &str) -> Option<Vec<(&'static str, f64)>> {
@@ -2402,6 +2478,23 @@ export function Login() {
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert!(output.jsx.contains("<DowelGridItem columnSpan={2}><View"), "{}", output.jsx);
         assert!(output.runtime_imports.contains(&"DowelGridItem"));
+    }
+
+    #[test]
+    fn grid_column_lines_become_zero_based_placer_coordinates() {
+        let source = r#"
+            import { View } from '@dowel/core'
+            const el = <View className="grid grid-cols-3"><View className="col-start-2 col-end-4" /></View>
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert!(
+            output.jsx.contains("<DowelGridItem columnSpan={2} columnStart={1}>"),
+            "{}",
+            output.jsx
+        );
     }
 
     #[test]

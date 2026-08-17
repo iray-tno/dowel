@@ -10,7 +10,8 @@ const tracks: GridTrack[] = [
 ]
 
 test('auto-placement fills rows and preserves empty final tracks', () => {
-  assert.deepEqual(gridRows([1, 1, 1, 1], tracks).map((row) => row.map((cell) => cell.child)), [
+  const items = [1, 1, 1, 1].map((span) => ({ span }))
+  assert.deepEqual(gridRows(items, tracks).map((row) => row.map((cell) => cell.child)), [
     [0, 1, 2],
     [3, null, null],
   ])
@@ -27,8 +28,17 @@ test('cell styles distinguish fixed space from proportional remainder', () => {
 })
 
 test('a span moves to the next row when it cannot fit', () => {
-  assert.deepEqual(gridRows([2, 2, 1], tracks).map((row) => row.map((cell) => cell.child)), [
+  const items = [2, 2, 1].map((span) => ({ span }))
+  assert.deepEqual(gridRows(items, tracks).map((row) => row.map((cell) => cell.child)), [
     [0, null],
     [1, 2],
+  ])
+})
+
+test('an explicit column leaves empty tracks and never backfills an earlier row', () => {
+  const items = [{ span: 1, columnStart: 1 }, { span: 2, columnStart: 0 }]
+  assert.deepEqual(gridRows(items, tracks).map((row) => row.map((cell) => cell.child)), [
+    [null, 0, null],
+    [1, null],
   ])
 })

@@ -75,7 +75,7 @@ test('DowelGrid auto-places unequal tracks without a measurement pass', () => {
     export function Grid() {
       return (
         <View className="grid grid-cols-[120px_2fr_1fr] gap-4">
-          <Text className="col-span-2">Wide</Text><Text>Two</Text><Text>Three</Text><Text>Four</Text>
+          <Text className="col-start-2 col-span-2">Wide</Text><Text>Two</Text><Text>Three</Text>
         </View>
       )
     }
@@ -87,9 +87,10 @@ test('DowelGrid auto-places unequal tracks without a measurement pass', () => {
   assert.deepEqual(rows[0].props.style, { flexDirection: 'row', columnGap: 16 })
   const firstRow = children(rows[0])
   assert.deepEqual(firstRow.map((cell) => cell.props.style), [
-    { flexBasis: 136, flexGrow: 2, flexShrink: 1 },
-    { flexBasis: 0, flexGrow: 1, flexShrink: 1 },
+    { flexBasis: 120, flexGrow: 0, flexShrink: 0 },
+    { flexBasis: 16, flexGrow: 3, flexShrink: 1 },
   ])
+  assert.equal(children(firstRow[0]).length, 0)
   assert.equal(children(rows[1]).length, 3)
   assert.equal(children(children(rows[1])[2]).length, 0)
 })

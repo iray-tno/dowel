@@ -1122,26 +1122,120 @@ fn build_style_entries(
         };
         match &condition {
             Condition::Always => base_parts.extend(parts.clone()),
-            // Every atom would need its own runtime guard and the guards
-            // ANDed together -- some of which (`useWindowDimensions`,
-            // `useColorScheme`) are hooks and some are props. Buildable,
-            // and not built: named here rather than applied under one of
-            // its conditions, which would put a hover style on the screen
-            // permanently.
-            Condition::All(conditions) => diagnostics.push(unwired_variant(
-                node,
-                &format!(
-                    "`{}`: React Native doesn't have stacked variants wired up yet, so this \
-                     style is not applied. Each condition works on its own -- splitting the \
-                     class across two elements, or using the outer one only, will render.",
-                    conditions
-                        .iter()
-                        .filter_map(condition_suffix)
-                        .collect::<Vec<_>>()
-                        .join(":")
-                ),
-                Severity::Warning,
-            )),
+            Condition::All(conditions) => {
+                let mut atoms = Vec::new();
+                let mut pending: Vec<_> = conditions.iter().rev().collect();
+                while let Some(atom) = pending.pop() {
+                    if let Condition::All(nested) = atom {
+                        pending.extend(nested.iter().rev());
+                    } else {
+                        atoms.push(atom);
+                    }
+                }
+                let supported = atoms.iter().all(|atom| {
+                    matches!(
+                        atom,
+                        Condition::Always
+                            | Condition::Disabled
+                            | Condition::Pressed
+                            | Condition::Expr(_)
+                            | Condition::Responsive(_)
+                            | Condition::Dark
+                            | Condition::FirstChild
+                            | Condition::LastChild
+                    )
+                });
+                if !supported {
+                    diagnostics.push(unwired_variant(
+                        node,
+                        &format!(
+                            "`{}`: this stacked variant contains a condition React Native \
+                             doesn't have wired up yet, so the style is not applied.",
+                            atoms
+                                .iter()
+                                .filter_map(|condition| condition_suffix(condition))
+                                .collect::<Vec<_>>()
+                                .join(":")
+                        ),
+                        Severity::Warning,
+                    ));
+                } else {
+                    let mut guards = Vec::new();
+                    let mut uses_pressed = false;
+                    let mut applies = true;
+                    for atom in atoms {
+                        match atom {
+                            Condition::Always => {}
+                            Condition::Disabled => {
+                                if let Some(disabled) = &node.props.disabled {
+                                    guards.push(format!(
+                                        "({})",
+                                        render_condition_expr(source, disabled)
+                                    ));
+                                } else {
+                                    diagnostics.push(unwired_variant(
+                                        node,
+                                        "`disabled:` in a stacked variant needs a `disabled` prop \
+                                         on the same element to drive it, and this one has none.",
+                                        Severity::Error,
+                                    ));
+                                    applies = false;
+                                }
+                            }
+                            Condition::Pressed => uses_pressed = true,
+                            Condition::Expr(expr) => {
+                                guards.push(format!("({})", render_condition_expr(source, expr)));
+                            }
+                            Condition::Responsive(bp) => {
+                                let hook = RuntimeHook::Breakpoint(*bp);
+                                guards.push(hook.binding().to_string());
+                                runtime.hooks.push(hook);
+                            }
+                            Condition::Dark => {
+                                let hook = RuntimeHook::Dark;
+                                guards.push(hook.binding().to_string());
+                                runtime.hooks.push(hook);
+                            }
+                            Condition::FirstChild | Condition::LastChild => {
+                                let known = match atom {
+                                    Condition::FirstChild => position.first,
+                                    _ => position.last,
+                                };
+                                match known {
+                                    Some(true) => {}
+                                    Some(false) => applies = false,
+                                    None => {
+                                        diagnostics.push(unwired_variant(
+                                            node,
+                                            "a structural condition in this stacked variant \
+                                             can't be resolved because the element's sibling \
+                                             position isn't statically known.",
+                                            Severity::Error,
+                                        ));
+                                        applies = false;
+                                    }
+                                }
+                            }
+                            _ => unreachable!("unsupported atoms were rejected above"),
+                        }
+                    }
+                    if applies {
+                        if uses_pressed {
+                            guards.insert(0, "pressed".to_string());
+                        }
+                        let prefix = if guards.is_empty() {
+                            String::new()
+                        } else {
+                            format!("{} && ", guards.join(" && "))
+                        };
+                        if uses_pressed {
+                            pressed_parts.extend(guarded(&prefix));
+                        } else {
+                            conditional_parts.extend(guarded(&prefix));
+                        }
+                    }
+                }
+            }
             Condition::Disabled => {
                 if let Some(disabled) = &node.props.disabled {
                     let guard = render_condition_expr(source, disabled);
@@ -1910,6 +2004,67 @@ export function Login() {
         assert_eq!(output.runtime_imports, vec!["useDowelDark", "useDowelBreakpoint"]);
         assert!(output.jsx.contains("__dowelDark && styles.dowel0_dark"), "{}", output.jsx);
         assert!(output.jsx.contains("__dowelBp_md && styles.dowel0_md"), "{}", output.jsx);
+    }
+
+    #[test]
+    fn supported_stacked_variants_and_their_guards_together() {
+        let source = r#"
+            import { View, Pressable } from '@dowel/core'
+            const el = (
+              <View className="md:dark:p-4">
+                <Pressable className="disabled:pressed:opacity-50" disabled={isOff}
+                  accessibilityRole="button">Save</Pressable>
+              </View>
+            )
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert!(
+            output
+                .jsx
+                .contains("__dowelBp_md && __dowelDark && styles.dowel0_md_dark"),
+            "{}",
+            output.jsx
+        );
+        assert!(
+            output
+                .jsx
+                .contains("pressed && (isOff) && styles.dowel1_disabled_pressed"),
+            "{}",
+            output.jsx
+        );
+        assert_eq!(
+            output.prelude,
+            vec![
+                "const __dowelBp_md = useDowelBreakpoint('md')",
+                "const __dowelDark = useDowelDark()",
+            ]
+        );
+    }
+
+    #[test]
+    fn stacked_structural_variants_are_resolved_before_runtime_guards() {
+        let source = r#"
+            import { View, Text } from '@dowel/core'
+            const el = (
+              <View>
+                <Text className="first:md:mt-0">a</Text>
+                <Text className="first:md:mt-0">b</Text>
+              </View>
+            )
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert!(
+            output.jsx.contains("__dowelBp_md && styles.dowel1_first_md"),
+            "{}",
+            output.jsx
+        );
+        assert!(!output.jsx.contains("styles.dowel2_first_md"), "{}", output.jsx);
     }
 
     #[test]

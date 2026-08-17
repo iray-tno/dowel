@@ -56,7 +56,7 @@ mod style;
 
 use dowel_ir::{
     AlignSelf, Breakpoint, Condition, ConditionExpr, Diagnostic, DiagnosticCode, Display, ExprRef,
-    GridTracks, Length, Node, Primitive,
+    GridSpan, GridTracks, Length, Node, Primitive,
     Severity, StyleDeclaration, StyleProperty, TextOverflow, Theme, WhiteSpace,
 };
 
@@ -130,6 +130,7 @@ pub fn lower(root: &Node, source: &str, theme: &Theme) -> LowerOutput {
         root,
         SiblingPosition::UNKNOWN,
         false,
+        None,
         theme,
         &[],
         source,
@@ -366,6 +367,7 @@ fn render_node(
     node: &Node,
     position: SiblingPosition,
     interaction_context: bool,
+    grid_columns: Option<usize>,
     theme: &Theme,
     // Text properties inherited from an ancestor. CSS inherits these;
     // React Native inherits them only from a `Text` to a `Text`. So a
@@ -427,12 +429,18 @@ fn render_node(
     // check, so only the ones that genuinely can't be resolved are refused.
     let style = lower_inline_flex(fold_font_relative(&node.style, inherited));
     let grid = native_grid(&style, theme);
+    let grid_item_span = native_grid_item_span(&style, grid_columns);
     // The fast Native transition path is deliberately narrow: opacity on
     // Pressable interaction state can stay entirely on the native driver.
     let transition = native_driver_transition(node, &style);
 
     for declaration in &style {
         if grid.is_some() && grid_absorbs(&declaration.property) {
+            continue;
+        }
+        if grid_item_span.is_some()
+            && matches!(declaration.property, StyleProperty::GridColumn(_))
+        {
             continue;
         }
         if transition.is_some()
@@ -574,6 +582,9 @@ fn render_node(
     // decision can't be made here.
     let own_declarations = own_declarations.into_iter().filter(|d| {
         if grid.is_some() && grid_absorbs(&d.property) {
+            return false;
+        }
+        if grid_item_span.is_some() && matches!(d.property, StyleProperty::GridColumn(_)) {
             return false;
         }
         !matches!(
@@ -741,6 +752,7 @@ fn render_node(
                     child_node,
                     child_position,
                     interaction_context || rendered_component == "DowelPressable",
+                    grid.as_ref().map(|grid| grid.track_count),
                     theme,
                     &descend,
                     source,
@@ -816,10 +828,17 @@ fn render_node(
     };
 
     // React Native's TextInput takes no children either.
-    if component == "TextInput" {
-        return format!("<{rendered_component}{props_text} />");
+    let rendered = if component == "TextInput" {
+        format!("<{rendered_component}{props_text} />")
+    } else {
+        format!("<{rendered_component}{props_text}>{inner}</{rendered_component}>")
+    };
+    if let Some(span) = grid_item_span {
+        runtime.need_component("DowelGridItem");
+        format!("<DowelGridItem columnSpan={{{span}}}>{rendered}</DowelGridItem>")
+    } else {
+        rendered
     }
-    format!("<{rendered_component}{props_text}>{inner}</{rendered_component}>")
 }
 
 /// Yoga has no inline formatting context, but an inline-flex box's useful
@@ -857,6 +876,7 @@ fn lower_inline_flex(mut declarations: Vec<StyleDeclaration>) -> Vec<StyleDeclar
 struct NativeGrid {
     tracks_js: String,
     column_gap: f64,
+    track_count: usize,
 }
 
 fn grid_absorbs(property: &StyleProperty) -> bool {
@@ -912,6 +932,7 @@ fn native_grid(declarations: &[StyleDeclaration], theme: &Theme) -> Option<Nativ
         Some(GridTracks::None | GridTracks::Subgrid | GridTracks::Count(_)) => return None,
     };
 
+    let track_count = tracks.len();
     let tracks_js = format!(
         "[{}]",
         tracks
@@ -935,7 +956,32 @@ fn native_grid(declarations: &[StyleDeclaration], theme: &Theme) -> Option<Nativ
             }
         })
         .unwrap_or(0.0);
-    Some(NativeGrid { tracks_js, column_gap })
+    Some(NativeGrid { tracks_js, column_gap, track_count })
+}
+
+fn native_grid_item_span(
+    declarations: &[StyleDeclaration],
+    grid_columns: Option<usize>,
+) -> Option<usize> {
+    let columns = grid_columns?;
+    if declarations.iter().any(|declaration| {
+        !matches!(declaration.condition, Condition::Always)
+            && matches!(declaration.property, StyleProperty::GridColumn(_))
+    }) {
+        return None;
+    }
+    let span = declarations.iter().rev().find_map(|declaration| {
+        if !matches!(declaration.condition, Condition::Always) {
+            return None;
+        }
+        match declaration.property {
+            StyleProperty::GridColumn(GridSpan::Span(span)) => Some(span as usize),
+            StyleProperty::GridColumn(GridSpan::Full) => Some(columns),
+            StyleProperty::GridColumn(GridSpan::Auto) => Some(1),
+            _ => None,
+        }
+    })?;
+    (span > 0 && span <= columns).then_some(span)
 }
 
 fn parse_native_grid_tracks(css: &str) -> Option<Vec<(&'static str, f64)>> {
@@ -1130,6 +1176,7 @@ fn render_verbatim(
             &entry.node,
             SiblingPosition::UNKNOWN,
             interaction_context,
+            None,
             theme,
             inherited,
             source,
@@ -2341,6 +2388,20 @@ export function Login() {
         assert!(output.jsx.contains("{ kind: 'points', value: 120 }"), "{}", output.jsx);
         assert!(output.jsx.contains("{ kind: 'fr', value: 2 }"), "{}", output.jsx);
         assert!(output.jsx.contains("{ kind: 'fr', value: 1 }"), "{}", output.jsx);
+    }
+
+    #[test]
+    fn grid_column_span_is_passed_to_the_auto_placer() {
+        let source = r#"
+            import { View } from '@dowel/core'
+            const el = <View className="grid grid-cols-3"><View className="col-span-2" /><View /></View>
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert!(output.jsx.contains("<DowelGridItem columnSpan={2}><View"), "{}", output.jsx);
+        assert!(output.runtime_imports.contains(&"DowelGridItem"));
     }
 
     #[test]

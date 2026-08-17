@@ -1,7 +1,7 @@
-import { Children, type ReactNode } from 'react'
+import { Children, isValidElement, type ReactNode } from 'react'
 import { View } from 'react-native'
 
-import { gridRows, gridTrackStyle, type GridTrack } from './grid.ts'
+import { gridCellStyle, gridRows, type GridTrack } from './grid.ts'
 
 interface Props {
   tracks: readonly GridTrack[]
@@ -16,15 +16,36 @@ interface Props {
  */
 export function DowelGrid({ tracks, columnGap = 0, children }: Props): ReactNode {
   const list = Children.toArray(children)
-  const rows = gridRows(list.length, tracks)
+  const spans = list.map((child) =>
+    isValidElement<{ columnSpan?: number }>(child) && child.type === DowelGridItem
+      ? child.props.columnSpan ?? 1
+      : 1,
+  )
+  const rows = gridRows(spans, tracks)
 
   return rows.map((cells, row) => (
     <View key={row} style={{ flexDirection: 'row', columnGap }}>
       {cells.map((cell, column) => (
-        <View key={column} style={gridTrackStyle(cell.track)}>
-          {cell.child === null ? null : list[cell.child]}
+        <View key={column} style={gridCellStyle(cell.tracks, columnGap)}>
+          {cell.child === null ? null : unwrapGridItem(list[cell.child])}
         </View>
       ))}
     </View>
   ))
+}
+
+interface ItemProps {
+  columnSpan?: number
+  children?: ReactNode
+}
+
+/** Compiler marker consumed by DowelGrid; outside one it is an identity wrapper. */
+export function DowelGridItem({ children }: ItemProps): ReactNode {
+  return children
+}
+
+function unwrapGridItem(child: ReactNode): ReactNode {
+  return isValidElement<ItemProps>(child) && child.type === DowelGridItem
+    ? child.props.children
+    : child
 }

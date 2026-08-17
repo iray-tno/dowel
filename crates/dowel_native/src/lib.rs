@@ -321,6 +321,7 @@ fn source_text(source: &str, expr_ref: ExprRef) -> &str {
 /// out of the leaves themselves.
 fn render_condition_expr(source: &str, expr: &ConditionExpr) -> String {
     match expr {
+        ConditionExpr::Static(value) => value.to_string(),
         ConditionExpr::Ref(r) => source_text(source, *r).to_string(),
         ConditionExpr::Not(inner) => format!("!({})", render_condition_expr(source, inner)),
         ConditionExpr::And(a, b) => {
@@ -1624,6 +1625,7 @@ fn condition_suffix(condition: &Condition) -> Option<String> {
 
 fn collect_expr_refs(expr: &ConditionExpr, out: &mut Vec<ExprRef>) {
     match expr {
+        ConditionExpr::Static(_) => {}
         ConditionExpr::Ref(r) => out.push(*r),
         ConditionExpr::Not(inner) => collect_expr_refs(inner, out),
         ConditionExpr::And(a, b) | ConditionExpr::Or(a, b) => {
@@ -1699,6 +1701,19 @@ export function Login() {
         assert!(output.styles.contains("opacity: 0.5,"));
         assert!(output.jsx.contains("style={[styles.dowel0, (isLoading) && styles.dowel0_disabled]}"));
         assert!(output.jsx.contains("disabled={isLoading}"));
+    }
+
+    #[test]
+    fn boolean_disabled_drives_its_conditional_style() {
+        let source = r#"
+            import { Button } from '@dowel/core'
+            const el = <Button disabled className="p-2 disabled:opacity-50">Save</Button>
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert!(output.jsx.contains("disabled={true}"), "{}", output.jsx);
+        assert!(output.jsx.contains("(true) && styles.dowel0_disabled"), "{}", output.jsx);
     }
 
     #[test]

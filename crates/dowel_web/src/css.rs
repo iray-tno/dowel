@@ -1170,6 +1170,8 @@ pub fn expr_ref_attribute(expr_ref: dowel_ir::ExprRef) -> String {
 
 fn condition_expr_selector(expr: &ConditionExpr) -> String {
     match expr {
+        ConditionExpr::Static(true) => String::new(),
+        ConditionExpr::Static(false) => ":not(*)".to_string(),
         ConditionExpr::Ref(expr_ref) => format!("[{}]", expr_ref_attribute(*expr_ref)),
         ConditionExpr::Not(inner) => format!(":not({})", condition_expr_selector(inner)),
         ConditionExpr::And(a, b) => format!("{}{}", condition_expr_selector(a), condition_expr_selector(b)),

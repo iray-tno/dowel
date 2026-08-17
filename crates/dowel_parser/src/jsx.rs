@@ -306,10 +306,8 @@ fn build_node(
             }
             // Opaque, like a className-guard condition: never evaluated,
             // just threaded through by span for a later codegen stage to
-            // re-emit verbatim. The shorthand boolean form (`<Button
-            // disabled />`, no value) isn't handled yet -- there's no
-            // expression to take a span from, so it falls through to
-            // passthrough instead of being silently dropped.
+            // re-emit verbatim. `disabled` below additionally has a static
+            // shorthand form, which needs no source expression span.
             "onPress" => match &attr.value {
                 Some(JSXAttributeValue::ExpressionContainer(container)) => {
                     props.on_press = Some(to_expr_ref(container.expression.span()));
@@ -319,6 +317,7 @@ fn build_node(
                     .push(PassthroughProp { span: to_expr_ref(attr.span()), is_spread: false }),
             },
             "disabled" => match &attr.value {
+                None => props.disabled = Some(ConditionExpr::Static(true)),
                 Some(JSXAttributeValue::ExpressionContainer(container)) => {
                     props.disabled = Some(ConditionExpr::Ref(to_expr_ref(container.expression.span())));
                 }
@@ -578,7 +577,7 @@ mod tests {
     }
 
     #[test]
-    fn boolean_shorthand_disabled_falls_through_to_passthrough() {
+    fn boolean_shorthand_disabled_is_a_static_true_condition() {
         // No expression to take a span from, so it can't become a
         // ConditionExpr -- but it must still reach the output.
         let source = r#"
@@ -587,8 +586,8 @@ mod tests {
             "#;
         let output = crate::parse_tsx(source);
         let root = &output.roots[0].node;
-        assert!(root.props.disabled.is_none());
-        assert_eq!(passthrough_texts(source, root), vec!["disabled"]);
+        assert_eq!(root.props.disabled, Some(ConditionExpr::Static(true)));
+        assert!(passthrough_texts(source, root).is_empty());
     }
 
     #[test]

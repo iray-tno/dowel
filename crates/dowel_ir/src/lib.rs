@@ -2141,6 +2141,9 @@ pub enum Breakpoint {
 /// re-emit the expression verbatim in generated output.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConditionExpr {
+    /// A JSX boolean shorthand such as `<Button disabled />` has no source
+    /// expression span to preserve, but is still a real constant guard.
+    Static(bool),
     Ref(ExprRef),
     Not(Box<ConditionExpr>),
     And(Box<ConditionExpr>, Box<ConditionExpr>),

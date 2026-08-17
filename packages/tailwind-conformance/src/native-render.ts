@@ -102,6 +102,11 @@ export type Tree = {
   children: (Tree | string)[] | null
 } | null
 
+export interface NativeLayoutBox {
+  width: number
+  height: number
+}
+
 /**
  * Transforms a source file the way Metro would, runs it, and renders the
  * named export.
@@ -115,6 +120,31 @@ export function renderNative(
   source: string,
   componentName: string,
   scope: Record<string, unknown> = {},
+): Tree {
+  return renderNativeFixture(source, componentName, scope, [])
+}
+
+/**
+ * Renders a generated Native component and drives every host `onLayout`
+ * callback in tree order. This is not a device substitute, but it executes
+ * the same React state loop used by measurement-dependent runtime helpers.
+ * Each pass must name every currently mounted layout target so tree changes
+ * cannot accidentally make a fixture assert against the wrong element.
+ */
+export function renderNativeWithLayouts(
+  source: string,
+  componentName: string,
+  layoutPasses: readonly (readonly NativeLayoutBox[])[],
+  scope: Record<string, unknown> = {},
+): Tree {
+  return renderNativeFixture(source, componentName, scope, layoutPasses)
+}
+
+function renderNativeFixture(
+  source: string,
+  componentName: string,
+  scope: Record<string, unknown>,
+  layoutPasses: readonly (readonly NativeLayoutBox[])[],
 ): Tree {
   const transformed = transformDowelSource(source, 'Component.tsx')
   if (transformed === null) {
@@ -138,8 +168,15 @@ export function renderNative(
     const exports: Record<string, unknown> = {}
     new Function('require', 'exports', compiled)(nativeRequire, exports)
 
+    interface TestInstance {
+      props: Record<string, unknown>
+    }
+    interface TestRoot {
+      toJSON: () => Tree
+      root: { findAll: (predicate: (node: TestInstance) => boolean) => TestInstance[] }
+    }
     const renderer = require('react-test-renderer') as {
-      create: (element: unknown) => { toJSON: () => Tree }
+      create: (element: unknown) => TestRoot
       act: (callback: () => void) => void
     }
     const { createElement } = require('react') as { createElement: (c: unknown) => unknown }
@@ -153,11 +190,25 @@ export function renderNative(
       // nothing, which is how this first appeared. `toJSON` has to be read
       // *after* the callback, not inside it: within it the commit hasn't
       // happened yet and the answer is still null.
-      let root: { toJSON: () => Tree } | null = null
+      let root: TestRoot | null = null
       renderer.act(() => {
         root = renderer.create(createElement(exports[componentName]))
       })
-      return root === null ? null : (root as { toJSON: () => Tree }).toJSON()
+      if (root === null) return null
+      const mounted = root as TestRoot
+      for (const pass of layoutPasses) {
+        const targets = mounted.root.findAll((node) => typeof node.props.onLayout === 'function')
+        if (targets.length !== pass.length) {
+          throw new Error(`layout fixture supplied ${pass.length} boxes for ${targets.length} targets`)
+        }
+        renderer.act(() => {
+          targets.forEach((target, index) => {
+            const onLayout = target.props.onLayout as (event: unknown) => void
+            onLayout({ nativeEvent: { layout: pass[index] } })
+          })
+        })
+      }
+      return mounted.toJSON()
     } finally {
       for (const [key, value] of restore) globals[key] = value
     }
@@ -173,4 +224,3 @@ export function renderNative(
 function nativeRequire(id: string): unknown {
   return require(id)
 }
-

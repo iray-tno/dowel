@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { renderNative, type Tree } from './native-render.ts'
+import { renderNative, renderNativeWithLayouts, type Tree } from './native-render.ts'
 
 function children(tree: Tree): Tree[] {
   return ((tree?.children ?? []) as (Tree | string)[]).filter(
@@ -93,6 +93,55 @@ test('DowelGrid auto-places unequal tracks without a measurement pass', () => {
   assert.equal(children(firstRow[0]).length, 0)
   assert.equal(children(rows[1]).length, 3)
   assert.equal(children(children(rows[1])[2]).length, 0)
+  assert.equal(rows.some((row) => typeof row.props.onLayout === 'function'), false)
+})
+
+test('DowelGrid measured rows settle after layout and respond to width changes', () => {
+  const source = `
+    import { View, Text } from '@dowel/core'
+    export function Grid() {
+      return (
+        <View className="grid grid-cols-2 gap-2">
+          <Text className="row-span-2">Tall</Text><Text>Top</Text><Text>Bottom</Text>
+        </View>
+      )
+    }
+  `
+  // Target order is the measured container followed by its three absolute
+  // cells. The second pass is what a real renderer reports after row sizes
+  // have been imposed; the third represents a parent width/rotation change.
+  const tree = renderNativeWithLayouts(source, 'Grid', [
+    [
+      { width: 300, height: 0 },
+      { width: 146, height: 70 },
+      { width: 146, height: 20 },
+      { width: 146, height: 30 },
+    ],
+    [
+      { width: 300, height: 70 },
+      { width: 146, height: 70 },
+      { width: 146, height: 26 },
+      { width: 146, height: 36 },
+    ],
+    [
+      { width: 400, height: 70 },
+      { width: 196, height: 70 },
+      { width: 196, height: 26 },
+      { width: 196, height: 36 },
+    ],
+  ])
+
+  // The authored View remains the semantic/styling container; the solver is
+  // its only child and owns the absolute placement layer.
+  assert.deepEqual(tree?.props.style, { gap: 8 })
+  const [grid] = children(tree)
+  assert.deepEqual(grid.props.style, { position: 'relative', alignSelf: 'stretch', height: 70 })
+  const cells = children(grid)
+  assert.deepEqual(cells.map((cell) => cell.props.style), [
+    { position: 'absolute', left: 0, top: 0, width: 196, height: 70 },
+    { position: 'absolute', left: 204, top: 0, width: 196, height: 26 },
+    { position: 'absolute', left: 204, top: 34, width: 196, height: 36 },
+  ])
 })
 
 test('a text style set on a View reaches the Text underneath it', () => {

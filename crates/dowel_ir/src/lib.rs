@@ -94,8 +94,11 @@ pub enum DiagnosticCode {
     /// A utility with no React Native equivalent reached the Native
     /// backend. Verified against Yoga (RN's layout engine), whose `display`
     /// is only Flex/None/Contents and which has no grid implementation at
-    /// all. Dowel maps `block` to Yoga's visible flex mode, but inline and
-    /// grid formatting contexts cannot be approximated and are refused.
+    /// all. Dowel maps `block` and `inline-flex` to their closest Yoga
+    /// layouts. Grid properties cannot live in a React Native style object;
+    /// the Native backend only accepts its supported subset when it can see
+    /// the grid container and children together and lower them to Dowel's
+    /// contextual solver.
     WebOnlyPropertyOnNative,
     /// Part of a `className` couldn't be decomposed statically (proposal
     /// §7's third tier). The expression is preserved so its classes still
@@ -1056,7 +1059,10 @@ impl StyleProperty {
             | StyleProperty::GridRowEnd(_)
             | StyleProperty::GridColumn(_)
             | StyleProperty::GridRow(_) => {
-                Some("grid placement: React Native has no grid layout".to_string())
+                Some(
+                    "grid placement has no standalone React Native style; use it inside a supported Dowel grid container"
+                        .to_string(),
+                )
             }
             StyleProperty::Order(_) => Some(
                 "`order-*`: Yoga lays children out in tree order and has no flex `order`, so the \

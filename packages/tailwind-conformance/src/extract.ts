@@ -34,6 +34,15 @@
 export interface Rule {
   selector: string
   declarations: string
+  /**
+   * The at-rules enclosing this one, outermost first.
+   *
+   * Recorded because nothing compared them until 2026-08-17: the report
+   * matches declaration text, so a rule that lost its `@media` wrapper --
+   * or never had one -- read as identical to one that kept it. See
+   * `variants.ts`.
+   */
+  atRules: string[]
 }
 
 export function extractRules(css: string): Rule[] {
@@ -43,7 +52,12 @@ export function extractRules(css: string): Rule[] {
   // nested `@supports`, and nothing for anything else: a top-level
   // at-rule's body is other rules rather than declarations, and a nested
   // conditional's declarations describe a different element state.
-  const stack: { target: Rule | null }[] = []
+  const stack: { target: Rule | null; opened: boolean }[] = []
+  // The at-rule preludes currently open, outermost first. A nested
+  // `@supports` folded into its rule is *not* one of these -- it describes
+  // the same element, which is why its declarations were folded in the
+  // first place.
+  const open: string[] = []
   let buffer = ''
 
   const flush = () => {
@@ -69,11 +83,13 @@ export function extractRules(css: string): Rule[] {
       buffer = ''
       const parent = stack.length > 0 ? stack[stack.length - 1].target : null
       if (name.startsWith('@')) {
-        stack.push({ target: name.startsWith('@supports') ? parent : null })
+        const folded = name.startsWith('@supports')
+        if (!folded) open.push(name)
+        stack.push({ target: folded ? parent : null, opened: !folded })
       } else {
-        const rule: Rule = { selector: name, declarations: '' }
+        const rule: Rule = { selector: name, declarations: '', atRules: [...open] }
         rules.push(rule)
-        stack.push({ target: rule })
+        stack.push({ target: rule, opened: false })
       }
       continue
     }
@@ -81,7 +97,7 @@ export function extractRules(css: string): Rule[] {
     if (ch === '}') {
       // A last declaration without its semicolon still counts.
       flush()
-      stack.pop()
+      if (stack.pop()?.opened) open.pop()
       continue
     }
 

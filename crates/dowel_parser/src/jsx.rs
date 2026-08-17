@@ -257,7 +257,12 @@ fn build_node(
                         // candidate scan skips it (see `crate::scan`).
                         consumed.push(to_span(literal.span()));
                         for token in literal.value.split_whitespace() {
-                            let (condition, properties) = tailwind::expand_utility(token);
+                            // Several groups only for a shorthand like
+                            // `container`, which is a width plus a
+                            // max-width at each breakpoint.
+                            let groups = tailwind::expand_class(token);
+                            let properties: Vec<_> =
+                                groups.iter().flat_map(|(_, p)| p.clone()).collect();
                             // Reported only for brackets. An unknown bare
                             // class is ordinary -- projects have their own
                             // CSS and Dowel leaves it alone -- but a
@@ -279,8 +284,13 @@ fn build_node(
                                     span: to_span(literal.span()),
                                 });
                             }
-                            for property in properties {
-                                style.push(StyleDeclaration { property, condition: condition.clone() });
+                            for (condition, properties) in groups {
+                                for property in properties {
+                                    style.push(StyleDeclaration {
+                                        property,
+                                        condition: condition.clone(),
+                                    });
+                                }
                             }
                         }
                     }

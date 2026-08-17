@@ -1963,6 +1963,22 @@ pub enum AlignSelf {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Condition {
     Always,
+    /// Several conditions that must all hold: `md:hover:flex`.
+    ///
+    /// Written order, which is also the order the atoms nest in. Tailwind
+    /// nests them the same way -- `md:hover:` is a width query around a
+    /// hover query and `hover:md:` is the reverse -- and while the two
+    /// render identically, matching the order keeps the output the same
+    /// text rather than an equivalent one.
+    ///
+    /// Stacked variants compiled to *nothing* before this existed:
+    /// `parse_variant_prefix` took `md:` and handed `hover:bg-blue-500` to
+    /// the utility parser, which doesn't know what that is. No CSS, no
+    /// diagnostic, for a class people write every day. It was invisible
+    /// because Tailwind's `getClassList()` enumerates utilities and not
+    /// the combinations of variants in front of them, so no denominator in
+    /// this repository contained one.
+    All(Vec<Condition>),
     Responsive(Breakpoint),
     /// Compiles straight to a real CSS pseudo-class on Web (zero runtime).
     Hover,
@@ -1990,6 +2006,15 @@ pub enum Condition {
     /// children is possible -- but not for `.map()`-generated ones, and
     /// that's not built yet.
     FirstChild,
+    /// `last:`. The same question from the other end, and resolvable on
+    /// Native under the same condition: the compiler can see whether
+    /// anything follows this element, unless what follows is a
+    /// `Child::Verbatim` that may render nothing or a hundred elements.
+    LastChild,
+    /// `focus-visible:`. Distinct from `Focus` and not a nicety: it is the
+    /// one that doesn't put a ring around a button someone clicked, which
+    /// is why it exists at all.
+    FocusVisible,
     /// `[&>*]:p-4`, `[&_a]:underline`, `[&:nth-child(3)]:font-bold`. The
     /// selector as written, with `&` still standing for the element.
     ///

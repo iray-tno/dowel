@@ -1192,38 +1192,64 @@ fn condition_expr_selector(expr: &ConditionExpr) -> String {
 /// the same reason. `[@supports(display:grid)]:grid` is not a media query,
 /// and hardcoding `@media` at the emission site would have made supports
 /// queries unreachable by construction.
-pub fn condition_shape(condition: &Condition) -> (Option<String>, String) {
+pub fn condition_shape(condition: &Condition) -> (Vec<String>, String) {
     match condition {
-        Condition::Always => (None, "&".to_string()),
-        Condition::Hover => (None, "&:hover".to_string()),
-        Condition::Focus => (None, "&:focus".to_string()),
+        // Stacked variants. The at-rules nest in written order, outermost
+        // first, and the selector suffixes append in the same order --
+        // `first:hover:` is `:first-child:hover`, not the reverse.
+        //
+        // Which is why the fold substitutes the accumulated selector *into*
+        // each new template rather than the other way round: a template's
+        // `&` is where the thing it qualifies goes, so the later variant
+        // wraps the earlier one.
+        Condition::All(conditions) => {
+            let mut preludes = Vec::new();
+            let mut selector = "&".to_string();
+            for condition in conditions {
+                let (mut inner, template) = condition_shape(condition);
+                preludes.append(&mut inner);
+                selector = template.replace('&', &selector);
+            }
+            (preludes, selector)
+        }
+        Condition::Always => (Vec::new(), "&".to_string()),
+        // The capability query is not decoration. Without it a `:hover`
+        // style sticks on a touch device after a tap -- the element keeps
+        // matching until something else is tapped -- which is why Tailwind
+        // v4 wraps every hover utility this way. Dowel emitted the bare
+        // pseudo-class until 2026-08-17, and nothing noticed because no
+        // comparison here looked at at-rules.
+        Condition::Hover => (vec!["@media (hover: hover)".to_string()], "&:hover".to_string()),
+        Condition::Focus => (Vec::new(), "&:focus".to_string()),
+        Condition::FocusVisible => (Vec::new(), "&:focus-visible".to_string()),
+        Condition::LastChild => (Vec::new(), "&:last-child".to_string()),
         // Only meaningful on elements that can actually be disabled (e.g.
         // <button>) -- CSS itself won't apply `:disabled` to a plain <div>.
-        Condition::Disabled => (None, "&:disabled".to_string()),
+        Condition::Disabled => (Vec::new(), "&:disabled".to_string()),
         // Known gotcha, not fixed here: iOS Safari doesn't reliably fire
         // `:active` from a tap unless the element has some touch-event
         // listener attached (a long-documented WebKit quirk). Dowel's
         // compiled onClick doesn't count. Fine for the common desktop/
         // Android case; tracked as a real gap, not silently "handled."
-        Condition::Pressed => (None, "&:active".to_string()),
+        Condition::Pressed => (Vec::new(), "&:active".to_string()),
         Condition::Responsive(bp) => (
-            Some(format!("@media (min-width: {}px)", breakpoint_min_width_px(*bp))),
+            vec![format!("@media (min-width: {}px)", breakpoint_min_width_px(*bp))],
             "&".to_string(),
         ),
         // Tailwind v4's default dark strategy, and the one whose meaning
         // React Native's `useColorScheme()` shares.
         Condition::Dark => {
-            (Some("@media (prefers-color-scheme: dark)".to_string()), "&".to_string())
+            (vec!["@media (prefers-color-scheme: dark)".to_string()], "&".to_string())
         }
-        Condition::FirstChild => (None, "&:first-child".to_string()),
+        Condition::FirstChild => (Vec::new(), "&:first-child".to_string()),
         // Passed through exactly as written. Dowel does not parse it and
         // deliberately so: a selector it doesn't recognise is one the
         // browser may well support, and the author reached past the design
         // system on purpose. Validating it here would mean maintaining a
         // second, worse copy of the CSS selector grammar.
-        Condition::ArbitrarySelector(selector) => (None, selector.clone()),
-        Condition::ArbitraryAtRule(rule) => (Some(rule.clone()), "&".to_string()),
-        Condition::Expr(expr) => (None, format!("&{}", condition_expr_selector(expr))),
+        Condition::ArbitrarySelector(selector) => (Vec::new(), selector.clone()),
+        Condition::ArbitraryAtRule(rule) => (vec![rule.clone()], "&".to_string()),
+        Condition::Expr(expr) => (Vec::new(), format!("&{}", condition_expr_selector(expr))),
     }
 }
 
@@ -1568,11 +1594,12 @@ pub fn render_rule(
         rules.push(format!("{target}::placeholder {{\n{body}}}"));
     }
 
-    let rule = rules.join("\n\n");
-    match at_rule {
-        Some(prelude) => format!("{prelude} {{\n{rule}\n}}"),
-        None => rule,
-    }
+    // Nested innermost-last, so the first variant written is the outermost
+    // wrapper -- `md:hover:` is a width query around a hover query, which
+    // is how Tailwind writes it too.
+    at_rule.into_iter().rev().fold(rules.join("\n\n"), |rule, prelude| {
+        format!("{prelude} {{\n{rule}\n}}")
+    })
 }
 
 /// Escapes a class name for use in a CSS selector. Tailwind class names
@@ -1643,7 +1670,7 @@ mod tests {
         let b = ConditionExpr::Ref(ExprRef(SourceSpan { start: 2, end: 3 }));
         let expr = ConditionExpr::And(Box::new(a), Box::new(ConditionExpr::Not(Box::new(b))));
         let (at_rule, selector) = condition_shape(&Condition::Expr(expr));
-        assert!(at_rule.is_none());
+        assert!(at_rule.is_empty());
         assert_eq!(selector, "&[data-dowel-cond-0-1]:not([data-dowel-cond-2-3])");
     }
 
@@ -1654,7 +1681,7 @@ mod tests {
         // no suffix that can say that.
         let (at_rule, selector) =
             condition_shape(&Condition::ArbitrarySelector(".dark &".to_string()));
-        assert!(at_rule.is_none());
+        assert!(at_rule.is_empty());
         assert_eq!(fill_selector(&selector, "dowel-0"), ".dark .dowel-0");
     }
 
@@ -1662,7 +1689,7 @@ mod tests {
     fn an_arbitrary_at_rule_wraps_the_whole_rule() {
         let (at_rule, selector) =
             condition_shape(&Condition::ArbitraryAtRule("@supports (display:grid)".to_string()));
-        assert_eq!(at_rule.as_deref(), Some("@supports (display:grid)"));
+        assert_eq!(at_rule, vec!["@supports (display:grid)"]);
         assert_eq!(fill_selector(&selector, "dowel-0"), ".dowel-0");
     }
 
@@ -1716,5 +1743,34 @@ mod tests {
         let (_, value) =
             property_and_value(&StyleProperty::TextColor(Color::Token("brand-primary".to_string())), &Theme::default());
         assert_eq!(value, "var(--dowel-color-brand-primary)");
+    }
+}
+
+#[cfg(test)]
+mod variant_tests {
+    use super::*;
+
+    #[test]
+    fn stacked_variants_nest_their_at_rules_and_join_their_selectors() {
+        let (at_rules, selector) = condition_shape(&Condition::All(vec![
+            Condition::Responsive(dowel_ir::Breakpoint::Md),
+            Condition::FirstChild,
+            Condition::Hover,
+        ]));
+        // Written order, outermost first, and `hover:` brings its own.
+        assert_eq!(at_rules, vec!["@media (min-width: 768px)", "@media (hover: hover)"]);
+        // Suffixes append in written order: `:first-child:hover`, not the
+        // reverse. Which is why the fold substitutes the accumulated
+        // selector *into* each new template.
+        assert_eq!(fill_selector(&selector, "dowel-0"), ".dowel-0:first-child:hover");
+    }
+
+    #[test]
+    fn hover_carries_the_capability_query() {
+        // Not decoration: without it a `:hover` style sticks on a touch
+        // device after a tap.
+        let (at_rules, selector) = condition_shape(&Condition::Hover);
+        assert_eq!(at_rules, vec!["@media (hover: hover)"]);
+        assert_eq!(selector, "&:hover");
     }
 }

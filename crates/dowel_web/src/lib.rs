@@ -101,8 +101,12 @@ pub fn render_candidate_stylesheet(class_names: &[String], theme: &Theme) -> Str
             continue;
         };
         let selector = css::escape_class_selector(&utility.class_name);
-        out.push_str(&css::render_rule(&selector, &utility.condition, &utility.properties, theme));
-        out.push_str("\n\n");
+        // One rule per group: a `container` is a width plus a max-width at
+        // each breakpoint, which cannot be one rule.
+        for (condition, properties) in &utility.groups {
+            out.push_str(&css::render_rule(&selector, condition, properties, theme));
+            out.push_str("\n\n");
+        }
     }
     out
 }

@@ -2475,11 +2475,43 @@ fn parse_spacing_utility(token: &str) -> Option<StyleProperty> {
     }
 }
 
-/// Strips a single recognized `variant:` prefix (e.g. `hover:bg-blue-500`
-/// -> `(Condition::Hover, "bg-blue-500")`). Only one level -- stacked
-/// variants (`dark:hover:...`) aren't in the Condition model at all yet, so
-/// there's nothing to strip them into.
+/// Strips every recognized `variant:` prefix, innermost last:
+/// `md:hover:flex` -> `(All([Responsive(Md), Hover]), "flex")`.
+///
+/// The loop is the whole point. Stripping one level and handing the rest
+/// to the utility parser meant `md:hover:bg-blue-500` compiled to nothing
+/// at all, silently -- `hover:bg-blue-500` is not a utility name, so
+/// nothing matched and nothing complained.
+///
+/// Stops at the first prefix it doesn't recognise rather than skipping it,
+/// because the remainder may legitimately contain a colon: an arbitrary
+/// value can (`bg-[url(https://x)]`), and an unrecognised variant is a
+/// gap that should stay visible rather than being silently applied
+/// unconditionally.
 pub fn parse_variant_prefix(token: &str) -> (Condition, &str) {
+    let mut conditions: Vec<Condition> = Vec::new();
+    let mut rest = token;
+    loop {
+        let (condition, tail) = parse_one_variant(rest);
+        if condition == Condition::Always {
+            break;
+        }
+        conditions.push(condition);
+        rest = tail;
+    }
+    let condition = match conditions.len() {
+        0 => Condition::Always,
+        // Not wrapped, so a single variant stays the value it always was
+        // and everything that matches on `Condition::Hover` keeps working.
+        1 => conditions.pop().expect("length checked"),
+        _ => Condition::All(conditions),
+    };
+    (condition, rest)
+}
+
+/// Strips one recognized `variant:` prefix, or returns `Always` and the
+/// token unchanged.
+fn parse_one_variant(token: &str) -> (Condition, &str) {
     // Before the named variants, because an arbitrary one can *contain*
     // them: `[&:hover]:p-4` starts with a bracket and would otherwise be
     // cut at the wrong colon.
@@ -2504,7 +2536,14 @@ pub fn parse_variant_prefix(token: &str) -> (Condition, &str) {
     if let Some(rest) = token.strip_prefix("disabled:") {
         return (Condition::Disabled, rest);
     }
-    if let Some(rest) = token.strip_prefix("pressed:") {
+    if let Some(rest) = token.strip_prefix("focus-visible:") {
+        return (Condition::FocusVisible, rest);
+    }
+    // `pressed:` is Dowel's own name, kept because it is the one that
+    // reads correctly on a device. `active:` is Tailwind's for the same
+    // state, and refusing it would mean a Tailwind class that compiles
+    // everywhere except here.
+    if let Some(rest) = token.strip_prefix("pressed:").or_else(|| token.strip_prefix("active:")) {
         return (Condition::Pressed, rest);
     }
     if let Some(rest) = token.strip_prefix("dark:") {
@@ -2512,6 +2551,9 @@ pub fn parse_variant_prefix(token: &str) -> (Condition, &str) {
     }
     if let Some(rest) = token.strip_prefix("first:") {
         return (Condition::FirstChild, rest);
+    }
+    if let Some(rest) = token.strip_prefix("last:") {
+        return (Condition::LastChild, rest);
     }
     if let Some(rest) = token.strip_prefix("sm:") {
         return (Condition::Responsive(Breakpoint::Sm), rest);
@@ -2537,6 +2579,51 @@ pub fn parse_variant_prefix(token: &str) -> (Condition, &str) {
 pub fn expand_utility(token: &str) -> (Condition, Vec<StyleProperty>) {
     let (condition, base) = parse_variant_prefix(token);
     (condition, expand_negatable(base))
+}
+
+/// Every condition/properties group one class token produces.
+///
+/// Almost always exactly one, which is why `expand_utility` returns a
+/// single pair and everything is written against it. `container` is the
+/// exception: it is `width: 100%` plus a max-width at each breakpoint, so
+/// one token writes six conditions.
+///
+/// Handled by expanding it into the tokens it stands for rather than by
+/// teaching the parser to return several conditions. That keeps one code
+/// path -- each piece is parsed exactly as if the author had written it --
+/// and it makes `md:container` fall out for free, since the variant
+/// prefix rides along and `Condition::All` nests the two width queries the
+/// way Tailwind does.
+pub fn expand_class(token: &str) -> Vec<(Condition, Vec<StyleProperty>)> {
+    match expand_shorthand(token) {
+        Some(tokens) => tokens.iter().map(|token| expand_utility(token)).collect(),
+        None => vec![expand_utility(token)],
+    }
+}
+
+/// The tokens a shorthand utility stands for, with its own variant prefix
+/// carried onto each.
+///
+/// The max-widths are literal `rem` values rather than the `max-w-*` scale,
+/// which is a different set of numbers: `max-w-sm` is 24rem and the `sm`
+/// container is 40rem. They track the *breakpoints*, and Dowel's
+/// breakpoints are still fixed -- when they become theme values these
+/// should follow them there.
+fn expand_shorthand(token: &str) -> Option<Vec<String>> {
+    const CONTAINER: &[&str] = &[
+        "w-full",
+        "sm:max-w-[40rem]",
+        "md:max-w-[48rem]",
+        "lg:max-w-[64rem]",
+        "xl:max-w-[80rem]",
+        "2xl:max-w-[96rem]",
+    ];
+    let (_, base) = parse_variant_prefix(token);
+    if base != "container" {
+        return None;
+    }
+    let prefix = &token[..token.len() - base.len()];
+    Some(CONTAINER.iter().map(|part| format!("{prefix}{part}")).collect())
 }
 
 /// Handles Tailwind's leading `-` once, for every family, by expanding the
@@ -3633,6 +3720,76 @@ mod tests {
             vec![StyleProperty::MaskClip("content-box")]
         );
         assert_eq!(expand_utility("mask-none").1, vec![StyleProperty::MaskImageNone]);
+    }
+
+    #[test]
+    fn stacked_variants_become_one_condition_each() {
+        // These compiled to nothing at all before: the first prefix was
+        // stripped and `hover:bg-blue-500` was handed to the utility
+        // parser, which has never heard of it.
+        assert_eq!(
+            expand_utility("md:hover:flex").0,
+            Condition::All(vec![Condition::Responsive(Breakpoint::Md), Condition::Hover])
+        );
+        // Written order is kept, because it is the order the at-rules nest
+        // in and Tailwind nests them the same way.
+        assert_eq!(
+            expand_utility("hover:md:flex").0,
+            Condition::All(vec![Condition::Hover, Condition::Responsive(Breakpoint::Md)])
+        );
+        assert_eq!(
+            expand_utility("md:first:last:flex").0,
+            Condition::All(vec![
+                Condition::Responsive(Breakpoint::Md),
+                Condition::FirstChild,
+                Condition::LastChild,
+            ])
+        );
+        // One variant stays what it always was, so everything matching on
+        // `Condition::Hover` keeps working.
+        assert_eq!(expand_utility("hover:flex").0, Condition::Hover);
+    }
+
+    #[test]
+    fn an_unrecognised_variant_stops_the_scan() {
+        // Rather than being skipped: skipping it would apply the style
+        // unconditionally, which is a wrong answer where nothing is an
+        // honest gap. The colon may also belong to the value.
+        assert_eq!(expand_utility("supports-grid:flex").1, Vec::<StyleProperty>::new());
+    }
+
+    #[test]
+    fn container_is_six_utilities_wearing_one_name() {
+        let groups = expand_class("container");
+        assert_eq!(groups.len(), 6);
+        assert_eq!(groups[0].0, Condition::Always);
+        assert_eq!(groups[0].1, vec![StyleProperty::Width(Dimension::Percent(100.0))]);
+        assert_eq!(groups[1].0, Condition::Responsive(Breakpoint::Sm));
+        assert_eq!(
+            groups[1].1,
+            vec![StyleProperty::MaxWidth(Dimension::Length(Length::Unit(
+                40.0,
+                dowel_ir::LengthUnit::Rem
+            )))]
+        );
+        // The variant rides onto every piece, so the two width queries
+        // nest the way Tailwind's do.
+        assert_eq!(
+            expand_class("md:container")[1].0,
+            Condition::All(vec![
+                Condition::Responsive(Breakpoint::Md),
+                Condition::Responsive(Breakpoint::Sm),
+            ])
+        );
+    }
+
+    #[test]
+    fn the_variants_tailwind_spells_differently() {
+        assert_eq!(expand_utility("last:flex").0, Condition::LastChild);
+        assert_eq!(expand_utility("focus-visible:flex").0, Condition::FocusVisible);
+        // Dowel's own name and Tailwind's for the same state.
+        assert_eq!(expand_utility("active:flex").0, Condition::Pressed);
+        assert_eq!(expand_utility("pressed:flex").0, Condition::Pressed);
     }
 
     #[test]

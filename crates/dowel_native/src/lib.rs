@@ -127,7 +127,7 @@ pub fn lower(root: &Node, source: &str, theme: &Theme) -> LowerOutput {
     // component's caller renders it into.
     let jsx = render_node(
         root,
-        SiblingPosition::Unknown,
+        SiblingPosition::UNKNOWN,
         theme,
         &[],
         source,
@@ -203,13 +203,15 @@ pub fn render_candidate_module(class_names: &[String], theme: &Theme) -> String 
         let Some(utility) = dowel_parser::resolve_class_name(name) else {
             continue;
         };
-        if utility.condition != Condition::Always {
+        // Any conditional group disqualifies the class, which is what
+        // makes `container` land here: its max-widths are per-breakpoint.
+        if utility.groups.iter().any(|(condition, _)| *condition != Condition::Always) {
             unsupported.push((name, format!("`{name}` is conditional, and a runtime-resolved class can only carry unconditional styles on React Native. Write it as a static className so it compiles to a real style variant.")));
             continue;
         }
-        if let Some(reason) =
-            utility.properties.iter().find_map(|p| p.unsupported_on_native())
-        {
+        let properties: Vec<StyleProperty> =
+            utility.groups.iter().flat_map(|(_, properties)| properties.clone()).collect();
+        if let Some(reason) = properties.iter().find_map(|p| p.unsupported_on_native()) {
             unsupported.push((name, format!("{reason} -- this utility is Web-only.")));
             continue;
         }
@@ -217,7 +219,7 @@ pub fn render_candidate_module(class_names: &[String], theme: &Theme) -> String 
         // iteration -- a style key can now borrow from the property it
         // came from (an arbitrary property's name is the author's text,
         // not a literal in this binary).
-        let pairs: Vec<(String, String)> = style_pairs(&utility.properties, theme)
+        let pairs: Vec<(String, String)> = style_pairs(&properties, theme)
             .into_iter()
             .map(|(key, value)| (key.to_string(), value))
             .collect();
@@ -335,14 +337,23 @@ fn render_condition_expr(source: &str, expr: &ConditionExpr) -> String {
 /// small example of the general shape -- a condition Web resolves at
 /// runtime that Native can have for free by resolving it earlier.
 ///
-/// `Unknown` is not a failure to compute; it's the honest answer whenever
-/// the position genuinely isn't decidable here (see
-/// `Node::children_complete`).
+/// Two independent questions, because `first:` and `last:` are answerable
+/// separately: a `Child::Verbatim` *before* this element makes "is it
+/// first" unknowable and says nothing about "is it last".
+///
+/// `None` is not a failure to compute; it's the honest answer whenever the
+/// position genuinely isn't decidable here (see `Node::children_complete`),
+/// and it is never quietly treated as `false`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SiblingPosition {
-    First,
-    NotFirst,
-    Unknown,
+struct SiblingPosition {
+    first: Option<bool>,
+    last: Option<bool>,
+}
+
+impl SiblingPosition {
+    /// Neither end is decidable: a component root, whose position its
+    /// caller chooses.
+    const UNKNOWN: SiblingPosition = SiblingPosition { first: None, last: None };
 }
 
 fn render_node(
@@ -617,18 +628,30 @@ fn render_node(
     // A `Verbatim` may render nothing, one element, or a hundred
     // (`{items.map(..)}`), so everything after one has no compile-time
     // position at all.
+    // Both ends are decided up front, because "is anything after this one"
+    // can't be answered while walking forwards.
+    let is_verbatim = |c: &dowel_ir::Child| matches!(c, dowel_ir::Child::Verbatim { .. });
+    let is_element = |c: &dowel_ir::Child| matches!(c, dowel_ir::Child::Node(_));
+    let positions: Vec<SiblingPosition> = node
+        .children
+        .iter()
+        .enumerate()
+        .map(|(index, _)| {
+            let before = &node.children[..index];
+            let after = &node.children[index + 1..];
+            SiblingPosition {
+                first: (!before.iter().any(is_verbatim)).then(|| !before.iter().any(is_element)),
+                last: (!after.iter().any(is_verbatim)).then(|| !after.iter().any(is_element)),
+            }
+        })
+        .collect();
+
     let mut seen_element = false;
     let mut position_known = true;
-    for child in &node.children {
+    for (index, child) in node.children.iter().enumerate() {
         match child {
             dowel_ir::Child::Node(child_node) => {
-                let child_position = if !position_known {
-                    SiblingPosition::Unknown
-                } else if seen_element {
-                    SiblingPosition::NotFirst
-                } else {
-                    SiblingPosition::First
-                };
+                let child_position = positions[index];
                 seen_element = true;
                 inner.push_str(&render_node(
                     child_node,
@@ -793,7 +816,7 @@ fn render_verbatim(
         out.push_str(&source[cursor..entry.span.start as usize]);
         out.push_str(&render_node(
             &entry.node,
-            SiblingPosition::Unknown,
+            SiblingPosition::UNKNOWN,
             theme,
             inherited,
             source,
@@ -1075,6 +1098,26 @@ fn build_style_entries(
         };
         match &condition {
             Condition::Always => base_parts.extend(parts.clone()),
+            // Every atom would need its own runtime guard and the guards
+            // ANDed together -- some of which (`useWindowDimensions`,
+            // `useColorScheme`) are hooks and some are props. Buildable,
+            // and not built: named here rather than applied under one of
+            // its conditions, which would put a hover style on the screen
+            // permanently.
+            Condition::All(conditions) => diagnostics.push(unwired_variant(
+                node,
+                &format!(
+                    "`{}`: React Native doesn't have stacked variants wired up yet, so this \
+                     style is not applied. Each condition works on its own -- splitting the \
+                     class across two elements, or using the outer one only, will render.",
+                    conditions
+                        .iter()
+                        .filter_map(condition_suffix)
+                        .collect::<Vec<_>>()
+                        .join(":")
+                ),
+                Severity::Warning,
+            )),
             Condition::Disabled => {
                 if let Some(disabled) = &node.props.disabled {
                     let guard = render_condition_expr(source, disabled);
@@ -1114,6 +1157,17 @@ fn build_style_entries(
                 "`focus:` isn't wired on React Native yet.",
                 Severity::Warning,
             )),
+            // The distinction `focus-visible:` draws -- keyboard focus but
+            // not a tap -- is a browser heuristic. React Native's focus
+            // events don't carry the modality that would let this be
+            // reconstructed, so it is unbuilt on top of being unwired.
+            Condition::FocusVisible => diagnostics.push(unwired_variant(
+                node,
+                "`focus-visible:` isn't wired on React Native yet, and its distinction from \
+                 `focus:` is a browser heuristic about how focus arrived that RN's focus events \
+                 don't report.",
+                Severity::Warning,
+            )),
             // Ambient conditions: one app-wide value, observed through a
             // hook so this component re-renders when it changes. The hook
             // declaration goes to the caller rather than into the JSX --
@@ -1132,20 +1186,29 @@ fn build_style_entries(
             // engine. Both decided answers are exact -- the same thing
             // `:first-child` would do on Web -- so neither reports
             // anything; only an undecidable position does.
-            Condition::FirstChild => match position {
-                SiblingPosition::First => conditional_parts.extend(guarded("")),
-                // `:first-child` wouldn't match here either, so dropping
-                // the style is the correct outcome, not a gap.
-                SiblingPosition::NotFirst => {}
-                SiblingPosition::Unknown => diagnostics.push(unwired_variant(
-                    node,
-                    "`first:` can only be resolved when the compiler can see this element's \
-                     position among its siblings, and here it can't -- it's either the root of a \
-                     component (whose position its caller decides) or a sibling of something \
-                     Dowel doesn't model, such as a custom component or a `{...}` expression.",
-                    Severity::Error,
-                )),
-            },
+            Condition::FirstChild | Condition::LastChild => {
+                let (end, known) = match condition {
+                    Condition::FirstChild => ("first", position.first),
+                    _ => ("last", position.last),
+                };
+                match known {
+                    Some(true) => conditional_parts.extend(guarded("")),
+                    // The pseudo-class wouldn't match here either, so
+                    // dropping the style is the correct outcome, not a gap.
+                    Some(false) => {}
+                    None => diagnostics.push(unwired_variant(
+                        node,
+                        &format!(
+                            "`{end}:` can only be resolved when the compiler can see this \
+                             element's position among its siblings, and here it can't -- it's \
+                             either the root of a component (whose position its caller decides) \
+                             or a sibling of something Dowel doesn't model, such as a custom \
+                             component or a `{{...}}` expression."
+                        ),
+                        Severity::Error,
+                    )),
+                }
+            }
             // Refused rather than shelved. React Native has no selector
             // engine at all -- not a missing feature but a different
             // architecture, since styles there are objects handed to
@@ -1441,8 +1504,16 @@ fn escape_jsx_text(text: &str) -> String {
 fn condition_suffix(condition: &Condition) -> Option<String> {
     match condition {
         Condition::Always => None,
+        // Each atom's own suffix, joined. Names the combination rather
+        // than the first of it, so `md:hover:` and `md:focus:` don't share
+        // a style entry.
+        Condition::All(conditions) => Some(
+            conditions.iter().filter_map(condition_suffix).collect::<Vec<_>>().join("_"),
+        ),
         Condition::Hover => Some("hover".to_string()),
         Condition::Focus => Some("focus".to_string()),
+        Condition::FocusVisible => Some("focusvisible".to_string()),
+        Condition::LastChild => Some("last".to_string()),
         Condition::Disabled => Some("disabled".to_string()),
         Condition::Pressed => Some("pressed".to_string()),
         Condition::Dark => Some("dark".to_string()),

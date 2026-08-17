@@ -10,6 +10,13 @@ import { tailwindPackageDir } from './theme.ts'
 export type OracleRules = Map<string, string>
 
 export interface Oracle {
+  /**
+   * The whole compiled stylesheet.
+   *
+   * `rules` throws away the selectors and the at-rules around them, which
+   * is all most of the report needs and none of what `variants.ts` needs.
+   */
+  css: string
   rules: OracleRules
   /**
    * Initial values of the `--tw-*` registers Tailwind declares via
@@ -53,7 +60,7 @@ export async function buildOracle(candidates: string[]): Promise<Oracle> {
       rules.set(candidate, (rules.get(candidate) ?? '') + declarations)
     }
   }
-  return { rules, registerDefaults: extractRegisterDefaults(css) }
+  return { css: utilities, rules, registerDefaults: extractRegisterDefaults(css) }
 }
 
 /**

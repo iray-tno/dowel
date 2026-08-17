@@ -60,17 +60,31 @@ function dowelDeclarations(candidate: string): string {
   const source = `import { View } from '@dowel/core'\nconst el = <View className="${candidate}" />\n`
   const results = dowelCompile(source)
   if (results.length === 0) return ''
-  return (
-    extractRules(results[0].css)
-      // Keep only rules targeting one of Dowel's generated classes. That
-      // drops the shared `.dowel-view` base rule (View's own semantics,
-      // proposal 8.1, not something this utility produced) and the steps
-      // inside an `@keyframes` block, whose selectors are `to`/`50%` and
-      // whose declarations would otherwise be counted as the utility's own.
-      .filter((rule) => rule.selector.includes('.dowel-') && rule.selector !== '.dowel-view')
-      .map((rule) => rule.declarations)
-      .join('')
-  )
+  const rules = extractRules(results[0].css)
+    // Keep only rules targeting one of Dowel's generated classes. That
+    // drops the shared `.dowel-view` base rule (View's own semantics,
+    // proposal 8.1, not something this utility produced) and the steps
+    // inside an `@keyframes` block, whose selectors are `to`/`50%` and
+    // whose declarations would otherwise be counted as the utility's own.
+    .filter((rule) => rule.selector.includes('.dowel-') && rule.selector !== '.dowel-view')
+  if (rules.length === 0) return ''
+
+  // Only the least-conditional rules, which is what the expected side
+  // holds too: a nested `@media` inside Tailwind's rule is dropped by
+  // `extractRules` because it describes a different element state.
+  //
+  // Symmetry, not a shortcut. `container` is the only utility that emits
+  // both -- `width: 100%` plus a max-width at each breakpoint -- and
+  // counting Dowel's conditional half against an expected that has none
+  // reported `extra max-width: 1536px`, a difference that exists only
+  // between the two sides of this function. A responsive candidate like
+  // `md:flex-row` is unaffected: every rule it produces is at the same
+  // depth, so the minimum keeps all of them.
+  const depth = Math.min(...rules.map((rule) => rule.atRules.length))
+  return rules
+    .filter((rule) => rule.atRules.length === depth)
+    .map((rule) => rule.declarations)
+    .join('')
 }
 
 function diffSummary(

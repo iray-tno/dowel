@@ -33,8 +33,11 @@ pub struct ScannedUtility {
     /// The class exactly as written, e.g. `hover:bg-blue-500`. Emitted as
     /// the CSS selector so a runtime-produced string matches it.
     pub class_name: String,
-    pub condition: Condition,
-    pub properties: Vec<StyleProperty>,
+    /// The condition/properties groups the class produces.
+    ///
+    /// A list rather than one pair because `container` is six of them --
+    /// see `tailwind::expand_class`. Everything else has exactly one.
+    pub groups: Vec<(Condition, Vec<StyleProperty>)>,
 }
 
 /// Bytes that can appear inside a Tailwind class. Anything else ends a
@@ -50,11 +53,14 @@ fn is_class_byte(b: u8) -> bool {
 
 /// Resolves one class name, or `None` if it isn't a utility Dowel knows.
 pub fn resolve_class_name(class_name: &str) -> Option<ScannedUtility> {
-    let (condition, properties) = tailwind::expand_utility(class_name);
-    if properties.is_empty() {
+    let groups: Vec<_> = tailwind::expand_class(class_name)
+        .into_iter()
+        .filter(|(_, properties)| !properties.is_empty())
+        .collect();
+    if groups.is_empty() {
         return None;
     }
-    Some(ScannedUtility { class_name: class_name.to_string(), condition, properties })
+    Some(ScannedUtility { class_name: class_name.to_string(), groups })
 }
 
 /// Class names in `source` that resolve to real styles and that the
@@ -124,7 +130,7 @@ mod tests {
     fn keeps_variant_prefixes_intact() {
         let found = scan_class_candidates("const c = 'hover:bg-blue-500'");
         assert_eq!(found, vec!["hover:bg-blue-500"]);
-        assert_eq!(resolve_class_name("hover:bg-blue-500").unwrap().condition, Condition::Hover);
+        assert_eq!(resolve_class_name("hover:bg-blue-500").unwrap().groups[0].0, Condition::Hover);
     }
 
     #[test]

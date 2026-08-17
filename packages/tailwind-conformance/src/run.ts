@@ -5,6 +5,7 @@ import { auditRefusal, type RefusalAudit, type RefusalVerdict } from './audit.ts
 import { CANDIDATE_GROUPS, ALL_CANDIDATES, stripVariant } from './candidates.ts'
 import { buildArbitraryCatalog } from './arbitrary-catalog.ts'
 import { buildCompositionCatalog } from './compositions.ts'
+import { buildVariantCatalog, compareVariant } from './variants.ts'
 import { loadFullCatalog, namespaceOf } from './catalog.ts'
 import { reactNativeCssProperties, reactNativeVersion } from './native-surface.ts'
 import { compareCandidate, type Comparison, type Verdict } from './compare.ts'
@@ -489,4 +490,29 @@ console.log(
 for (const result of compositionResults) {
   if (result.verdict === 'MATCH') continue
   console.log(`  ${result.verdict.padEnd(17)} ${result.candidate}\n    ${result.detail ?? ''}`)
+}
+
+// == Variants =============================================================
+//
+// The fourth denominator, and the only one that checks *where* a rule
+// applies. Everything above matches declaration text, so a rule that lost
+// its `@media` wrapper reads as identical to one that kept it -- and
+// Tailwind's `getClassList()` enumerates utilities without the variants in
+// front of them, so no derived list contains `md:hover:flex` either.
+// Between the two, stacked variants compiled to nothing at all and nothing
+// here could have said so. See `variants.ts`.
+const variants = await buildVariantCatalog()
+const variantResults = variants.cases.map((entry) => compareVariant(entry, variants.vars))
+const variantCount = (verdict: string) =>
+  variantResults.filter((result) => result.verdict === verdict).length
+console.log(
+  `\n\n== Variants (${variants.cases.length} single and stacked) ==\n` +
+    'Declarations, the selector matched, and the at-rules around it.\n\n' +
+    `Match:       ${variantCount('MATCH')}\n` +
+    `Mismatch:    ${variantCount('MISMATCH')}\n` +
+    `Unsupported: ${variantCount('UNSUPPORTED')}   (Dowel emits no rule)`,
+)
+for (const result of variantResults) {
+  if (result.verdict === 'MATCH') continue
+  console.log(`  ${result.verdict.padEnd(12)} ${result.candidate}\n    ${result.detail ?? ''}`)
 }

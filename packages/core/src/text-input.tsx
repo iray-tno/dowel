@@ -24,6 +24,8 @@ export interface TextInputProps {
    * field was for. The compiler warns when this is missing.
    */
   accessibilityLabel?: string
+  /** Additional guidance announced after the field's accessible name. */
+  accessibilityHint?: string
   onChangeText?: (text: string) => void
   disabled?: boolean
   children?: ReactNode
@@ -34,6 +36,7 @@ export function TextInput({
   value,
   placeholder,
   accessibilityLabel,
+  accessibilityHint,
   onChangeText,
   disabled,
 }: TextInputProps) {
@@ -43,6 +46,7 @@ export function TextInput({
       value={value}
       placeholder={placeholder}
       aria-label={accessibilityLabel}
+      aria-description={accessibilityHint}
       disabled={disabled}
       onChange={(event) => onChangeText?.(event.target.value)}
     />

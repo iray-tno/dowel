@@ -25,6 +25,7 @@ export interface DowelDialogProps {
   open?: boolean
   onClose?: () => void
   accessibilityLabel?: string
+  accessibilityHint?: string
   style?: unknown
   children?: ReactNode
 }
@@ -33,6 +34,7 @@ export function DowelDialog({
   open = false,
   onClose,
   accessibilityLabel,
+  accessibilityHint,
   style,
   children,
 }: DowelDialogProps) {
@@ -52,6 +54,7 @@ export function DowelDialog({
         accessibilityViewIsModal
         accessibilityRole="none"
         accessibilityLabel={accessibilityLabel}
+        accessibilityHint={accessibilityHint}
       >
         {children}
       </View>

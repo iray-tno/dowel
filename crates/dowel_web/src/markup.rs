@@ -18,6 +18,7 @@ pub fn element_shape(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'stati
         Primitive::View => ("div", Vec::new()),
         Primitive::Text => ("span", Vec::new()),
         Primitive::Button => ("button", Vec::new()),
+        Primitive::Link => ("a", Vec::new()),
         Primitive::Pressable => {
             let mut attrs = Vec::new();
             match node.props.accessibility_role {
@@ -157,6 +158,7 @@ mod tests {
                 disabled: None,
                 accessibility_role: None,
                 accessibility_label: None,
+                accessibility_hint: None,
                 has_placeholder: false,
                 open: None,
                 has_on_close: false,
@@ -184,6 +186,7 @@ mod tests {
                 disabled: None,
                 accessibility_role: Some(AccessibilityRole::Button),
                 accessibility_label: None,
+                accessibility_hint: None,
                 has_placeholder: false,
                 open: None,
                 has_on_close: false,

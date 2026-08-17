@@ -16,6 +16,10 @@ export const Pressable = 'Pressable'
 export const TextInput = 'TextInput'
 export const Modal = 'Modal'
 
+export const Linking = {
+  openURL: async () => {},
+}
+
 export const StyleSheet = {
   // Identity, deliberately. The real `create` returns opaque registry
   // values; the point here is to read back the style Dowel wrote. Whether

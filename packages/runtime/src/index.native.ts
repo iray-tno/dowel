@@ -15,6 +15,7 @@ export * from './index.ts'
 export { useDowelDark, useDowelBreakpoint, useDowelViewport, useDowelSpin } from './hooks.native.ts'
 export { DowelSpaced } from './spacing.native.tsx'
 export { DowelGrid, DowelGridItem } from './grid.native.tsx'
+export { DowelLink, type DowelLinkProps } from './link.native.tsx'
 export type { GridTrack } from './grid.ts'
 export {
   DowelPressable,

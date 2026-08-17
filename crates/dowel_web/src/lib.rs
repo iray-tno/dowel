@@ -255,6 +255,10 @@ fn render_node(
         let name = if tag.starts_with("Dowel") { "accessibilityLabel" } else { "aria-label" };
         attrs.push_str(&format!(" {name}={{{}}}", source_text(source, label)));
     }
+    if let Some(hint) = node.props.accessibility_hint {
+        let name = if tag.starts_with("Dowel") { "accessibilityHint" } else { "aria-description" };
+        attrs.push_str(&format!(" {name}={{{}}}", source_text(source, hint)));
+    }
     if let Some(open) = &node.props.open {
         attrs.push_str(&format!(" open={{{}}}", render_condition_expr(source, open)));
     }

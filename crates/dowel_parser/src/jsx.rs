@@ -156,6 +156,7 @@ fn primitive_name(name: &str) -> Option<&'static str> {
         "Text" => Some("Text"),
         "Pressable" => Some("Pressable"),
         "Button" => Some("Button"),
+        "Link" => Some("Link"),
         "TextInput" => Some("TextInput"),
         "Dialog" => Some("Dialog"),
         _ => None,
@@ -192,6 +193,7 @@ fn primitive_for_name(name: &str) -> Option<Primitive> {
         "TextInput" => Some(Primitive::TextInput),
         "Dialog" => Some(Primitive::Dialog),
         "Button" => Some(Primitive::Button),
+        "Link" => Some(Primitive::Link),
         _ => None,
     }
 }
@@ -344,6 +346,17 @@ fn build_node(
                 }
                 Some(JSXAttributeValue::StringLiteral(literal)) => {
                     props.accessibility_label = Some(to_expr_ref(literal.span));
+                }
+                _ => props
+                    .passthrough
+                    .push(PassthroughProp { span: to_expr_ref(attr.span()), is_spread: false }),
+            },
+            "accessibilityHint" | "aria-description" => match &attr.value {
+                Some(JSXAttributeValue::ExpressionContainer(container)) => {
+                    props.accessibility_hint = Some(to_expr_ref(container.expression.span()));
+                }
+                Some(JSXAttributeValue::StringLiteral(literal)) => {
+                    props.accessibility_hint = Some(to_expr_ref(literal.span));
                 }
                 _ => props
                     .passthrough

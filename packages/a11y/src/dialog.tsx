@@ -27,6 +27,7 @@ export interface DowelDialogProps {
   onClose?: () => void
   /** The dialog's accessible name. The compiler warns when it is absent. */
   accessibilityLabel?: string
+  accessibilityHint?: string
   className?: string
   children?: ReactNode
 }
@@ -35,6 +36,7 @@ export function DowelDialog({
   open = false,
   onClose,
   accessibilityLabel,
+  accessibilityHint,
   className,
   children,
 }: DowelDialogProps) {
@@ -85,7 +87,12 @@ export function DowelDialog({
   }, [onClose])
 
   return (
-    <dialog ref={ref} className={className} aria-label={accessibilityLabel}>
+    <dialog
+      ref={ref}
+      className={className}
+      aria-label={accessibilityLabel}
+      aria-description={accessibilityHint}
+    >
       {children}
     </dialog>
   )

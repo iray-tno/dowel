@@ -147,6 +147,9 @@ pub enum Primitive {
     Text,
     Pressable,
     Button,
+    /// A destination-bearing interaction: `<a>` on Web and Dowel's
+    /// `Linking.openURL` wrapper on React Native.
+    Link,
     /// A modal dialog (proposal §10.3, v1's first hard primitive).
     ///
     /// A primitive rather than a component the compiler walks past,
@@ -260,6 +263,9 @@ pub struct PropSet {
     /// classic thing people reach for instead -- it disappears on first
     /// keystroke and is not announced as a label.
     pub accessibility_label: Option<ExprRef>,
+    /// Supplemental screen-reader guidance. Lowered to `aria-description`
+    /// on DOM elements and `accessibilityHint` on React Native.
+    pub accessibility_hint: Option<ExprRef>,
     /// A `Dialog`'s `open` guard, re-emitted verbatim like `disabled`.
     pub open: Option<ConditionExpr>,
     /// Whether a `Dialog` was given an `onClose`. A modal with no way to

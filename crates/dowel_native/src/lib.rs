@@ -713,6 +713,9 @@ fn render_node(
     if let Some(label) = node.props.accessibility_label {
         props_text.push_str(&format!(" accessibilityLabel={{{}}}", source_text(source, label)));
     }
+    if let Some(hint) = node.props.accessibility_hint {
+        props_text.push_str(&format!(" accessibilityHint={{{}}}", source_text(source, hint)));
+    }
     if let Some(open) = &node.props.open {
         props_text.push_str(&format!(" open={{{}}}", render_condition_expr(source, open)));
     }
@@ -721,11 +724,18 @@ fn render_node(
         // the styles and checks the props.
         runtime.need_component("DowelDialog");
     }
+    if node.primitive == Primitive::Link {
+        runtime.need_component("DowelLink");
+    }
     if let Some(on_press) = node.props.on_press {
         props_text.push_str(&format!(" onPress={{{}}}", source_text(source, on_press)));
     }
     if let Some(disabled) = &node.props.disabled {
-        props_text.push_str(&format!(" disabled={{{}}}", render_condition_expr(source, disabled)));
+        let disabled = render_condition_expr(source, disabled);
+        props_text.push_str(&format!(" disabled={{{disabled}}}"));
+        if matches!(node.primitive, Primitive::Button | Primitive::Pressable) {
+            props_text.push_str(&format!(" accessibilityState={{{{ disabled: Boolean({disabled}) }}}}"));
+        }
     }
     // Everything Dowel doesn't model, re-emitted verbatim and last so JSX's
     // last-wins duplicate resolution keeps matching the source's own

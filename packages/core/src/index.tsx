@@ -30,18 +30,32 @@ export interface PressableProps {
   children?: ReactNode
   onPress?: MouseEventHandler<HTMLDivElement>
   accessibilityRole?: 'button' | 'link'
+  accessibilityLabel?: string
+  accessibilityHint?: string
+  disabled?: boolean
 }
 
 // No native HTML element matches Pressable's semantics (proposal §10.2):
 // without an explicit `accessibilityRole`, this is exactly the
 // interactive-without-role case Dowel's compiler is meant to diagnose.
-export function Pressable({ className, children, onPress, accessibilityRole }: PressableProps) {
+export function Pressable({
+  className,
+  children,
+  onPress,
+  accessibilityRole,
+  accessibilityLabel,
+  accessibilityHint,
+  disabled,
+}: PressableProps) {
   return (
     <div
       className={className}
       role={accessibilityRole}
-      tabIndex={onPress ? 0 : undefined}
-      onClick={onPress}
+      aria-label={accessibilityLabel}
+      aria-description={accessibilityHint}
+      aria-disabled={disabled || undefined}
+      tabIndex={onPress && !disabled ? 0 : undefined}
+      onClick={disabled ? undefined : onPress}
     >
       {children}
     </div>
@@ -53,16 +67,60 @@ export interface ButtonProps {
   children?: ReactNode
   onPress?: MouseEventHandler<HTMLButtonElement>
   disabled?: boolean
+  accessibilityLabel?: string
+  accessibilityHint?: string
 }
 
-export function Button({ className, children, onPress, disabled }: ButtonProps) {
+export function Button({
+  className,
+  children,
+  onPress,
+  disabled,
+  accessibilityLabel,
+  accessibilityHint,
+}: ButtonProps) {
   return (
-    <button className={className} disabled={disabled} onClick={onPress}>
+    <button
+      className={className}
+      disabled={disabled}
+      aria-label={accessibilityLabel}
+      aria-description={accessibilityHint}
+      onClick={onPress}
+    >
       {children}
     </button>
   )
 }
-cargo test 2>&1 | grep -E "^---- |panicked|^error" | head -5
+
+export interface LinkProps {
+  className?: string
+  children?: ReactNode
+  href: string
+  onPress?: MouseEventHandler<HTMLAnchorElement>
+  accessibilityLabel?: string
+  accessibilityHint?: string
+}
+
+export function Link({
+  className,
+  children,
+  href,
+  onPress,
+  accessibilityLabel,
+  accessibilityHint,
+}: LinkProps) {
+  return (
+    <a
+      className={className}
+      href={href}
+      onClick={onPress}
+      aria-label={accessibilityLabel}
+      aria-description={accessibilityHint}
+    >
+      {children}
+    </a>
+  )
+}
 
 export { TextInput, type TextInputProps } from './text-input.tsx'
 

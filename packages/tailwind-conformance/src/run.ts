@@ -20,6 +20,7 @@ import { classesDefinedIn, renderWeb } from './render.ts'
 import { compile as dowelCompile, compileNative } from '@dowel/compiler'
 import { buildOracle } from './oracle.ts'
 import { loadThemeVars, tailwindVersion } from './theme.ts'
+import { A11Y_CONTEXTUAL_CASES, compareA11yContextual } from './a11y-contextual.ts'
 
 const oracle = await buildOracle(ALL_CANDIDATES)
 // Theme values plus the `@property` register defaults the utilities
@@ -198,6 +199,19 @@ console.log(
 for (const result of contextualGrid) {
   console.log(
     `  ${result.name}: ${result.verdict} -- ${result.purpose}` +
+      (result.detail ? ` (${result.detail})` : ''),
+  )
+}
+
+const contextualA11y = A11Y_CONTEXTUAL_CASES.map(compareA11yContextual)
+const contextualA11yCovered = contextualA11y.filter((result) => result.covered).length
+console.log(
+  `\nCross-platform accessibility contracts: ${contextualA11yCovered}/${contextualA11y.length} = ` +
+    `${pct(contextualA11yCovered, contextualA11y.length)}  (semantics plus required diagnostics)`,
+)
+for (const result of contextualA11y) {
+  console.log(
+    `  ${result.name}: ${result.covered ? 'COVERED' : 'MISMATCH'} -- ${result.purpose}` +
       (result.detail ? ` (${result.detail})` : ''),
   )
 }

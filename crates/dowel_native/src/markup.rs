@@ -19,6 +19,7 @@ pub fn native_component(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'st
         Primitive::View => ("View", Vec::new()),
         Primitive::Text => ("Text", Vec::new()),
         Primitive::Button => ("Pressable", vec![("accessibilityRole", "button".to_string())]),
+        Primitive::Link => ("DowelLink", Vec::new()),
         Primitive::Pressable => {
             let mut props = Vec::new();
             match node.props.accessibility_role {
@@ -138,6 +139,7 @@ mod tests {
                 disabled: None,
                 accessibility_role: None,
                 accessibility_label: None,
+                accessibility_hint: None,
                 has_placeholder: false,
                 open: None,
                 has_on_close: false,

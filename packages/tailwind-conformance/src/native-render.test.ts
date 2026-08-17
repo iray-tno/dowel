@@ -205,3 +205,19 @@ test('truncation reaches the prop React Native carries it on', () => {
   )
   assert.equal(tree?.props.numberOfLines, 2)
 })
+
+test('Link renders as a native link interaction with its destination', () => {
+  const tree = renderNative(
+    `
+    import { Link } from '@dowel/core'
+    export function Docs() {
+      return <Link href="https://example.com" accessibilityLabel="Documentation">Docs</Link>
+    }
+    `,
+    'Docs',
+  )
+  assert.equal(tree?.type, 'Pressable')
+  assert.equal(tree?.props.accessibilityRole, 'link')
+  assert.equal(tree?.props.accessibilityLabel, 'Documentation')
+  assert.equal(typeof tree?.props.onPress, 'function')
+})

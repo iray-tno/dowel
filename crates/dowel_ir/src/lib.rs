@@ -689,10 +689,10 @@ pub enum StyleProperty {
     TransitionProperty(String),
     TransitionDuration(u32),
     TransitionTimingFunction(String),
-    /// Web-only, same reason as the transition properties. Carries the
-    /// named animation rather than its shorthand text so the backend can
-    /// also emit the matching `@keyframes`, which the shorthand alone
-    /// wouldn't tell it to do.
+    /// Carries the named animation rather than its shorthand text so Web
+    /// can emit the matching `@keyframes` and Native can select a dedicated
+    /// runtime lowering. Native currently wires Spin and refuses the other
+    /// motion shapes rather than approximating them.
     Animation(Animation),
     /// The odd one out: this styles the element's *children*, not the
     /// element. Tailwind's `space-x-*`/`space-y-*` are defined that way --
@@ -1242,9 +1242,10 @@ impl StyleProperty {
                 "CSS transitions: React Native has no declarative transition in its StyleSheet"
                     .to_string(),
             ),
+            StyleProperty::Animation(Animation::Spin | Animation::None) => None,
             StyleProperty::Animation(_) => Some(
                 "CSS animations: React Native animates imperatively (Animated/Reanimated), which \
-                 is a runtime dependency rather than a lowering"
+                 requires a dedicated runtime lowering; only spin is wired today"
                     .to_string(),
             ),
             StyleProperty::Fill(_) | StyleProperty::Stroke(_) | StyleProperty::StrokeWidth(_) => {

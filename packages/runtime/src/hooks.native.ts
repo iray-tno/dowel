@@ -7,8 +7,8 @@
 // Generated components call these; nothing here is meant to be imported by
 // hand.
 
-import { useSyncExternalStore } from 'react'
-import { Appearance, Dimensions } from 'react-native'
+import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
+import { Animated, Appearance, Dimensions, Easing } from 'react-native'
 
 import {
   bucketFor,
@@ -82,4 +82,36 @@ export function useDowelBreakpoint(name: BreakpointName): boolean {
  */
 export function useDowelViewport(): Viewport {
   return useSyncExternalStore(viewportStore.subscribe, viewportStore.get, viewportStore.get)
+}
+
+/** Tailwind's `animate-spin`: one clockwise turn per second, forever. */
+export function useDowelSpin() {
+  const progress = useRef(new Animated.Value(0)).current
+
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.timing(progress, {
+        toValue: 1,
+        duration: 1000,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      }),
+    )
+    animation.start()
+    return () => animation.stop()
+  }, [progress])
+
+  return useMemo(
+    () => ({
+      transform: [
+        {
+          rotate: progress.interpolate({
+            inputRange: [0, 1],
+            outputRange: ['0deg', '360deg'],
+          }),
+        },
+      ],
+    }),
+    [progress],
+  )
 }

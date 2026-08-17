@@ -1014,6 +1014,8 @@ enum RuntimeHook {
     /// exactly, and it's why the breakpoints keep their coarse snapshot
     /// rather than being rebuilt on top of this.
     Viewport,
+    /// A native-driver rotation loop used by `animate-spin`.
+    Spin,
 }
 
 impl RuntimeHook {
@@ -1023,6 +1025,7 @@ impl RuntimeHook {
             RuntimeHook::Dark => "__dowelDark".to_string(),
             RuntimeHook::Breakpoint(bp) => format!("__dowelBp_{}", breakpoint_name(bp)),
             RuntimeHook::Viewport => "__dowelViewport".to_string(),
+            RuntimeHook::Spin => "__dowelSpin".to_string(),
         }
     }
 
@@ -1031,6 +1034,7 @@ impl RuntimeHook {
             RuntimeHook::Dark => "useDowelDark",
             RuntimeHook::Breakpoint(_) => "useDowelBreakpoint",
             RuntimeHook::Viewport => "useDowelViewport",
+            RuntimeHook::Spin => "useDowelSpin",
         }
     }
 
@@ -1043,6 +1047,7 @@ impl RuntimeHook {
                 breakpoint_name(bp)
             ),
             RuntimeHook::Viewport => format!("const {} = useDowelViewport()", self.binding()),
+            RuntimeHook::Spin => format!("const {} = useDowelSpin()", self.binding()),
         }
     }
 }
@@ -1120,7 +1125,18 @@ fn build_style_entries(
         if viewport.is_some() {
             runtime.hooks.push(RuntimeHook::Viewport);
         }
-        if props.is_empty() && viewport.is_none() {
+        let (animation_props, props): (Vec<_>, Vec<_>) =
+            props.into_iter().partition(|property| matches!(property, StyleProperty::Animation(_)));
+        let animation = animation_props.iter().find_map(|property| match property {
+            StyleProperty::Animation(dowel_ir::Animation::Spin) => {
+                Some(RuntimeHook::Spin.binding())
+            }
+            _ => None,
+        });
+        if animation.is_some() {
+            runtime.hooks.push(RuntimeHook::Spin);
+        }
+        if props.is_empty() && viewport.is_none() && animation.is_none() {
             continue;
         }
         let name = match condition_suffix(&condition) {
@@ -1137,6 +1153,7 @@ fn build_style_entries(
             .unwrap_or_else(|| vec![format!("styles.{name}")])
             .into_iter()
             .chain(viewport.clone())
+            .chain(animation.clone())
             .collect();
         // Each part carries the condition's guard. There may be two of them
         // (a StyleSheet entry and an inline viewport object), and both have
@@ -2997,6 +3014,33 @@ export function Login() {
         // frozen at whatever the window was on the first render.
         assert!(!output.styles.contains("height"), "{}", output.styles);
         assert!(!output.styles.contains(": ,"), "{}", output.styles);
+    }
+
+    #[test]
+    fn spin_animation_uses_one_native_driver_hook() {
+        let source = r#"
+            import { View } from '@dowel/core'
+            const el = (
+              <View className="animate-spin">
+                <View className="md:animate-spin" />
+              </View>
+            )
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert_eq!(
+            output.prelude.iter().filter(|line| line.contains("useDowelSpin")).count(),
+            1
+        );
+        assert!(output.jsx.contains("style={__dowelSpin}"), "{}", output.jsx);
+        assert!(
+            output.jsx.contains("__dowelBp_md && __dowelSpin"),
+            "{}",
+            output.jsx
+        );
+        assert!(output.runtime_imports.contains(&"useDowelSpin"));
     }
 
     #[test]

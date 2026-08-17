@@ -33,3 +33,17 @@ export const Appearance = {
   getColorScheme: () => 'light',
   addChangeListener: () => ({ remove: () => {} }),
 }
+
+export const Easing = {
+  linear: (value) => value,
+}
+
+export const Animated = {
+  Value: class {
+    interpolate(config) {
+      return { __animatedInterpolation: config }
+    }
+  },
+  timing: () => ({ start: () => {}, stop: () => {} }),
+  loop: (animation) => animation,
+}

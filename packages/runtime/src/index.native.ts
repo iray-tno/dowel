@@ -12,7 +12,7 @@
 // `dowel_native::LowerOutput::runtime_imports` for that list.
 
 export * from './index.ts'
-export { useDowelDark, useDowelBreakpoint, useDowelViewport } from './hooks.native.ts'
+export { useDowelDark, useDowelBreakpoint, useDowelViewport, useDowelSpin } from './hooks.native.ts'
 export { DowelSpaced } from './spacing.native.tsx'
 export {
   DowelPressable,

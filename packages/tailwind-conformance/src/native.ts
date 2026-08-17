@@ -90,6 +90,16 @@ const PROBE_CONTEXTS = [
       `export function C() {\n  return <Text className="${candidate}">x</Text>\n}\n`,
   },
   {
+    // Named line-height and letter-spacing scales are relative to the
+    // current font size. RN stores absolute numbers, so this context proves
+    // Dowel can resolve them when that size is inherited from an ancestor.
+    name: 'Text inheriting text-lg',
+    render: (candidate: string) =>
+      `import { View, Text } from '@dowel/core'\n` +
+      `export function C() {\n` +
+      `  return <View className="text-lg"><Text className="${candidate}">x</Text></View>\n}\n`,
+  },
+  {
     // `disabled:` has a real driver only when the element also has a
     // disabled prop. Probing it exclusively on View/Text made a supported
     // conditional style look globally refused, unlike the target-aware

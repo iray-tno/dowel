@@ -423,7 +423,7 @@ fn render_node(
     // `leading-tight`/`tracking-wide` are relative to the font size, which
     // React Native's equivalents aren't. Resolved here, before the refusal
     // check, so only the ones that genuinely can't be resolved are refused.
-    let style = fold_font_relative(&node.style);
+    let style = fold_font_relative(&node.style, inherited);
 
     for declaration in &style {
         if truncation.is_some() && is_truncation_declaration(&declaration.property) {
@@ -1454,17 +1454,25 @@ fn build_style_entries(
 /// multiplication.
 ///
 /// Only a font size under the *same* condition is used, falling back to an
-/// unconditional one. Folding `leading-tight` against a `md:text-lg` would
-/// bake a size that only applies above 768px into a style that always does.
-fn fold_font_relative(declarations: &[StyleDeclaration]) -> Vec<StyleDeclaration> {
+/// unconditional one. An inherited size is equally usable: Dowel already
+/// carries text declarations through View nodes because RN itself does not.
+/// Folding `leading-tight` against a `md:text-lg` would bake a size that only
+/// applies above 768px into a style that always does.
+fn fold_font_relative(
+    declarations: &[StyleDeclaration],
+    inherited: &[StyleDeclaration],
+) -> Vec<StyleDeclaration> {
     let font_size = |condition: &Condition| -> Option<f64> {
-        let find = |want: &Condition| {
-            declarations.iter().find_map(|d| match (&d.property, &d.condition) {
+        let find = |list: &[StyleDeclaration], want: &Condition| {
+            list.iter().rev().find_map(|d| match (&d.property, &d.condition) {
                 (StyleProperty::FontSize(Length::Px(px)), c) if c == want => Some(*px),
                 _ => None,
             })
         };
-        find(condition).or_else(|| find(&Condition::Always))
+        find(declarations, condition)
+            .or_else(|| find(declarations, &Condition::Always))
+            .or_else(|| find(inherited, condition))
+            .or_else(|| find(inherited, &Condition::Always))
     };
 
     declarations
@@ -2846,6 +2854,46 @@ export function Login() {
         // text-lg is 18px; leading-tight is 1.25; tracking-wide is 0.025em.
         assert!(output.styles.contains("lineHeight: 22.5,"), "{}", output.styles);
         assert!(output.styles.contains("letterSpacing: 0.45,"), "{}", output.styles);
+    }
+
+    #[test]
+    fn font_relative_metrics_resolve_against_an_inherited_text_size() {
+        let source = r#"
+            import { View, Text } from '@dowel/core'
+            const el = (
+              <View className="text-lg">
+                <Text className="leading-tight tracking-wide">x</Text>
+              </View>
+            )
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert!(output.styles.contains("lineHeight: 22.5,"), "{}", output.styles);
+        assert!(output.styles.contains("letterSpacing: 0.45,"), "{}", output.styles);
+    }
+
+    #[test]
+    fn conditional_inherited_font_sizes_only_resolve_the_same_condition() {
+        let source = r#"
+            import { View, Text } from '@dowel/core'
+            const el = (
+              <View className="md:text-lg">
+                <Text className="md:leading-tight leading-loose">x</Text>
+              </View>
+            )
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+
+        assert!(output.styles.contains("lineHeight: 22.5,"), "{}", output.styles);
+        assert!(
+            output.diagnostics.iter().any(|diagnostic| diagnostic.code
+                == DiagnosticCode::NotWiredOnNative),
+            "{:?}",
+            output.diagnostics
+        );
     }
 
     #[test]

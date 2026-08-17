@@ -18,6 +18,7 @@ export {
   DowelPressable,
   type DowelPressableProps,
   type DowelPressableState,
+  type DowelTransition,
 } from './pressable.native.tsx'
 // Re-exported rather than left in `@dowel/a11y`: generated code should
 // depend on one package, not on how the compiler divides its own. The

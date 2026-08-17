@@ -22,6 +22,7 @@ export const StyleSheet = {
   // React Native would accept it is the type check's question, asked
   // against its declarations rather than its runtime.
   create: (styles) => styles,
+  flatten: (style) => Object.assign({}, ...(Array.isArray(style) ? style.filter(Boolean) : [style || {}])),
 }
 
 export const Dimensions = {
@@ -36,14 +37,22 @@ export const Appearance = {
 
 export const Easing = {
   linear: (value) => value,
+  ease: (value) => value,
+  in: (easing) => easing,
+  out: (easing) => easing,
+  inOut: (easing) => easing,
 }
 
 export const Animated = {
   Value: class {
+    constructor(value) {
+      this.value = value
+    }
     interpolate(config) {
       return { __animatedInterpolation: config }
     }
   },
+  createAnimatedComponent: (component) => component,
   timing: () => ({ start: () => {}, stop: () => {} }),
   loop: (animation) => animation,
 }

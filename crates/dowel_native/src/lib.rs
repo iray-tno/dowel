@@ -424,8 +424,21 @@ fn render_node(
     // React Native's equivalents aren't. Resolved here, before the refusal
     // check, so only the ones that genuinely can't be resolved are refused.
     let style = fold_font_relative(&node.style, inherited);
+    // The fast Native transition path is deliberately narrow: opacity on
+    // Pressable interaction state can stay entirely on the native driver.
+    let transition = native_opacity_transition(node, &style);
 
     for declaration in &style {
+        if transition.is_some()
+            && matches!(
+                declaration.property,
+                StyleProperty::TransitionProperty(_)
+                    | StyleProperty::TransitionDuration(_)
+                    | StyleProperty::TransitionTimingFunction(_)
+            )
+        {
+            continue;
+        }
         if truncation.is_some() && is_truncation_declaration(&declaration.property) {
             continue;
         }
@@ -553,8 +566,16 @@ fn render_node(
     // platform is a style handed to `DowelSpaced`, which decides at render
     // time which children receive it -- see that component for why the
     // decision can't be made here.
+    let own_declarations = own_declarations.into_iter().filter(|d| {
+        !matches!(
+            d.property,
+            StyleProperty::TransitionProperty(_)
+                | StyleProperty::TransitionDuration(_)
+                | StyleProperty::TransitionTimingFunction(_)
+        )
+    });
     let (child_declarations, own_declarations): (Vec<_>, Vec<_>) =
-        own_declarations.into_iter().partition(|d| style::is_child_scoped(&d.property));
+        own_declarations.partition(|d| style::is_child_scoped(&d.property));
 
     build_style_entries(
         &own_declarations,
@@ -620,6 +641,11 @@ fn render_node(
         props_text.push_str(&format!(" style={{{}}}", style_array_parts[0]));
     } else if !style_array_parts.is_empty() {
         props_text.push_str(&format!(" style={{[{}]}}", style_array_parts.join(", ")));
+    }
+    if let Some((duration, easing)) = transition {
+        props_text.push_str(&format!(
+            " dowelTransition={{{{ duration: {duration}, easing: '{easing}' }}}}"
+        ));
     }
     for (key, value) in &extra_props {
         props_text.push_str(&format!(r#" {key}="{value}""#));
@@ -767,6 +793,49 @@ fn render_node(
 fn condition_contains(condition: &Condition, predicate: impl Fn(&Condition) -> bool + Copy) -> bool {
     predicate(condition)
         || matches!(condition, Condition::All(conditions) if conditions.iter().any(|condition| condition_contains(condition, predicate)))
+}
+
+fn native_opacity_transition(
+    node: &Node,
+    declarations: &[StyleDeclaration],
+) -> Option<(u32, &'static str)> {
+    if !matches!(node.primitive, Primitive::Pressable | Primitive::Button) {
+        return None;
+    }
+    let interactive_opacity = declarations.iter().any(|declaration| {
+        matches!(declaration.property, StyleProperty::Opacity(_))
+            && condition_contains(&declaration.condition, |condition| {
+                matches!(condition, Condition::Hover | Condition::Focus)
+            })
+    });
+    if !interactive_opacity {
+        return None;
+    }
+    let properties = declarations.iter().rev().find_map(|declaration| match &declaration.property {
+        StyleProperty::TransitionProperty(properties) => Some(properties.as_str()),
+        _ => None,
+    })?;
+    if properties == "none"
+        || !(properties == "all"
+            || properties.split(',').any(|property| property.trim() == "opacity"))
+    {
+        return None;
+    }
+    let duration = declarations.iter().rev().find_map(|declaration| match declaration.property {
+        StyleProperty::TransitionDuration(duration) => Some(duration),
+        _ => None,
+    }).unwrap_or(150);
+    let timing = declarations.iter().rev().find_map(|declaration| match &declaration.property {
+        StyleProperty::TransitionTimingFunction(timing) => Some(timing.as_str()),
+        _ => None,
+    }).unwrap_or("cubic-bezier(0.4, 0, 0.2, 1)");
+    let easing = match timing {
+        "linear" => "linear",
+        "cubic-bezier(0.4, 0, 1, 1)" => "ease-in",
+        "cubic-bezier(0, 0, 0.2, 1)" => "ease-out",
+        _ => "ease-in-out",
+    };
+    Some((duration, easing))
 }
 
 /// Wraps `inner` in `DowelSpaced` when the element carries `space-*` or
@@ -2169,6 +2238,28 @@ export function Login() {
         assert!(output.jsx.contains("onHoverIn={noticeHover}"), "{}", output.jsx);
         assert!(output.jsx.contains("onFocus={noticeFocus}"), "{}", output.jsx);
         assert!(output.runtime_imports.contains(&"DowelPressable"));
+    }
+
+    #[test]
+    fn interactive_opacity_transition_uses_the_native_driver_config() {
+        let source = r#"
+            import { Pressable } from '@dowel/core'
+            const el = (
+              <Pressable className="opacity-100 transition duration-200 ease-in-out hover:opacity-50"
+                accessibilityRole="button">Save</Pressable>
+            )
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert!(output.jsx.starts_with("<DowelPressable"), "{}", output.jsx);
+        assert!(
+            output.jsx.contains("dowelTransition={{ duration: 200, easing: 'ease-in-out' }}"),
+            "{}",
+            output.jsx
+        );
+        assert!(output.jsx.contains("hovered && styles.dowel0_hover"), "{}", output.jsx);
     }
 
     #[test]

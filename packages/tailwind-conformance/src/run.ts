@@ -10,6 +10,7 @@ import { loadFullCatalog, namespaceOf } from './catalog.ts'
 import { reactNativeCssProperties, reactNativeVersion } from './native-surface.ts'
 import { compareCandidate, type Comparison, type Verdict } from './compare.ts'
 import { compareNativeCandidate, type NativeComparison, type NativeVerdict } from './native.ts'
+import { compareNativeContextual, NATIVE_CONTEXTUAL_CASES } from './native-contextual.ts'
 import { typeCheckStyles } from './typecheck.ts'
 import { classesDefinedIn, renderWeb } from './render.ts'
 import { compile as dowelCompile, compileNative } from '@dowel/compiler'
@@ -169,6 +170,19 @@ if (silent.length > 0) {
   for (const s of silent) {
     console.log(`  ${s.candidate}: ${s.detail}`)
   }
+}
+
+const contextual = NATIVE_CONTEXTUAL_CASES.map(compareNativeContextual)
+const contextualCovered = contextual.filter((result) => result.verdict === 'COVERED').length
+console.log(
+  `\nNative contextual transitions: ${contextualCovered}/${contextual.length} = ` +
+    `${pct(contextualCovered, contextual.length)}  (configuration plus an interactive target)`,
+)
+for (const result of contextual) {
+  console.log(
+    `  ${result.candidate}: ${result.verdict} -- ${result.purpose}` +
+      (result.detail ? ` (${result.detail})` : ''),
+  )
 }
 
 // ---------------------------------------------------------------------------

@@ -200,3 +200,23 @@ const el = <View className="dark:bg-black" />
     /need a React hook, which can only go inside a component function/,
   )
 })
+
+test('lowers ScrollView refresh through a native RefreshControl', () => {
+  const source = `import { ScrollView, Text } from '@dowel/core'
+export function Results({ refreshing, reload, horizontal }) {
+  return <ScrollView className="h-40" horizontal={horizontal}
+    refreshing={refreshing} onRefresh={reload}
+    keyboardShouldPersistTaps="handled"
+    showsHorizontalScrollIndicator={false}>
+    <Text>row</Text>
+  </ScrollView>
+}
+`
+  const output = transformDowelSource(source, '/app/src/Results.tsx', '/app')
+  assert.ok(output)
+  assert.match(output!, /import \{[^}]*ScrollView[^}]*RefreshControl[^}]*StyleSheet[^}]*\} from 'react-native'/)
+  assert.match(output!, /horizontal=\{horizontal\}/)
+  assert.match(output!, /keyboardShouldPersistTaps=\{"handled"\}/)
+  assert.match(output!, /showsHorizontalScrollIndicator=\{false\}/)
+  assert.match(output!, /refreshControl=\{<RefreshControl refreshing=\{refreshing\} onRefresh=\{reload\} \/>\}/)
+})

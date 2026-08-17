@@ -17,6 +17,7 @@ export const TextInput = 'TextInput'
 export const Image = 'Image'
 export const ScrollView = 'ScrollView'
 export const FlatList = 'FlatList'
+export const RefreshControl = 'RefreshControl'
 export const Modal = 'Modal'
 
 export const Linking = {

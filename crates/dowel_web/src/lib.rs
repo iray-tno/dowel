@@ -36,6 +36,12 @@ const SCROLL_VIEW_BASE_CSS: &str = ".dowel-scroll-view {\n  \
 .dowel-scroll-view[data-dowel-horizontal] {\n  \
     overflow-x: auto;\n  \
     overflow-y: hidden;\n\
+}\n\n\
+.dowel-scroll-view[data-dowel-hide-scrollbar] {\n  \
+    scrollbar-width: none;\n\
+}\n\n\
+.dowel-scroll-view[data-dowel-hide-scrollbar]::-webkit-scrollbar {\n  \
+    display: none;\n\
 }\n\n";
 
 struct ClassAllocator {
@@ -284,22 +290,66 @@ fn render_node(
         // Dowel component, which maps it to `aria-label` itself. Writing
         // the DOM spelling on a component would make it an unknown prop
         // that React drops.
-        let name = if tag.starts_with("Dowel") { "accessibilityLabel" } else { "aria-label" };
+        let name = if tag.starts_with("Dowel") || matches!(tag, "ScrollView" | "FlatList") {
+            "accessibilityLabel"
+        } else {
+            "aria-label"
+        };
           attrs.push_str(&format!(" {name}={{{}}}", source_text(source, label)));
       }
     }
     if let Some(hint) = node.props.accessibility_hint {
-        let name = if tag.starts_with("Dowel") { "accessibilityHint" } else { "aria-description" };
+        let name = if tag.starts_with("Dowel") || matches!(tag, "ScrollView" | "FlatList") {
+            "accessibilityHint"
+        } else {
+            "aria-description"
+        };
         attrs.push_str(&format!(" {name}={{{}}}", source_text(source, hint)));
     }
     if let Some(src) = node.props.image_src {
         attrs.push_str(&format!(" src={{{}}}", source_text(source, src)));
     }
     if let Some(horizontal) = &node.props.scroll_horizontal {
-        attrs.push_str(&format!(
-            " data-dowel-horizontal={{{} ? '' : undefined}}",
-            render_condition_expr(source, horizontal)
-        ));
+        let horizontal = render_condition_expr(source, horizontal);
+        if tag == "ScrollView" {
+            attrs.push_str(&format!(" horizontal={{{horizontal}}}"));
+        } else {
+            attrs.push_str(&format!(" data-dowel-horizontal={{{horizontal} ? '' : undefined}}"));
+        }
+    }
+    if node.primitive == Primitive::ScrollView {
+        if tag == "ScrollView" {
+            if let Some(refreshing) = &node.props.refreshing {
+                attrs.push_str(&format!(" refreshing={{{}}}", render_condition_expr(source, refreshing)));
+            }
+            if let Some(on_refresh) = node.props.on_refresh {
+                attrs.push_str(&format!(" onRefresh={{{}}}", source_text(source, on_refresh)));
+            }
+            if let Some(value) = node.props.keyboard_should_persist_taps {
+                attrs.push_str(&format!(" keyboardShouldPersistTaps={{{}}}", source_text(source, value)));
+            }
+            if let Some(value) = &node.props.shows_vertical_scroll_indicator {
+                attrs.push_str(&format!(" showsVerticalScrollIndicator={{{}}}", render_condition_expr(source, value)));
+            }
+            if let Some(value) = &node.props.shows_horizontal_scroll_indicator {
+                attrs.push_str(&format!(" showsHorizontalScrollIndicator={{{}}}", render_condition_expr(source, value)));
+            }
+        } else if node.props.shows_vertical_scroll_indicator.is_some()
+            || node.props.shows_horizontal_scroll_indicator.is_some()
+        {
+            let horizontal = node.props.scroll_horizontal.as_ref()
+                .map(|value| render_condition_expr(source, value))
+                .unwrap_or_else(|| "false".to_string());
+            let vertical = node.props.shows_vertical_scroll_indicator.as_ref()
+                .map(|value| render_condition_expr(source, value))
+                .unwrap_or_else(|| "true".to_string());
+            let horizontal_indicator = node.props.shows_horizontal_scroll_indicator.as_ref()
+                .map(|value| render_condition_expr(source, value))
+                .unwrap_or_else(|| "true".to_string());
+            attrs.push_str(&format!(
+                " data-dowel-hide-scrollbar={{({horizontal} ? !({horizontal_indicator}) : !({vertical})) ? '' : undefined}}"
+            ));
+        }
     }
     if node.primitive == Primitive::Image {
         if let Some(label) = node.props.accessibility_label {
@@ -622,6 +672,46 @@ export function Login() {
         assert!(output.jsx.contains("renderItem={({ item }) => <span className=\"dowel-1\">{item}</span>}"), "{}", output.jsx);
         assert!(output.css.contains("height: 160px"), "{}", output.css);
         assert!(output.css.contains("padding-top: 8px"), "{}", output.css);
+    }
+
+    #[test]
+    fn scroll_view_refresh_uses_the_accessible_web_fallback() {
+        let source = r#"
+            import { ScrollView, Text } from '@dowel/core'
+            const el = <ScrollView className="h-40" horizontal={wide}
+              refreshing={loading} onRefresh={reload}
+              keyboardShouldPersistTaps="handled"
+              showsHorizontalScrollIndicator={false}
+              accessibilityLabel="Results">
+              <Text>row</Text>
+            </ScrollView>
+        "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+        assert!(output.jsx.starts_with("<ScrollView className=\"dowel-scroll-view dowel-0\""), "{}", output.jsx);
+        assert!(output.jsx.contains(" horizontal={wide}"), "{}", output.jsx);
+        assert!(output.jsx.contains(" refreshing={loading} onRefresh={reload}"), "{}", output.jsx);
+        assert!(output.jsx.contains(" keyboardShouldPersistTaps={\"handled\"}"), "{}", output.jsx);
+        assert!(output.jsx.contains(" showsHorizontalScrollIndicator={false}"), "{}", output.jsx);
+        assert!(output.jsx.contains(" accessibilityLabel={\"Results\"}"), "{}", output.jsx);
+        assert!(!output.jsx.contains("aria-label"), "{}", output.jsx);
+    }
+
+    #[test]
+    fn scroll_view_without_refresh_stays_zero_runtime_and_hides_its_active_indicator() {
+        let source = r#"
+            import { ScrollView } from '@dowel/core'
+            const el = <ScrollView horizontal={wide}
+              showsHorizontalScrollIndicator={showHorizontal}
+              showsVerticalScrollIndicator={showVertical} />
+        "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+        assert!(output.jsx.starts_with("<div className=\"dowel-scroll-view\""), "{}", output.jsx);
+        assert!(output.jsx.contains("data-dowel-horizontal={wide ? '' : undefined}"), "{}", output.jsx);
+        assert!(output.jsx.contains("data-dowel-hide-scrollbar={(wide ? !(showHorizontal) : !(showVertical)) ? '' : undefined}"), "{}", output.jsx);
+        assert!(output.css.contains("scrollbar-width: none"), "{}", output.css);
+        assert!(output.css.contains("::-webkit-scrollbar"), "{}", output.css);
     }
 
     #[test]

@@ -739,6 +739,35 @@ fn render_node(
     if let Some(horizontal) = &node.props.scroll_horizontal {
         props_text.push_str(&format!(" horizontal={{{}}}", render_condition_expr(source, horizontal)));
     }
+    if let Some(value) = node.props.keyboard_should_persist_taps {
+        props_text.push_str(&format!(" keyboardShouldPersistTaps={{{}}}", source_text(source, value)));
+    }
+    if let Some(value) = &node.props.shows_vertical_scroll_indicator {
+        props_text.push_str(&format!(" showsVerticalScrollIndicator={{{}}}", render_condition_expr(source, value)));
+    }
+    if let Some(value) = &node.props.shows_horizontal_scroll_indicator {
+        props_text.push_str(&format!(" showsHorizontalScrollIndicator={{{}}}", render_condition_expr(source, value)));
+    }
+    if node.primitive == Primitive::ScrollView
+        && (node.props.refreshing.is_some() || node.props.on_refresh.is_some())
+    {
+        let refreshing = node.props.refreshing.as_ref()
+            .map(|value| render_condition_expr(source, value))
+            .unwrap_or_else(|| "false".to_string());
+        let on_refresh = node.props.on_refresh
+            .map(|value| format!(" onRefresh={{{}}}", source_text(source, value)))
+            .unwrap_or_default();
+        props_text.push_str(&format!(
+            " refreshControl={{<RefreshControl refreshing={{{refreshing}}}{on_refresh} />}}"
+        ));
+    } else {
+        if let Some(refreshing) = &node.props.refreshing {
+            props_text.push_str(&format!(" refreshing={{{}}}", render_condition_expr(source, refreshing)));
+        }
+        if let Some(on_refresh) = node.props.on_refresh {
+            props_text.push_str(&format!(" onRefresh={{{}}}", source_text(source, on_refresh)));
+        }
+    }
     if let Some(open) = &node.props.open {
         props_text.push_str(&format!(" open={{{}}}", render_condition_expr(source, open)));
     }

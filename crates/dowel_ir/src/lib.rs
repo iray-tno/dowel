@@ -284,6 +284,11 @@ pub struct PropSet {
     /// A ScrollView's axis switch, retained as an expression so Web can
     /// drive a scoped selector and Native can receive its boolean prop.
     pub scroll_horizontal: Option<ConditionExpr>,
+    pub refreshing: Option<ConditionExpr>,
+    pub on_refresh: Option<ExprRef>,
+    pub keyboard_should_persist_taps: Option<ExprRef>,
+    pub shows_vertical_scroll_indicator: Option<ConditionExpr>,
+    pub shows_horizontal_scroll_indicator: Option<ConditionExpr>,
     /// A `Dialog`'s `open` guard, re-emitted verbatim like `disabled`.
     pub open: Option<ConditionExpr>,
     /// Whether a `Dialog` was given an `onClose`. A modal with no way to

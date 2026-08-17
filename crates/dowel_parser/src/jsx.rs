@@ -362,6 +362,52 @@ fn build_node(
                     .passthrough
                     .push(passthrough_prop(attr, module_record, diagnostics, consumed)),
             },
+            "refreshing" if matches!(primitive, Primitive::ScrollView | Primitive::FlatList) => match &attr.value {
+                None => props.refreshing = Some(ConditionExpr::Static(true)),
+                Some(JSXAttributeValue::ExpressionContainer(container)) => {
+                    props.refreshing = Some(ConditionExpr::Ref(to_expr_ref(container.expression.span())));
+                }
+                _ => props
+                    .passthrough
+                    .push(passthrough_prop(attr, module_record, diagnostics, consumed)),
+            },
+            "onRefresh" if matches!(primitive, Primitive::ScrollView | Primitive::FlatList) => match &attr.value {
+                Some(JSXAttributeValue::ExpressionContainer(container)) => {
+                    props.on_refresh = Some(to_expr_ref(container.expression.span()));
+                }
+                _ => props
+                    .passthrough
+                    .push(passthrough_prop(attr, module_record, diagnostics, consumed)),
+            },
+            "keyboardShouldPersistTaps" if matches!(primitive, Primitive::ScrollView | Primitive::FlatList) => match &attr.value {
+                Some(JSXAttributeValue::ExpressionContainer(container)) => {
+                    props.keyboard_should_persist_taps = Some(to_expr_ref(container.expression.span()));
+                }
+                Some(JSXAttributeValue::StringLiteral(literal)) => {
+                    props.keyboard_should_persist_taps = Some(to_expr_ref(literal.span));
+                }
+                _ => props
+                    .passthrough
+                    .push(passthrough_prop(attr, module_record, diagnostics, consumed)),
+            },
+            "showsVerticalScrollIndicator" if matches!(primitive, Primitive::ScrollView | Primitive::FlatList) => match &attr.value {
+                None => props.shows_vertical_scroll_indicator = Some(ConditionExpr::Static(true)),
+                Some(JSXAttributeValue::ExpressionContainer(container)) => {
+                    props.shows_vertical_scroll_indicator = Some(ConditionExpr::Ref(to_expr_ref(container.expression.span())));
+                }
+                _ => props
+                    .passthrough
+                    .push(passthrough_prop(attr, module_record, diagnostics, consumed)),
+            },
+            "showsHorizontalScrollIndicator" if matches!(primitive, Primitive::ScrollView | Primitive::FlatList) => match &attr.value {
+                None => props.shows_horizontal_scroll_indicator = Some(ConditionExpr::Static(true)),
+                Some(JSXAttributeValue::ExpressionContainer(container)) => {
+                    props.shows_horizontal_scroll_indicator = Some(ConditionExpr::Ref(to_expr_ref(container.expression.span())));
+                }
+                _ => props
+                    .passthrough
+                    .push(passthrough_prop(attr, module_record, diagnostics, consumed)),
+            },
             // Both spellings are accepted and neither is passed through:
             // the two platforms name this prop differently, so the value is
             // captured here and each backend writes it under its own name.

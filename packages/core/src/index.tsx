@@ -47,14 +47,43 @@ export interface ScrollViewProps {
   className?: string
   children?: ReactNode
   horizontal?: boolean
+  refreshing?: boolean
+  onRefresh?: () => void
+  keyboardShouldPersistTaps?: 'always' | 'never' | 'handled'
+  showsVerticalScrollIndicator?: boolean
+  showsHorizontalScrollIndicator?: boolean
+  accessibilityLabel?: string
+  accessibilityHint?: string
 }
 
-export function ScrollView({ className, children, horizontal }: ScrollViewProps) {
+export function ScrollView({
+  className,
+  children,
+  horizontal,
+  refreshing,
+  onRefresh,
+  keyboardShouldPersistTaps: _keyboardShouldPersistTaps,
+  showsVerticalScrollIndicator = true,
+  showsHorizontalScrollIndicator = true,
+  accessibilityLabel,
+  accessibilityHint,
+}: ScrollViewProps) {
+  const showIndicator = horizontal ? showsHorizontalScrollIndicator : showsVerticalScrollIndicator
   return (
     <div
       className={className}
-      style={horizontal ? { overflowX: 'auto', overflowY: 'hidden' } : { overflowX: 'hidden', overflowY: 'auto' }}
+      aria-label={accessibilityLabel}
+      aria-description={accessibilityHint}
+      aria-busy={refreshing || undefined}
+      style={horizontal
+        ? { overflowX: 'auto', overflowY: 'hidden', scrollbarWidth: showIndicator ? 'auto' : 'none' }
+        : { overflowX: 'hidden', overflowY: 'auto', scrollbarWidth: showIndicator ? 'auto' : 'none' }}
     >
+      {onRefresh ? (
+        <button type="button" onClick={onRefresh} disabled={refreshing}>
+          {refreshing ? 'Refreshing…' : 'Refresh'}
+        </button>
+      ) : null}
       {children}
     </div>
   )

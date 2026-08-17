@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { gridCellStyle, gridRows, type GridTrack } from './grid.ts'
+import { gridCellStyle, gridLayout, gridRows, gridRowSizes, type GridTrack } from './grid.ts'
 
 const tracks: GridTrack[] = [
   { kind: 'points', value: 120 },
@@ -41,4 +41,14 @@ test('an explicit column leaves empty tracks and never backfills an earlier row'
     [null, 0, null],
     [1, null],
   ])
+})
+
+test('row spans reserve a two-dimensional rectangle from later items', () => {
+  const layout = gridLayout([{ span: 1, rowSpan: 2 }, { span: 2 }, { span: 1 }], 3)
+  assert.deepEqual(layout, [
+    { child: 0, column: 0, columnSpan: 1, row: 0, rowSpan: 2 },
+    { child: 1, column: 1, columnSpan: 2, row: 0, rowSpan: 1 },
+    { child: 2, column: 1, columnSpan: 1, row: 1, rowSpan: 1 },
+  ])
+  assert.deepEqual(gridRowSizes(layout, [70, 20, 30], 10), [25, 35])
 })

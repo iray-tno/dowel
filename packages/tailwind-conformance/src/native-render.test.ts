@@ -221,3 +221,20 @@ test('Link renders as a native link interaction with its destination', () => {
   assert.equal(tree?.props.accessibilityLabel, 'Documentation')
   assert.equal(typeof tree?.props.onPress, 'function')
 })
+
+test('focus-visible installs modality events only on an interaction that asks for them', () => {
+  const tree = renderNative(
+    `
+    import { Pressable } from '@dowel/core'
+    export function Save() {
+      return <Pressable className="focus-visible:opacity-50" accessibilityRole="button">Save</Pressable>
+    }
+    `,
+    'Save',
+  )
+  assert.equal(tree?.type, 'Pressable')
+  assert.equal(typeof tree?.props.onFocus, 'function')
+  assert.equal(typeof tree?.props.onPointerDown, 'function')
+  assert.equal(typeof tree?.props.onKeyDown, 'function')
+  assert.equal(typeof tree?.props.style, 'function')
+})

@@ -639,9 +639,14 @@ fn render_node(
         style_array_parts.push(format!("dowelClasses({})", source_text(source, *expr_ref)));
     }
 
+    let needs_focus_visible = own_declarations.iter().any(|declaration| {
+        condition_contains(&declaration.condition, |condition| {
+            matches!(condition, Condition::FocusVisible)
+        })
+    });
     let needs_hover_or_focus = own_declarations.iter().any(|declaration| {
         condition_contains(&declaration.condition, |condition| {
-            matches!(condition, Condition::Hover | Condition::Focus)
+            matches!(condition, Condition::Hover | Condition::Focus | Condition::FocusVisible)
         })
     });
     let rendered_component = if component == "Pressable" && (needs_hover_or_focus || transition.is_some()) {
@@ -673,7 +678,9 @@ fn render_node(
 
     let mut props_text = String::new();
     if needs_pressed_fn {
-        let state = if needs_hover_or_focus || rendered_component == "DowelText" {
+        let state = if needs_focus_visible {
+            "{ pressed, hovered, focused, focusVisible }"
+        } else if needs_hover_or_focus || rendered_component == "DowelText" {
             "{ pressed, hovered, focused }"
         } else {
             "{ pressed }"
@@ -691,6 +698,9 @@ fn render_node(
         props_text.push_str(&format!(
             " dowelTransition={{{{ duration: {duration}, easing: '{easing}', opacity: {opacity}, transform: {transform}, colors: {colors} }}}}"
         ));
+    }
+    if needs_focus_visible {
+        props_text.push_str(" dowelFocusVisible");
     }
     for (key, value) in &extra_props {
         props_text.push_str(&format!(r#" {key}="{value}""#));
@@ -1304,7 +1314,7 @@ fn native_driver_transition(
         declarations.iter().any(|declaration| {
             property(&declaration.property)
                 && condition_contains(&declaration.condition, |condition| {
-                matches!(condition, Condition::Hover | Condition::Focus | Condition::Pressed)
+                matches!(condition, Condition::Hover | Condition::Focus | Condition::FocusVisible | Condition::Pressed)
             })
         })
     };
@@ -1792,6 +1802,7 @@ fn build_style_entries(
                             | Condition::Expr(_)
                             | Condition::Hover
                             | Condition::Focus
+                            | Condition::FocusVisible
                             | Condition::Responsive(_)
                             | Condition::Dark
                             | Condition::FirstChild
@@ -1864,6 +1875,20 @@ fn build_style_entries(
                                         node,
                                         "`focus:` in a stacked variant is wired only on \
                                          Pressable and Button on React Native.",
+                                        Severity::Error,
+                                    ));
+                                    applies = false;
+                                }
+                            }
+                            Condition::FocusVisible => {
+                                if interaction_context || matches!(node.primitive, Primitive::Pressable | Primitive::Button)
+                                {
+                                    guards.push("focusVisible".to_string());
+                                    uses_interactive_state = true;
+                                } else {
+                                    diagnostics.push(unwired_variant(
+                                        node,
+                                        "`focus-visible:` in a stacked variant is wired only on Pressable and Button on React Native.",
                                         Severity::Error,
                                     ));
                                     applies = false;
@@ -1961,16 +1986,15 @@ fn build_style_entries(
                  because those elements own the interaction events that drive the state.",
                 Severity::Error,
             )),
-            // The distinction `focus-visible:` draws -- keyboard focus but
-            // not a tap -- is a browser heuristic. React Native's focus
-            // events don't carry the modality that would let this be
-            // reconstructed, so it is unbuilt on top of being unwired.
+            Condition::FocusVisible
+                if interaction_context || matches!(node.primitive, Primitive::Pressable | Primitive::Button) =>
+            {
+                pressed_parts.extend(guarded("focusVisible && "));
+            }
             Condition::FocusVisible => diagnostics.push(unwired_variant(
                 node,
-                "`focus-visible:` isn't wired on React Native yet, and its distinction from \
-                 `focus:` is a browser heuristic about how focus arrived that RN's focus events \
-                 don't report.",
-                Severity::Warning,
+                "`focus-visible:` is wired only on Pressable and Button on React Native, because those elements own the pointer and keyboard events used to infer modality.",
+                Severity::Error,
             )),
             // Ambient conditions: one app-wide value, observed through a
             // hook so this component re-renders when it changes. The hook
@@ -2904,6 +2928,7 @@ export function Login() {
 
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert!(output.jsx.starts_with("<DowelPressable"), "{}", output.jsx);
+        assert!(!output.jsx.contains("dowelFocusVisible"), "{}", output.jsx);
         assert!(
             output.jsx.contains("({ pressed, hovered, focused }) =>"),
             "{}",
@@ -2915,6 +2940,26 @@ export function Login() {
         assert!(output.jsx.contains("onHoverIn={noticeHover}"), "{}", output.jsx);
         assert!(output.jsx.contains("onFocus={noticeFocus}"), "{}", output.jsx);
         assert!(output.runtime_imports.contains(&"DowelPressable"));
+    }
+
+    #[test]
+    fn focus_visible_uses_pressable_input_modality_state() {
+        let source = r#"
+            import { Pressable } from '@dowel/core'
+            function Save() {
+              return <Pressable className="opacity-100 focus-visible:opacity-50 md:focus-visible:p-4"
+                accessibilityRole="button">Save</Pressable>
+            }
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert!(output.jsx.starts_with("<DowelPressable"), "{}", output.jsx);
+        assert!(output.jsx.contains("dowelFocusVisible"), "{}", output.jsx);
+        assert!(output.jsx.contains("{ pressed, hovered, focused, focusVisible }"), "{}", output.jsx);
+        assert!(output.jsx.contains("focusVisible && styles.dowel0_focusvisible"), "{}", output.jsx);
+        assert!(output.jsx.contains("__dowelBp_md && focusVisible &&"), "{}", output.jsx);
     }
 
     #[test]

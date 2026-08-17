@@ -30,16 +30,20 @@ export interface DowelTransition {
 export interface DowelPressableState extends PressableStateCallbackType {
   hovered: boolean
   focused: boolean
+  focusVisible: boolean
 }
 
 export interface DowelPressableProps extends Omit<PressableProps, 'style'> {
   style?: StyleProp<ViewStyle> | ((state: DowelPressableState) => StyleProp<ViewStyle>)
   dowelTransition?: DowelTransition
+  /** Enables per-element pointer/keyboard modality inference. */
+  dowelFocusVisible?: boolean
 }
 
 const HOVERED = 1
 const FOCUSED = 2
 const PRESSED = 4
+const FOCUS_VISIBLE = 8
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable)
 const AnimatedText = Animated.createAnimatedComponent(Text)
 type InteractionContextValue = DowelPressableState & { transition?: DowelTransition }
@@ -107,13 +111,16 @@ export function DowelPressable({
   onBlur,
   onPressIn,
   onPressOut,
+  onPointerDown,
+  onKeyDown,
   dowelTransition,
+  dowelFocusVisible = false,
   ...props
 }: DowelPressableProps) {
   const [interaction, setInteraction] = useState(0)
   const interactionRef = useRef(0)
   const initialStyle = typeof style === 'function'
-    ? style({ pressed: false, hovered: false, focused: false })
+    ? style({ pressed: false, hovered: false, focused: false, focusVisible: false })
     : style
   const initialOpacity = StyleSheet.flatten(initialStyle)?.opacity
   const opacity = useRef(new Animated.Value(
@@ -125,7 +132,9 @@ export function DowelPressable({
     for (const pressed of [false, true]) {
       for (const hovered of [false, true]) {
         for (const focused of [false, true]) {
-          for (const key of colorTargets(style({ pressed, hovered, focused })).keys()) found.add(key)
+          for (const focusVisible of [false, true]) {
+            for (const key of colorTargets(style({ pressed, hovered, focused, focusVisible })).keys()) found.add(key)
+          }
         }
       }
     }
@@ -155,7 +164,9 @@ export function DowelPressable({
     if (!dowelTransition?.transform || typeof style !== 'function') return []
     const states = [false, true].flatMap((pressed) =>
       [false, true].flatMap((hovered) =>
-        [false, true].map((focused) => ({ pressed, hovered, focused })),
+        [false, true].flatMap((focused) =>
+          [false, true].map((focusVisible) => ({ pressed, hovered, focused, focusVisible })),
+        ),
       ),
     )
     const merged = new Map<string, TransformTarget>()
@@ -188,6 +199,7 @@ export function DowelPressable({
       pressed: (next & PRESSED) !== 0,
       hovered: (next & HOVERED) !== 0,
       focused: (next & FOCUSED) !== 0,
+      focusVisible: (next & FOCUS_VISIBLE) !== 0,
     }))
     const animations: Animated.CompositeAnimation[] = []
     if (dowelTransition.opacity) {
@@ -204,6 +216,7 @@ export function DowelPressable({
         pressed: (next & PRESSED) !== 0,
         hovered: (next & HOVERED) !== 0,
         focused: (next & FOCUSED) !== 0,
+        focusVisible: (next & FOCUS_VISIBLE) !== 0,
       })).map((target) => [target.key, target.value]))
       for (const spec of transformSpecs) {
         animations.push(Animated.timing(transformValues.get(spec.key)!, {
@@ -219,6 +232,7 @@ export function DowelPressable({
         pressed: (next & PRESSED) !== 0,
         hovered: (next & HOVERED) !== 0,
         focused: (next & FOCUSED) !== 0,
+        focusVisible: (next & FOCUS_VISIBLE) !== 0,
       }))
       for (const [key, range] of colorRanges) {
         const current = blendColor(range.from, range.to, colorFraction.current)
@@ -243,11 +257,13 @@ export function DowelPressable({
     animateInteraction(next)
     setInteraction(next)
   }, [animateInteraction])
+  const modality = useRef<'keyboard' | 'pointer'>('keyboard')
 
   const context = useMemo(() => ({
     pressed: (interaction & PRESSED) !== 0,
     hovered: (interaction & HOVERED) !== 0,
     focused: (interaction & FOCUSED) !== 0,
+    focusVisible: (interaction & FOCUS_VISIBLE) !== 0,
     transition: dowelTransition,
   }), [dowelTransition, interaction])
 
@@ -265,13 +281,27 @@ export function DowelPressable({
       }}
       onFocus={(event: NativeSyntheticEvent<TargetedEvent>) => {
         setFlag(FOCUSED, true)
+        if (dowelFocusVisible) setFlag(FOCUS_VISIBLE, modality.current === 'keyboard')
         onFocus?.(event)
       }}
       onBlur={(event: NativeSyntheticEvent<TargetedEvent>) => {
         setFlag(FOCUSED, false)
+        if (dowelFocusVisible) setFlag(FOCUS_VISIBLE, false)
         onBlur?.(event)
       }}
+      onPointerDown={dowelFocusVisible ? (event) => {
+        modality.current = 'pointer'
+        setFlag(FOCUS_VISIBLE, false)
+        onPointerDown?.(event)
+      } : onPointerDown}
+      onKeyDown={dowelFocusVisible ? (event) => {
+        modality.current = 'keyboard'
+        if ((interactionRef.current & FOCUSED) !== 0) setFlag(FOCUS_VISIBLE, true)
+        onKeyDown?.(event)
+      } : onKeyDown}
       onPressIn={(event: GestureResponderEvent) => {
+        modality.current = 'pointer'
+        if (dowelFocusVisible) setFlag(FOCUS_VISIBLE, false)
         setFlag(PRESSED, true)
         onPressIn?.(event)
       }}
@@ -285,6 +315,7 @@ export function DowelPressable({
               pressed: pressed || (interaction & PRESSED) !== 0,
               hovered: (interaction & HOVERED) !== 0,
               focused: (interaction & FOCUSED) !== 0,
+              focusVisible: (interaction & FOCUS_VISIBLE) !== 0,
             })
           : style
         if (!dowelTransition) return resolved
@@ -307,7 +338,7 @@ export interface DowelTextProps extends Omit<TextProps, 'style'> {
 /** Text whose interaction state and transition are owned by an enclosing DowelPressable. */
 export function DowelText({ style, ...props }: DowelTextProps) {
   const context = useContext(InteractionContext)
-  const state = context ?? { pressed: false, hovered: false, focused: false }
+  const state = context ?? { pressed: false, hovered: false, focused: false, focusVisible: false }
   const resolved = typeof style === 'function' ? style(state) : style
   const target = StyleSheet.flatten(resolved)?.color
   const progress = useRef(new Animated.Value(1)).current

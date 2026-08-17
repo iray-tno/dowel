@@ -48,13 +48,13 @@ test('injects a StyleSheet.create declaration and rewrites the JSX span', () => 
 })
 
 test('fails the build on a Web-only utility instead of dropping it', () => {
-  // `inline-flex` has no React Native equivalent, so there is no correct output
+  // `inline-block` has no React Native equivalent, so there is no correct output
   // to fall back to -- compiling anyway would look right on Web and be
   // silently wrong on device.
   const source = `import { View } from '@dowel/core'
 
 export function Card() {
-  return <View className="inline-flex" />
+  return <View className="inline-block" />
 }
 `
   assert.throws(() => transformDowelSource(source, 'Card.tsx'), /WEB_ONLY_PROPERTY_ON_NATIVE/)

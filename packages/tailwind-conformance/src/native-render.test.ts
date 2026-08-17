@@ -68,6 +68,33 @@ test('DowelSpaced puts the spacing on every child but the last', () => {
   assert.equal(items[2].props.style, undefined)
 })
 
+test('DowelGrid auto-places unequal tracks without a measurement pass', () => {
+  const tree = renderNative(
+    `
+    import { View, Text } from '@dowel/core'
+    export function Grid() {
+      return (
+        <View className="grid grid-cols-[120px_2fr_1fr] gap-4">
+          <Text>One</Text><Text>Two</Text><Text>Three</Text><Text>Four</Text>
+        </View>
+      )
+    }
+    `,
+    'Grid',
+  )
+  const rows = children(tree)
+  assert.equal(rows.length, 2)
+  assert.deepEqual(rows[0].props.style, { flexDirection: 'row', columnGap: 16 })
+  const firstRow = children(rows[0])
+  assert.deepEqual(firstRow.map((cell) => cell.props.style), [
+    { flexBasis: 120, flexGrow: 0, flexShrink: 0 },
+    { flexBasis: 0, flexGrow: 2, flexShrink: 1 },
+    { flexBasis: 0, flexGrow: 1, flexShrink: 1 },
+  ])
+  assert.equal(children(rows[1]).length, 3)
+  assert.equal(children(children(rows[1])[1]).length, 0)
+})
+
 test('a text style set on a View reaches the Text underneath it', () => {
   // React Native inherits text styles only from a Text, so the compiler
   // carries them down. Checked here on the rendered tree rather than on the

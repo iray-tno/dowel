@@ -56,7 +56,7 @@ mod style;
 
 use dowel_ir::{
     AlignSelf, Breakpoint, Condition, ConditionExpr, Diagnostic, DiagnosticCode, Display, ExprRef,
-    Length, Node, Primitive,
+    GridTracks, Length, Node, Primitive,
     Severity, StyleDeclaration, StyleProperty, TextOverflow, Theme, WhiteSpace,
 };
 
@@ -426,11 +426,15 @@ fn render_node(
     // React Native's equivalents aren't. Resolved here, before the refusal
     // check, so only the ones that genuinely can't be resolved are refused.
     let style = lower_inline_flex(fold_font_relative(&node.style, inherited));
+    let grid = native_grid(&style, theme);
     // The fast Native transition path is deliberately narrow: opacity on
     // Pressable interaction state can stay entirely on the native driver.
     let transition = native_driver_transition(node, &style);
 
     for declaration in &style {
+        if grid.is_some() && grid_absorbs(&declaration.property) {
+            continue;
+        }
         if transition.is_some()
             && matches!(
                 declaration.property,
@@ -569,6 +573,9 @@ fn render_node(
     // time which children receive it -- see that component for why the
     // decision can't be made here.
     let own_declarations = own_declarations.into_iter().filter(|d| {
+        if grid.is_some() && grid_absorbs(&d.property) {
+            return false;
+        }
         !matches!(
             d.property,
             StyleProperty::TransitionProperty(_)
@@ -781,17 +788,32 @@ fn render_node(
         }
     }
 
-    let inner = spaced_children(
-        inner,
-        &child_declarations,
-        &base_name,
-        source,
-        node,
-        position,
-        style_entries,
-        diagnostics,
-        runtime,
-    );
+    let inner = if let Some(grid) = grid {
+        if !child_declarations.is_empty() {
+            diagnostics.push(unwired_variant(
+                node,
+                "grid combined with `space-*`/`divide-*` needs the grid placer to merge those child styles; use `gap-*` for grid spacing",
+                Severity::Error,
+            ));
+        }
+        runtime.need_component("DowelGrid");
+        format!(
+            "<DowelGrid tracks={{{}}} columnGap={{{}}}>{inner}</DowelGrid>",
+            grid.tracks_js, grid.column_gap
+        )
+    } else {
+        spaced_children(
+            inner,
+            &child_declarations,
+            &base_name,
+            source,
+            node,
+            position,
+            style_entries,
+            diagnostics,
+            runtime,
+        )
+    };
 
     // React Native's TextInput takes no children either.
     if component == "TextInput" {
@@ -830,6 +852,108 @@ fn lower_inline_flex(mut declarations: Vec<StyleDeclaration>) -> Vec<StyleDeclar
         .collect();
     declarations.extend(synthetic);
     declarations
+}
+
+struct NativeGrid {
+    tracks_js: String,
+    column_gap: f64,
+}
+
+fn grid_absorbs(property: &StyleProperty) -> bool {
+    matches!(
+        property,
+        StyleProperty::Display(Display::Grid) | StyleProperty::GridTemplateColumns(_)
+    )
+}
+
+/// Builds the measurement-free subset of the future grid solver input.
+/// Conditions are deliberately declined for now: changing a track list at
+/// runtime belongs at this boundary, but requires passing the same guards as
+/// conditional styles rather than pretending one static list is sufficient.
+fn native_grid(declarations: &[StyleDeclaration], theme: &Theme) -> Option<NativeGrid> {
+    if declarations.iter().any(|declaration| {
+        !matches!(declaration.condition, Condition::Always)
+            && matches!(
+                declaration.property,
+                StyleProperty::Display(_)
+                    | StyleProperty::GridTemplateColumns(_)
+                    | StyleProperty::Gap(_)
+                    | StyleProperty::ColumnGap(_)
+            )
+    }) {
+        return None;
+    }
+
+    let display = declarations.iter().rev().find_map(|declaration| {
+        matches!(declaration.condition, Condition::Always)
+            .then_some(&declaration.property)
+            .and_then(|property| match property {
+                StyleProperty::Display(display) => Some(*display),
+                _ => None,
+            })
+    });
+    if display != Some(Display::Grid) {
+        return None;
+    }
+
+    let columns = declarations.iter().rev().find_map(|declaration| {
+        if !matches!(declaration.condition, Condition::Always) {
+            return None;
+        }
+        match &declaration.property {
+            StyleProperty::GridTemplateColumns(columns) => Some(columns),
+            _ => None,
+        }
+    });
+    let tracks = match columns {
+        None => vec![("fr", 1.0)],
+        Some(GridTracks::Count(count)) if *count > 0 => vec![("fr", 1.0); *count as usize],
+        Some(GridTracks::Css(css)) => parse_native_grid_tracks(css)?,
+        Some(GridTracks::None | GridTracks::Subgrid | GridTracks::Count(_)) => return None,
+    };
+
+    let tracks_js = format!(
+        "[{}]",
+        tracks
+            .into_iter()
+            .map(|(kind, value)| format!("{{ kind: '{kind}', value: {value} }}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    let column_gap = declarations
+        .iter()
+        .rev()
+        .find_map(|declaration| {
+            if !matches!(declaration.condition, Condition::Always) {
+                return None;
+            }
+            match declaration.property {
+                StyleProperty::Gap(length) | StyleProperty::ColumnGap(length) => {
+                    Some(length.px(theme))
+                }
+                _ => None,
+            }
+        })
+        .unwrap_or(0.0);
+    Some(NativeGrid { tracks_js, column_gap })
+}
+
+fn parse_native_grid_tracks(css: &str) -> Option<Vec<(&'static str, f64)>> {
+    let tracks: Option<Vec<_>> = css
+        .split_whitespace()
+        .map(|token| {
+            if let Some(value) = token.strip_suffix("fr") {
+                let value = value.parse::<f64>().ok()?;
+                return (value > 0.0).then_some(("fr", value));
+            }
+            if let Some(value) = token.strip_suffix("px") {
+                let value = value.parse::<f64>().ok()?;
+                return (value >= 0.0).then_some(("points", value));
+            }
+            None
+        })
+        .collect();
+    tracks.filter(|tracks| !tracks.is_empty())
 }
 
 fn condition_contains(condition: &Condition, predicate: impl Fn(&Condition) -> bool + Copy) -> bool {
@@ -2187,6 +2311,49 @@ export function Login() {
         assert!(output.styles.contains("alignSelf: 'center',"), "{}", output.styles);
         assert!(!output.styles.contains("alignSelf: 'flex-start',"), "{}", output.styles);
         assert!(output.styles.contains("display: 'flex',"), "{}", output.styles);
+    }
+
+    #[test]
+    fn grid_lowers_equal_tracks_and_gap_to_the_solver_boundary() {
+        let source = r#"
+            import { View } from '@dowel/core'
+            const el = <View className="grid grid-cols-3 gap-4"><View /><View /></View>
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert!(output.runtime_imports.contains(&"DowelGrid"));
+        assert!(output.jsx.contains("<DowelGrid tracks={[{ kind: 'fr', value: 1 }, { kind: 'fr', value: 1 }, { kind: 'fr', value: 1 }]} columnGap={16}>"), "{}", output.jsx);
+        assert!(output.styles.contains("gap: 16,"), "{}", output.styles);
+    }
+
+    #[test]
+    fn grid_accepts_simple_unequal_fr_and_fixed_tracks_without_measurement() {
+        let source = r#"
+            import { View } from '@dowel/core'
+            const el = <View className="grid grid-cols-[120px_2fr_1fr]"><View /></View>
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert!(output.jsx.contains("{ kind: 'points', value: 120 }"), "{}", output.jsx);
+        assert!(output.jsx.contains("{ kind: 'fr', value: 2 }"), "{}", output.jsx);
+        assert!(output.jsx.contains("{ kind: 'fr', value: 1 }"), "{}", output.jsx);
+    }
+
+    #[test]
+    fn grid_declines_tracks_that_need_the_future_measured_solver() {
+        let source = r#"
+            import { View } from '@dowel/core'
+            const el = <View className="grid grid-cols-[auto_1fr]" />
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+
+        assert!(!output.diagnostics.is_empty());
+        assert!(!output.runtime_imports.contains(&"DowelGrid"));
     }
 
     #[test]

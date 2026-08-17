@@ -472,8 +472,9 @@ pub enum StyleProperty {
     /// does mean the emitted rule can carry a declaration Tailwind would
     /// have dropped.
     Arbitrary(String, String),
-    /// Column count for `grid-cols-<n>`. Web-only: React Native's layout
-    /// engine has no grid implementation at all.
+    /// Column count for `grid-cols-<n>`. Native's initial grid solver can
+    /// consume counts and simple fixed/fr lists when paired with `grid`;
+    /// richer track functions remain an explicit refusal.
     GridTemplateColumns(GridTracks),
     GridTemplateRows(GridTracks),
     /// `col-start-*`/`col-end-*`/`row-start-*`/`row-end-*`: one edge of a

@@ -877,7 +877,8 @@ pub fn property_and_value<'a>(prop: &'a StyleProperty, theme: &Theme) -> Vec<(&'
         // `nowrap` is refused upstream -- suppressing wrapping needs the
         // `numberOfLines` prop, not a style.
         StyleProperty::WhiteSpace(_) => Vec::new(),
-        // All refused upstream by `unsupported_on_native`.
+        // Refused upstream by `unsupported_on_native`, or absorbed by the
+        // Native grid planner before style lowering for its supported subset.
         | StyleProperty::TextOverflow(_)
         | StyleProperty::GridTemplateColumns(_)
         | StyleProperty::GridTemplateRows(_)

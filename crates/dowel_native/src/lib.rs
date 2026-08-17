@@ -211,7 +211,10 @@ pub fn render_candidate_module(class_names: &[String], theme: &Theme) -> String 
         }
         let properties: Vec<StyleProperty> =
             utility.groups.iter().flat_map(|(_, properties)| properties.clone()).collect();
-        if let Some(reason) = properties.iter().find_map(|p| p.unsupported_on_native()) {
+        if let Some(reason) = properties
+            .iter()
+            .find_map(|p| unsupported_in_context(p, &properties))
+        {
             unsupported.push((name, format!("{reason} -- this utility is Web-only.")));
             continue;
         }
@@ -456,7 +459,9 @@ fn render_node(
         // Refused rather than dropped: silently ignoring a `block`/`grid`
         // would leave a layout that looks right on Web and is wrong on
         // device with nothing pointing at the cause.
-        if let Some(reason) = declaration.property.unsupported_on_native() {
+        if let Some(reason) =
+            unsupported_in_declarations(&declaration.property, &declaration.condition, &style)
+        {
             diagnostics.push(Diagnostic {
                 code: DiagnosticCode::WebOnlyPropertyOnNative,
                 severity: Severity::Error,
@@ -718,6 +723,43 @@ fn render_node(
         return format!("<{component}{props_text} />");
     }
     format!("<{component}{props_text}>{inner}</{component}>")
+}
+
+/// A bare Tailwind `scale-*` writes the same value to all three CSS axes,
+/// but React Native only has the two visible axes. Dropping that redundant
+/// Z component preserves the 2D result; an explicit `scale-z-*` also carries
+/// `Scale3d` and remains a hard refusal.
+fn unsupported_in_context(prop: &StyleProperty, siblings: &[StyleProperty]) -> Option<String> {
+    if let StyleProperty::ScaleZ(z) = prop {
+        let has_3d_switch = siblings.iter().any(|p| matches!(p, StyleProperty::Scale3d));
+        let x_matches = siblings.iter().any(|p| matches!(p, StyleProperty::ScaleX(x) if x == z));
+        let y_matches = siblings.iter().any(|p| matches!(p, StyleProperty::ScaleY(y) if y == z));
+        if !has_3d_switch && x_matches && y_matches {
+            return None;
+        }
+    }
+    prop.unsupported_on_native()
+}
+
+fn unsupported_in_declarations(
+    prop: &StyleProperty,
+    condition: &Condition,
+    declarations: &[StyleDeclaration],
+) -> Option<String> {
+    if let StyleProperty::ScaleZ(z) = prop {
+        let under_same_condition = |property: &StyleProperty| {
+            declarations
+                .iter()
+                .any(|d| &d.condition == condition && &d.property == property)
+        };
+        let has_3d_switch = under_same_condition(&StyleProperty::Scale3d);
+        let x_matches = under_same_condition(&StyleProperty::ScaleX(z.clone()));
+        let y_matches = under_same_condition(&StyleProperty::ScaleY(z.clone()));
+        if !has_3d_switch && x_matches && y_matches {
+            return None;
+        }
+    }
+    prop.unsupported_on_native()
 }
 
 /// Wraps `inner` in `DowelSpaced` when the element carries `space-*` or
@@ -1739,6 +1781,18 @@ export function Login() {
         assert!(output.styles.contains(
             "transform: [{ translateX: 8 }, { rotate: '45deg' }, { scale: 0.95 }],"
         ));
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+
+        let explicit_z = r#"
+            import { View } from '@dowel/core'
+            const el = <View className="scale-z-95" />
+            "#;
+        let parsed = dowel_parser::parse_tsx(explicit_z);
+        let output = lower(&parsed.roots[0].node, explicit_z, &Theme::default());
+        assert!(output
+            .diagnostics
+            .iter()
+            .any(|d| d.code == dowel_ir::DiagnosticCode::WebOnlyPropertyOnNative));
     }
 
     #[test]

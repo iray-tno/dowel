@@ -727,7 +727,14 @@ fn render_node(
         props_text.push_str(&format!(" accessibilityHint={{{}}}", source_text(source, hint)));
     }
     if let Some(src) = node.props.image_src {
-        props_text.push_str(&format!(" source={{{{ uri: {} }}}}", source_text(source, src)));
+        let value = source_text(source, src);
+        let static_uri = value.starts_with(['\"', '\'']);
+        if static_uri {
+            props_text.push_str(&format!(" source={{{{ uri: {value} }}}}"));
+        } else {
+            runtime.need_component("dowelImageSource");
+            props_text.push_str(&format!(" source={{dowelImageSource({value})}}"));
+        }
     }
     if let Some(horizontal) = &node.props.scroll_horizontal {
         props_text.push_str(&format!(" horizontal={{{}}}", render_condition_expr(source, horizontal)));

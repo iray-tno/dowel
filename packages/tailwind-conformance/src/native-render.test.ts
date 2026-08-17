@@ -238,6 +238,24 @@ test('Image maps its URI and alternative onto React Native Image props', () => {
   assert.deepEqual(tree?.props.style, { width: 80, height: 80, objectFit: 'cover' })
 })
 
+test('Image retains a Metro local asset and load state callbacks', () => {
+  const loaded = () => {}
+  const failed = () => {}
+  const tree = renderNative(
+    `
+    import { Image } from '@dowel/core'
+    export function Logo() {
+      return <Image src={logo} alt="Logo" onLoad={loaded} onError={failed} />
+    }
+    `,
+    'Logo',
+    { logo: 42, loaded, failed },
+  )
+  assert.equal(tree?.props.source, 42)
+  assert.equal(tree?.props.onLoad, loaded)
+  assert.equal(tree?.props.onError, failed)
+})
+
 test('ScrollView directly uses the Native viewport and keeps child layout explicit', () => {
   const tree = renderNative(
     `

@@ -27,14 +27,20 @@ export function Text({ className, children }: TextProps) {
 
 export interface ImageProps {
   className?: string
-  src: string
+  /** URL on Web; URL or Metro's numeric local-asset id on Native. */
+  src: string | number
   /** Empty string marks a decorative image. */
   alt?: string
   accessibilityLabel?: string
+  onLoad?: (event: unknown) => void
+  onError?: (event: unknown) => void
 }
 
-export function Image({ className, src, alt, accessibilityLabel }: ImageProps) {
-  return <img className={className} src={src} alt={alt ?? accessibilityLabel ?? ''} />
+export function Image({ className, src, alt, accessibilityLabel, onLoad, onError }: ImageProps) {
+  // A numeric id is meaningful only after Native compilation. Keeping it
+  // out of the DOM fallback avoids React serializing a bogus URL.
+  const webSrc = typeof src === 'string' ? src : undefined
+  return <img className={className} src={webSrc} alt={alt ?? accessibilityLabel ?? ''} onLoad={onLoad} onError={onError} />
 }
 
 export interface ScrollViewProps {

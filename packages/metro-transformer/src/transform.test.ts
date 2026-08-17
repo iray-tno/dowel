@@ -60,6 +60,20 @@ export function Cover() {
   assert.ok(!output!.includes("from '@dowel/core'"))
 })
 
+test('normalizes a platform-resolved Image source only when its type is dynamic', () => {
+  const source = `import { Image } from '@dowel/core'
+export function Logo() {
+  return <Image src={logo} alt="Logo" onLoad={loaded} onError={failed} />
+}
+`
+  const output = transformDowelSource(source, 'Logo.tsx')
+  assert.ok(output)
+  assert.match(output!, /import \{ dowelImageSource \} from '@dowel\/runtime'/)
+  assert.match(output!, /source=\{dowelImageSource\(logo\)\}/)
+  assert.match(output!, /onLoad=\{loaded\}/)
+  assert.match(output!, /onError=\{failed\}/)
+})
+
 test('imports ScrollView without adding a runtime wrapper', () => {
   const source = `import { ScrollView, View } from '@dowel/core'
 export function Rail() {

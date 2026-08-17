@@ -108,14 +108,18 @@ pub fn transform_entry(props: &[StyleProperty], theme: &Theme) -> Option<(&'stat
             parts.push(format!("{{ {name}: '{degrees}deg' }}"));
         }
     }
-    // Scale is a ratio here, not a percentage. Written per-axis only when
-    // the axes differ: RN has a combined `scale` too, and using it keeps
-    // the common `scale-95` a single entry rather than two.
+    // Scale is a ratio here, not a percentage. RN's public transform type
+    // has no scaleZ entry, but its supported 4x4 matrix does. An explicit
+    // Z-axis utility carries Scale3d, so split all axes in that case and
+    // put Z on the matrix diagonal. Keeping ordinary uniform scale as one
+    // `scale` entry avoids applying its Z component twice.
     let axis = |f: fn(&StyleProperty) -> Option<f64>| props.iter().find_map(f);
     let x = axis(scale_x);
     let y = axis(scale_y);
-    match (x, y) {
-        (Some(x), Some(y)) if x == y => parts.push(format!("{{ scale: {x} }}")),
+    let z = axis(scale_z);
+    let explicit_z = props.iter().any(|p| matches!(p, StyleProperty::Scale3d));
+    match (x, y, explicit_z) {
+        (Some(x), Some(y), false) if x == y => parts.push(format!("{{ scale: {x} }}")),
         _ => {
             if let Some(x) = x {
                 parts.push(format!("{{ scaleX: {x} }}"));
@@ -123,6 +127,13 @@ pub fn transform_entry(props: &[StyleProperty], theme: &Theme) -> Option<(&'stat
             if let Some(y) = y {
                 parts.push(format!("{{ scaleY: {y} }}"));
             }
+        }
+    }
+    if explicit_z {
+        if let Some(z) = z {
+            parts.push(format!(
+                "{{ matrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, {z}, 0, 0, 0, 0, 1] }}"
+            ));
         }
     }
     if parts.is_empty() {
@@ -170,6 +181,12 @@ fn scale_x(prop: &StyleProperty) -> Option<f64> {
 fn scale_y(prop: &StyleProperty) -> Option<f64> {
     match prop {
         StyleProperty::ScaleY(v) => v.ratio(),
+        _ => None,
+    }
+}
+fn scale_z(prop: &StyleProperty) -> Option<f64> {
+    match prop {
+        StyleProperty::ScaleZ(v) => v.ratio(),
         _ => None,
     }
 }

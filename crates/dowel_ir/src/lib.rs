@@ -1071,13 +1071,9 @@ impl StyleProperty {
                 "`flex-{n}/{d}`: React Native's `flex` is a grow factor, not a fraction of the 
                  parent -- use a percentage width instead"
             )),
-            // RN's transform array has scaleX and scaleY and no scaleZ, so
-            // the third axis and the switch that writes it are both out.
-            StyleProperty::ScaleZ(_) | StyleProperty::Scale3d => Some(
-                "`scale-z-*`/`scale-3d`: React Native scales in two dimensions -- its transform 
-                 has scaleX and scaleY and no scaleZ"
-                    .to_string(),
-            ),
+            // Scale3d is metadata selecting the three-axis form. Native
+            // lowers its Z component through RN's supported 4x4 matrix.
+            StyleProperty::Scale3d => None,
             // The arbitrary transform cases. React Native's transform
             // array takes numbers -- a rotation is a number of degrees and
             // a scale is a ratio -- so a value that stayed CSS text has
@@ -1093,7 +1089,9 @@ impl StyleProperty {
                 "`[{value}]`: React Native's transform takes a number of degrees, and this is CSS \
                  text that only a browser can resolve to one"
             )),
-            StyleProperty::ScaleX(Scale::Css(value)) | StyleProperty::ScaleY(Scale::Css(value)) => {
+            StyleProperty::ScaleX(Scale::Css(value))
+            | StyleProperty::ScaleY(Scale::Css(value))
+            | StyleProperty::ScaleZ(Scale::Css(value)) => {
                 Some(format!(
                     "`[{value}]`: React Native's scale is a ratio, and this is CSS text that only \
                      a browser can resolve to one"

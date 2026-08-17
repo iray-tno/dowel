@@ -220,3 +220,25 @@ export function Results({ refreshing, reload, horizontal }) {
   assert.match(output!, /showsHorizontalScrollIndicator=\{false\}/)
   assert.match(output!, /refreshControl=\{<RefreshControl refreshing=\{refreshing\} onRefresh=\{reload\} \/>\}/)
 })
+
+test('preserves Native FlatList virtualization controls while lowering nested components', () => {
+  const source = `import { FlatList, Text } from '@dowel/core'
+export function Results({ rows, loading, reload, loadMore }) {
+  return <FlatList data={rows} numColumns={2}
+    refreshing={loading} onRefresh={reload}
+    onEndReached={loadMore} onEndReachedThreshold={0.5}
+    showsVerticalScrollIndicator={false}
+    ListEmptyComponent={<Text className="p-2">Empty</Text>}
+    renderItem={({ item }) => <Text className="p-1">{item}</Text>} />
+}
+`
+  const output = transformDowelSource(source, '/app/src/Results.tsx', '/app')
+  assert.ok(output)
+  assert.match(output!, /<FlatList accessibilityRole="list"/)
+  assert.match(output!, /showsVerticalScrollIndicator=\{false\}/)
+  assert.match(output!, /refreshing=\{loading\} onRefresh=\{reload\}/)
+  assert.match(output!, /data=\{rows\} numColumns=\{2\}/)
+  assert.match(output!, /onEndReached=\{loadMore\} onEndReachedThreshold=\{0\.5\}/)
+  assert.match(output!, /ListEmptyComponent=\{<Text style=\{styles\.dowel_r0_1\}>Empty<\/Text>\}/)
+  assert.match(output!, /renderItem=\{\(\{ item \}\) => <Text style=\{styles\.dowel_r0_2\}>\{item\}<\/Text>\}/)
+})

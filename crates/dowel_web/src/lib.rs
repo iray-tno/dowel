@@ -311,7 +311,7 @@ fn render_node(
     }
     if let Some(horizontal) = &node.props.scroll_horizontal {
         let horizontal = render_condition_expr(source, horizontal);
-        if tag == "ScrollView" {
+        if matches!(tag, "ScrollView" | "FlatList") {
             attrs.push_str(&format!(" horizontal={{{horizontal}}}"));
         } else {
             attrs.push_str(&format!(" data-dowel-horizontal={{{horizontal} ? '' : undefined}}"));
@@ -349,6 +349,22 @@ fn render_node(
             attrs.push_str(&format!(
                 " data-dowel-hide-scrollbar={{({horizontal} ? !({horizontal_indicator}) : !({vertical})) ? '' : undefined}}"
             ));
+        }
+    } else if node.primitive == Primitive::FlatList {
+        if let Some(refreshing) = &node.props.refreshing {
+            attrs.push_str(&format!(" refreshing={{{}}}", render_condition_expr(source, refreshing)));
+        }
+        if let Some(on_refresh) = node.props.on_refresh {
+            attrs.push_str(&format!(" onRefresh={{{}}}", source_text(source, on_refresh)));
+        }
+        if let Some(value) = node.props.keyboard_should_persist_taps {
+            attrs.push_str(&format!(" keyboardShouldPersistTaps={{{}}}", source_text(source, value)));
+        }
+        if let Some(value) = &node.props.shows_vertical_scroll_indicator {
+            attrs.push_str(&format!(" showsVerticalScrollIndicator={{{}}}", render_condition_expr(source, value)));
+        }
+        if let Some(value) = &node.props.shows_horizontal_scroll_indicator {
+            attrs.push_str(&format!(" showsHorizontalScrollIndicator={{{}}}", render_condition_expr(source, value)));
         }
     }
     if node.primitive == Primitive::Image {
@@ -672,6 +688,29 @@ export function Login() {
         assert!(output.jsx.contains("renderItem={({ item }) => <span className=\"dowel-1\">{item}</span>}"), "{}", output.jsx);
         assert!(output.css.contains("height: 160px"), "{}", output.css);
         assert!(output.css.contains("padding-top: 8px"), "{}", output.css);
+    }
+
+    #[test]
+    fn flat_list_keeps_refresh_columns_and_pagination_props_for_its_web_runtime() {
+        let source = r#"
+            import { FlatList, Text } from '@dowel/core'
+            const el = <FlatList data={rows} horizontal={horizontal} numColumns={2}
+              refreshing={loading} onRefresh={reload}
+              onEndReached={loadMore} onEndReachedThreshold={0.5}
+              showsHorizontalScrollIndicator={false}
+              ListEmptyComponent={<Text className="p-2">Empty</Text>}
+              renderItem={({ item }) => <Text>{item}</Text>} />
+        "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+        assert!(output.jsx.starts_with("<FlatList"), "{}", output.jsx);
+        assert!(output.jsx.contains(" horizontal={horizontal}"), "{}", output.jsx);
+        assert!(output.jsx.contains(" refreshing={loading} onRefresh={reload}"), "{}", output.jsx);
+        assert!(output.jsx.contains(" showsHorizontalScrollIndicator={false}"), "{}", output.jsx);
+        assert!(output.jsx.contains("numColumns={2}"), "{}", output.jsx);
+        assert!(output.jsx.contains("onEndReached={loadMore}"), "{}", output.jsx);
+        assert!(output.jsx.contains("onEndReachedThreshold={0.5}"), "{}", output.jsx);
+        assert!(output.jsx.contains("ListEmptyComponent={<span className=\"dowel-1\">Empty</span>}"), "{}", output.jsx);
     }
 
     #[test]

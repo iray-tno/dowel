@@ -353,7 +353,7 @@ fn build_node(
                     .passthrough
                     .push(passthrough_prop(attr, module_record, diagnostics, consumed)),
             },
-            "horizontal" if primitive == Primitive::ScrollView => match &attr.value {
+            "horizontal" if matches!(primitive, Primitive::ScrollView | Primitive::FlatList) => match &attr.value {
                 None => props.scroll_horizontal = Some(ConditionExpr::Static(true)),
                 Some(JSXAttributeValue::ExpressionContainer(container)) => {
                     props.scroll_horizontal = Some(ConditionExpr::Ref(to_expr_ref(container.expression.span())));

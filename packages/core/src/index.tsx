@@ -5,7 +5,7 @@
 // job is to make invoking these at runtime unnecessary where it can, not
 // to make them required.
 
-import type { MouseEventHandler, ReactNode } from 'react'
+import { useEffect, useRef, type MouseEventHandler, type ReactNode } from 'react'
 
 export interface ViewProps {
   className?: string
@@ -103,20 +103,96 @@ export interface FlatListProps<T> {
   ListFooterComponent?: ReactNode
   ListEmptyComponent?: ReactNode
   accessibilityLabel?: string
+  accessibilityHint?: string
+  horizontal?: boolean
+  numColumns?: number
+  refreshing?: boolean
+  onRefresh?: () => void
+  onEndReached?: (info: { distanceFromEnd: number }) => void
+  onEndReachedThreshold?: number
+  keyboardShouldPersistTaps?: 'always' | 'never' | 'handled'
+  showsVerticalScrollIndicator?: boolean
+  showsHorizontalScrollIndicator?: boolean
 }
 
 /** Web fallback; Native compilation replaces this with the virtualized RN FlatList. */
-export function FlatList<T>({ className, data, renderItem, keyExtractor, ListHeaderComponent, ListFooterComponent, ListEmptyComponent, accessibilityLabel }: FlatListProps<T>) {
+export function FlatList<T>({
+  className,
+  data,
+  renderItem,
+  keyExtractor,
+  ListHeaderComponent,
+  ListFooterComponent,
+  ListEmptyComponent,
+  accessibilityLabel,
+  accessibilityHint,
+  horizontal,
+  numColumns = 1,
+  refreshing,
+  onRefresh,
+  onEndReached,
+  onEndReachedThreshold = 0,
+  keyboardShouldPersistTaps: _keyboardShouldPersistTaps,
+  showsVerticalScrollIndicator = true,
+  showsHorizontalScrollIndicator = true,
+}: FlatListProps<T>) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const endRef = useRef<HTMLDivElement>(null)
+  const showIndicator = horizontal ? showsHorizontalScrollIndicator : showsVerticalScrollIndicator
+
+  useEffect(() => {
+    const root = containerRef.current
+    const target = endRef.current
+    if (!onEndReached || data.length === 0 || !root || !target || typeof IntersectionObserver === 'undefined') {
+      return
+    }
+    let fired = false
+    const margin = `${Math.max(0, onEndReachedThreshold) * 100}%`
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry?.isIntersecting && !fired) {
+        fired = true
+        observer.disconnect()
+        onEndReached({ distanceFromEnd: 0 })
+      }
+    }, { root, rootMargin: horizontal ? `0px ${margin} 0px 0px` : `0px 0px ${margin} 0px` })
+    observer.observe(target)
+    return () => observer.disconnect()
+  }, [data.length, horizontal, onEndReached, onEndReachedThreshold])
+
   return (
-    <div className={className} role="list" aria-label={accessibilityLabel}>
+    <div
+      ref={containerRef}
+      className={className}
+      aria-label={accessibilityLabel}
+      aria-description={accessibilityHint}
+      aria-busy={refreshing || undefined}
+      style={horizontal
+        ? { overflowX: 'auto', overflowY: 'hidden', scrollbarWidth: showIndicator ? 'auto' : 'none' }
+        : { overflowX: 'hidden', overflowY: 'auto', scrollbarWidth: showIndicator ? 'auto' : 'none' }}
+    >
+      {onRefresh ? (
+        <button type="button" onClick={onRefresh} disabled={refreshing}>
+          {refreshing ? 'Refreshing…' : 'Refresh'}
+        </button>
+      ) : null}
       {ListHeaderComponent}
       {data.length === 0 ? ListEmptyComponent : null}
-      {data.map((item, index) => (
-        <div key={keyExtractor?.(item, index) ?? index} role="listitem">
-          {renderItem({ item, index })}
+      {data.length > 0 ? (
+        <div
+          role="list"
+          style={numColumns > 1
+            ? { display: 'grid', gridTemplateColumns: `repeat(${numColumns}, minmax(0, 1fr))` }
+            : horizontal ? { display: 'flex', flexDirection: 'row' } : undefined}
+        >
+          {data.map((item, index) => (
+            <div key={keyExtractor?.(item, index) ?? index} role="listitem">
+              {renderItem({ item, index })}
+            </div>
+          ))}
         </div>
-      ))}
+      ) : null}
       {ListFooterComponent}
+      <div ref={endRef} aria-hidden="true" />
     </div>
   )
 }

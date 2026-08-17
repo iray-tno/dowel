@@ -516,3 +516,23 @@ for (const result of variantResults) {
   if (result.verdict === 'MATCH') continue
   console.log(`  ${result.verdict.padEnd(12)} ${result.candidate}\n    ${result.detail ?? ''}`)
 }
+
+const nativeVariantResults = variants.cases.map((entry) => compareNativeCandidate(entry.candidate))
+const nativeVariantCount = (verdict: NativeVerdict) =>
+  nativeVariantResults.filter((result) => result.verdict === verdict).length
+const nativeVariantRestricted = nativeVariantResults.filter(
+  (result) => result.verdict === 'COVERED' && result.restrictedTo,
+)
+console.log(
+  `\n\n== Native variants (${variants.cases.length} single and stacked) ==\n` +
+    'Coverage across the same target-aware Native probe contexts.\n\n' +
+    `Covered:    ${nativeVariantCount('COVERED')}\n` +
+    `Restricted: ${nativeVariantRestricted.length}   (included in covered)\n` +
+    `Refused:    ${nativeVariantCount('REFUSED')}\n` +
+    `Silent:     ${nativeVariantCount('SILENT')}\n` +
+    `No-op:      ${nativeVariantCount('NO_OP')}`,
+)
+for (const result of nativeVariantResults) {
+  if (result.verdict === 'COVERED') continue
+  console.log(`  ${result.verdict.padEnd(12)} ${result.candidate}\n    ${result.detail ?? ''}`)
+}

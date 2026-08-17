@@ -6,7 +6,7 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "test": "node --test src/*.test.ts",
+    "test": "node --test --test-concurrency=1 src/*.test.ts",
     "report": "node src/run.ts"
   },
   "dependencies": {

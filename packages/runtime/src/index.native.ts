@@ -16,8 +16,10 @@ export { useDowelDark, useDowelBreakpoint, useDowelViewport, useDowelSpin } from
 export { DowelSpaced } from './spacing.native.tsx'
 export {
   DowelPressable,
+  DowelText,
   type DowelPressableProps,
   type DowelPressableState,
+  type DowelTextProps,
   type DowelTransition,
 } from './pressable.native.tsx'
 // Re-exported rather than left in `@dowel/a11y`: generated code should

@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   Animated,
   Easing,
   Pressable,
   StyleSheet,
+  Text,
   type GestureResponderEvent,
   type MouseEvent,
   type NativeSyntheticEvent,
@@ -11,7 +12,9 @@ import {
   type PressableStateCallbackType,
   type StyleProp,
   type TargetedEvent,
+  type TextProps,
   type ViewStyle,
+  type TextStyle,
 } from 'react-native'
 
 import { blendColor } from './color-transition.ts'
@@ -38,6 +41,9 @@ const HOVERED = 1
 const FOCUSED = 2
 const PRESSED = 4
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable)
+const AnimatedText = Animated.createAnimatedComponent(Text)
+type InteractionContextValue = DowelPressableState & { transition?: DowelTransition }
+const InteractionContext = createContext<InteractionContextValue | null>(null)
 
 function easingFor(name: DowelTransition['easing']) {
   switch (name) {
@@ -79,7 +85,7 @@ function identityFor(target: TransformTarget) {
   return target.key.startsWith('scale') ? 1 : 0
 }
 
-const COLOR_KEYS = ['backgroundColor'] as const
+const COLOR_KEYS = ['backgroundColor', 'color'] as const
 type ColorKey = (typeof COLOR_KEYS)[number]
 type ColorRange = { from: string; to: string }
 
@@ -238,7 +244,15 @@ export function DowelPressable({
     setInteraction(next)
   }, [animateInteraction])
 
+  const context = useMemo(() => ({
+    pressed: (interaction & PRESSED) !== 0,
+    hovered: (interaction & HOVERED) !== 0,
+    focused: (interaction & FOCUSED) !== 0,
+    transition: dowelTransition,
+  }), [dowelTransition, interaction])
+
   return (
+    <InteractionContext.Provider value={context}>
     <AnimatedPressable
       {...props}
       onHoverIn={(event: MouseEvent) => {
@@ -281,5 +295,54 @@ export function DowelPressable({
         }]
       }}
     />
+    </InteractionContext.Provider>
   )
+}
+
+export interface DowelTextProps extends Omit<TextProps, 'style'> {
+  children?: ReactNode
+  style?: StyleProp<TextStyle> | ((state: DowelPressableState) => StyleProp<TextStyle>)
+}
+
+/** Text whose interaction state and transition are owned by an enclosing DowelPressable. */
+export function DowelText({ style, ...props }: DowelTextProps) {
+  const context = useContext(InteractionContext)
+  const state = context ?? { pressed: false, hovered: false, focused: false }
+  const resolved = typeof style === 'function' ? style(state) : style
+  const target = StyleSheet.flatten(resolved)?.color
+  const progress = useRef(new Animated.Value(1)).current
+  const fraction = useRef(1)
+  const previousTarget = useRef(typeof target === 'string' ? target : '')
+  const range = useRef<ColorRange>({ from: previousTarget.current, to: previousTarget.current })
+  const interaction = `${state.pressed}:${state.hovered}:${state.focused}`
+  const previousInteraction = useRef(interaction)
+  const pending = previousInteraction.current !== interaction && typeof target === 'string'
+  if (pending) {
+    range.current = {
+      from: blendColor(range.current.from, range.current.to, fraction.current),
+      to: target as string,
+    }
+    previousInteraction.current = interaction
+    previousTarget.current = target as string
+  }
+  useEffect(() => {
+    const listener = progress.addListener(({ value }) => { fraction.current = value })
+    return () => progress.removeListener(listener)
+  }, [progress])
+  useLayoutEffect(() => {
+    if (!pending || !context?.transition?.colors) return
+    progress.setValue(0)
+    fraction.current = 0
+    Animated.timing(progress, {
+      toValue: 1,
+      duration: context.transition.duration,
+      easing: easingFor(context.transition.easing),
+      useNativeDriver: false,
+    }).start()
+  }, [context.transition, pending, progress])
+  const animatedColor = context?.transition?.colors && range.current.from
+    ? progress.interpolate({ inputRange: [0, 1], outputRange: [range.current.from, range.current.to] })
+    : undefined
+  if (!context || typeof style !== 'function') return <Text {...props} style={resolved} />
+  return <AnimatedText {...props} style={[resolved, animatedColor ? { color: animatedColor } : null]} />
 }

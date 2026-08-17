@@ -129,6 +129,7 @@ pub fn lower(root: &Node, source: &str, theme: &Theme) -> LowerOutput {
     let jsx = render_node(
         root,
         SiblingPosition::UNKNOWN,
+        false,
         theme,
         &[],
         source,
@@ -364,6 +365,7 @@ impl SiblingPosition {
 fn render_node(
     node: &Node,
     position: SiblingPosition,
+    interaction_context: bool,
     theme: &Theme,
     // Text properties inherited from an ancestor. CSS inherits these;
     // React Native inherits them only from a `Text` to a `Text`. So a
@@ -588,6 +590,7 @@ fn render_node(
         &mut pressed_parts,
         diagnostics,
         runtime,
+        interaction_context && component == "Text",
     );
 
     // After the compiled styles, so it wins the same way it would in the
@@ -606,10 +609,14 @@ fn render_node(
     let rendered_component = if component == "Pressable" && (needs_hover_or_focus || transition.is_some()) {
         runtime.need_component("DowelPressable");
         "DowelPressable"
+    } else if component == "Text" && interaction_context && !pressed_parts.is_empty() {
+        runtime.need_component("DowelText");
+        "DowelText"
     } else {
         component
     };
-    let needs_pressed_fn = component == "Pressable" && !pressed_parts.is_empty();
+    let needs_pressed_fn = (component == "Pressable" || rendered_component == "DowelText")
+        && !pressed_parts.is_empty();
     if needs_pressed_fn {
         style_array_parts.extend(pressed_parts);
     } else if !pressed_parts.is_empty() {
@@ -628,7 +635,7 @@ fn render_node(
 
     let mut props_text = String::new();
     if needs_pressed_fn {
-        let state = if needs_hover_or_focus {
+        let state = if needs_hover_or_focus || rendered_component == "DowelText" {
             "{ pressed, hovered, focused }"
         } else {
             "{ pressed }"
@@ -726,6 +733,7 @@ fn render_node(
                 inner.push_str(&render_node(
                     child_node,
                     child_position,
+                    interaction_context || rendered_component == "DowelPressable",
                     theme,
                     &descend,
                     source,
@@ -748,6 +756,7 @@ fn render_node(
                         style_entries,
                         diagnostics,
                         runtime,
+                        interaction_context || rendered_component == "DowelPressable",
                     )
                 } else {
                     escaped
@@ -766,6 +775,7 @@ fn render_node(
                     style_entries,
                     diagnostics,
                     runtime,
+                    interaction_context || rendered_component == "DowelPressable",
                 ));
             }
         }
@@ -822,9 +832,13 @@ fn native_driver_transition(
             | StyleProperty::ScaleX(_)
             | StyleProperty::ScaleY(_)
     ));
-    let interactive_colors = interactive(|property| {
-        matches!(property, StyleProperty::BackgroundColor(_))
+    let has_base_text_color = declarations.iter().any(|declaration| {
+        matches!(declaration.property, StyleProperty::TextColor(_))
+            && matches!(declaration.condition, Condition::Always)
     });
+    let interactive_colors = interactive(|property| matches!(property, StyleProperty::BackgroundColor(_)))
+        || (has_base_text_color
+            && interactive(|property| matches!(property, StyleProperty::TextColor(_))));
     if !interactive_opacity && !interactive_transform && !interactive_colors {
         return None;
     }
@@ -904,6 +918,7 @@ fn spaced_children(
         &mut pressed_parts,
         diagnostics,
         runtime,
+        false,
     );
     if !pressed_parts.is_empty() {
         diagnostics.push(unwired_variant(
@@ -949,6 +964,7 @@ fn render_verbatim(
     style_entries: &mut Vec<(String, Vec<StyleProperty>)>,
     diagnostics: &mut Vec<Diagnostic>,
     runtime: &mut RuntimeNeeds,
+    interaction_context: bool,
 ) -> String {
     let mut out = String::new();
     let mut cursor = expr_ref.0.start as usize;
@@ -957,6 +973,7 @@ fn render_verbatim(
         out.push_str(&render_node(
             &entry.node,
             SiblingPosition::UNKNOWN,
+            interaction_context,
             theme,
             inherited,
             source,
@@ -987,6 +1004,7 @@ fn wrap_in_text(
     style_entries: &mut Vec<(String, Vec<StyleProperty>)>,
     diagnostics: &mut Vec<Diagnostic>,
     runtime: &mut RuntimeNeeds,
+    interaction_context: bool,
 ) -> String {
     let mut style_array_parts = Vec::new();
     // The wrapper is a Text, so a `pressed:` style has nowhere to go on it.
@@ -1005,8 +1023,17 @@ fn wrap_in_text(
         &mut pressed_parts,
         diagnostics,
         runtime,
+        interaction_context,
     );
 
+    if interaction_context && !pressed_parts.is_empty() {
+        style_array_parts.extend(pressed_parts);
+        runtime.need_component("DowelText");
+        return format!(
+            "<DowelText style={{({{ pressed, hovered, focused }}) => [{}]}}>{content}</DowelText>",
+            style_array_parts.join(", ")
+        );
+    }
     let style_prop = if style_array_parts.is_empty() {
         String::new()
     } else if style_array_parts.len() == 1 && !style_array_parts[0].contains("&&") {
@@ -1186,6 +1213,7 @@ fn build_style_entries(
     pressed_parts: &mut Vec<String>,
     diagnostics: &mut Vec<Diagnostic>,
     runtime: &mut RuntimeNeeds,
+    interaction_context: bool,
 ) {
     // A conditional style must land after every unconditional one,
     // whatever order they were written in. On Web the cascade settles this
@@ -1322,7 +1350,7 @@ fn build_style_entries(
                                 uses_interactive_state = true;
                             }
                             Condition::Hover => {
-                                if matches!(node.primitive, Primitive::Pressable | Primitive::Button)
+                                if interaction_context || matches!(node.primitive, Primitive::Pressable | Primitive::Button)
                                 {
                                     guards.push("hovered".to_string());
                                     uses_interactive_state = true;
@@ -1337,7 +1365,7 @@ fn build_style_entries(
                                 }
                             }
                             Condition::Focus => {
-                                if matches!(node.primitive, Primitive::Pressable | Primitive::Button)
+                                if interaction_context || matches!(node.primitive, Primitive::Pressable | Primitive::Button)
                                 {
                                     guards.push("focused".to_string());
                                     uses_interactive_state = true;
@@ -1429,7 +1457,7 @@ fn build_style_entries(
             // said. That silence is the bug being fixed here; the styles
             // still don't apply, but no longer without saying so.
             Condition::Hover | Condition::Focus
-                if matches!(node.primitive, Primitive::Pressable | Primitive::Button) =>
+                if interaction_context || matches!(node.primitive, Primitive::Pressable | Primitive::Button) =>
             {
                 let guard = match condition {
                     Condition::Hover => "hovered && ",
@@ -2289,7 +2317,7 @@ export function Login() {
         let source = r#"
             import { Pressable } from '@dowel/core'
             const el = (
-              <Pressable className="bg-white transition duration-200 hover:bg-blue-500 focus:bg-red-500"
+              <Pressable className="bg-white text-gray-500 transition duration-200 hover:bg-blue-500 focus:bg-red-500 hover:text-blue-500"
                 accessibilityRole="button">Save</Pressable>
             )
             "#;
@@ -2298,6 +2326,24 @@ export function Login() {
 
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert!(output.jsx.contains("colors: true"), "{}", output.jsx);
+        assert!(output.jsx.contains("<DowelText style={({ pressed, hovered, focused }) =>"), "{}", output.jsx);
+        assert!(output.runtime_imports.contains(&"DowelText"));
+    }
+
+    #[test]
+    fn explicit_text_inherits_the_pressables_animated_color_state() {
+        let source = r#"
+            import { Pressable, Text } from '@dowel/core'
+            const el = (
+              <Pressable className="text-gray-500 transition hover:text-blue-500"
+                accessibilityRole="button"><Text>Save</Text></Pressable>
+            )
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert!(output.jsx.contains("<DowelText style={({ pressed, hovered, focused }) =>"), "{}", output.jsx);
     }
 
     #[test]

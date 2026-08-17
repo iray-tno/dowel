@@ -6,7 +6,9 @@
   "license": "MIT",
   "scripts": {
     "bundle": "node ./scripts/bundle.mjs",
-    "test": "node ./scripts/bundle.mjs && node ./scripts/check-bundle.mjs"
+    "bundle:production": "node ./scripts/bundle.mjs --production --platform android",
+    "measure:production": "node ./scripts/measure-production.mjs",
+    "test": "node ./scripts/bundle.mjs && node ./scripts/check-bundle.mjs && node ./scripts/measure-production.mjs"
   },
   "dependencies": {
     "@babel/runtime": "^8.0.0",

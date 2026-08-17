@@ -2,6 +2,21 @@
 
 The automated suite proves that this source passes the real Metro transformer, that generated modules evaluate against the Native component contract, and that measured Grid state settles under synthetic `onLayout` events. A simulator or device is still required for the platform behaviors below.
 
+## Production bundle measurement
+
+Run `pnpm measure:production` in this directory. It creates minified, non-development Android Metro bundles for the full acceptance app and for a matched pair of small screens: one authored with Dowel and one with React Native styles directly. Raw and gzip sizes plus the Dowel-minus-Native delta are written to the ignored `dist/bundle-sizes.json` file.
+
+The reference measurement on 2026-08-18 was:
+
+| Bundle | Raw | gzip |
+| --- | ---: | ---: |
+| Full acceptance app | 895,433 B | 216,573 B |
+| Matched Dowel screen | 889,580 B | 215,092 B |
+| Matched Native screen | 889,438 B | 215,064 B |
+| Dowel increment | **142 B** | **28 B** |
+
+The matched pair deliberately uses only compile-away features. It is a guard against the compiler or an accidental runtime dependency entering every app bundle, not a claim that runtime-backed features such as Grid or Native interaction transitions cost zero.
+
 Use a React Native 0.87 host that registers `DowelNativeDemo` from `index.js`, run Metro with this directory as the project root, then inspect the acceptance screen on both iOS and Android.
 
 ## Visual and interaction pass

@@ -37,6 +37,23 @@ export function Image({ className, src, alt, accessibilityLabel }: ImageProps) {
   return <img className={className} src={src} alt={alt ?? accessibilityLabel ?? ''} />
 }
 
+export interface ScrollViewProps {
+  className?: string
+  children?: ReactNode
+  horizontal?: boolean
+}
+
+export function ScrollView({ className, children, horizontal }: ScrollViewProps) {
+  return (
+    <div
+      className={className}
+      style={horizontal ? { overflowX: 'auto', overflowY: 'hidden' } : { overflowX: 'hidden', overflowY: 'auto' }}
+    >
+      {children}
+    </div>
+  )
+}
+
 export interface PressableProps {
   className?: string
   children?: ReactNode

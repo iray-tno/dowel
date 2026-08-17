@@ -20,6 +20,7 @@ pub fn element_shape(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'stati
         Primitive::Button => ("button", Vec::new()),
         Primitive::Link => ("a", Vec::new()),
         Primitive::Image => ("img", image_attrs(node, diagnostics)),
+        Primitive::ScrollView => ("div", Vec::new()),
         Primitive::Pressable => {
             let mut attrs = Vec::new();
             match node.props.accessibility_role {
@@ -174,6 +175,7 @@ mod tests {
                 accessibility_label: None,
                 accessibility_hint: None,
                 image_src: None,
+                scroll_horizontal: None,
                 has_placeholder: false,
                 open: None,
                 has_on_close: false,
@@ -203,6 +205,7 @@ mod tests {
                 accessibility_label: None,
                 accessibility_hint: None,
                 image_src: None,
+                scroll_horizontal: None,
                 has_placeholder: false,
                 open: None,
                 has_on_close: false,

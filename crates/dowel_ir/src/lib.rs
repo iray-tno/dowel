@@ -165,6 +165,9 @@ pub enum Primitive {
     /// An image with a universal string `src`: `<img src>` on Web and
     /// React Native's `<Image source={{ uri }}>` on Native.
     Image,
+    /// A viewport that scrolls vertically by default and horizontally when
+    /// `horizontal` is set. Its content layout stays explicit in children.
+    ScrollView,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -272,6 +275,9 @@ pub struct PropSet {
     /// The universal `Image` source expression. Its spelling changes by
     /// platform, so it cannot be an opaque passthrough prop.
     pub image_src: Option<ExprRef>,
+    /// A ScrollView's axis switch, retained as an expression so Web can
+    /// drive a scoped selector and Native can receive its boolean prop.
+    pub scroll_horizontal: Option<ConditionExpr>,
     /// A `Dialog`'s `open` guard, re-emitted verbatim like `disabled`.
     pub open: Option<ConditionExpr>,
     /// Whether a `Dialog` was given an `onClose`. A modal with no way to

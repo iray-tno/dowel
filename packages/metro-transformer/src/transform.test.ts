@@ -60,6 +60,19 @@ export function Cover() {
   assert.ok(!output!.includes("from '@dowel/core'"))
 })
 
+test('imports ScrollView without adding a runtime wrapper', () => {
+  const source = `import { ScrollView, View } from '@dowel/core'
+export function Rail() {
+  return <ScrollView horizontal className="h-40"><View /></ScrollView>
+}
+`
+  const output = transformDowelSource(source, 'Rail.tsx')
+  assert.ok(output)
+  assert.match(output!, /import \{[^}]*ScrollView[^}]*\} from 'react-native'/)
+  assert.match(output!, /<ScrollView style=\{styles\.dowel_r0_0\} horizontal=\{true\}>/)
+  assert.ok(!output!.includes('DowelScrollView'))
+})
+
 test('fails the build on a Web-only utility instead of dropping it', () => {
   // `inline-block` has no React Native equivalent, so there is no correct output
   // to fall back to -- compiling anyway would look right on Web and be

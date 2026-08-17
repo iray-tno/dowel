@@ -90,6 +90,22 @@ test('Image renders a semantic img with its universal source and alternative', (
   )
 })
 
+test('ScrollView owns only its viewport axis while its child owns content layout', () => {
+  const { compiled, rendered } = round(`
+    import { ScrollView, View, Text } from '@dowel/core'
+    export function Rail() {
+      return (
+        <ScrollView horizontal className="h-40">
+          <View className="flex-row gap-4"><Text>One</Text><Text>Two</Text></View>
+        </ScrollView>
+      )
+    }
+  `)
+  assert.match(rendered.html, /^<div class="dowel-scroll-view dowel-0" data-dowel-horizontal="">/)
+  assert.match(compiled.css, /\.dowel-scroll-view \{[\s\S]*overflow-y: auto/)
+  assert.match(compiled.css, /\.dowel-scroll-view\[data-dowel-horizontal\] \{[\s\S]*overflow-x: auto/)
+})
+
 test('text kept its spacing around an interpolation', () => {
   // JSX whitespace rules, checked through the DOM rather than through the
   // emitted string -- `Hello {name}` losing its space is invisible in a

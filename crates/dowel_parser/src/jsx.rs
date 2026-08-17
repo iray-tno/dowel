@@ -160,6 +160,7 @@ fn primitive_name(name: &str) -> Option<&'static str> {
         "TextInput" => Some("TextInput"),
         "Dialog" => Some("Dialog"),
         "Image" => Some("Image"),
+        "ScrollView" => Some("ScrollView"),
         _ => None,
     }
 }
@@ -196,6 +197,7 @@ fn primitive_for_name(name: &str) -> Option<Primitive> {
         "Button" => Some(Primitive::Button),
         "Link" => Some(Primitive::Link),
         "Image" => Some(Primitive::Image),
+        "ScrollView" => Some(Primitive::ScrollView),
         _ => None,
     }
 }
@@ -324,6 +326,15 @@ fn build_node(
                 None => props.disabled = Some(ConditionExpr::Static(true)),
                 Some(JSXAttributeValue::ExpressionContainer(container)) => {
                     props.disabled = Some(ConditionExpr::Ref(to_expr_ref(container.expression.span())));
+                }
+                _ => props
+                    .passthrough
+                    .push(PassthroughProp { span: to_expr_ref(attr.span()), is_spread: false }),
+            },
+            "horizontal" if primitive == Primitive::ScrollView => match &attr.value {
+                None => props.scroll_horizontal = Some(ConditionExpr::Static(true)),
+                Some(JSXAttributeValue::ExpressionContainer(container)) => {
+                    props.scroll_horizontal = Some(ConditionExpr::Ref(to_expr_ref(container.expression.span())));
                 }
                 _ => props
                     .passthrough

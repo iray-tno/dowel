@@ -729,6 +729,9 @@ fn render_node(
     if let Some(src) = node.props.image_src {
         props_text.push_str(&format!(" source={{{{ uri: {} }}}}", source_text(source, src)));
     }
+    if let Some(horizontal) = &node.props.scroll_horizontal {
+        props_text.push_str(&format!(" horizontal={{{}}}", render_condition_expr(source, horizontal)));
+    }
     if let Some(open) = &node.props.open {
         props_text.push_str(&format!(" open={{{}}}", render_condition_expr(source, open)));
     }

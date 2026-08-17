@@ -21,6 +21,7 @@ pub fn native_component(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'st
         Primitive::Button => ("Pressable", vec![("accessibilityRole", "button".to_string())]),
         Primitive::Link => ("DowelLink", Vec::new()),
         Primitive::Image => ("Image", image_attrs(node, diagnostics)),
+        Primitive::ScrollView => ("ScrollView", Vec::new()),
         Primitive::Pressable => {
             let mut props = Vec::new();
             match node.props.accessibility_role {
@@ -155,6 +156,7 @@ mod tests {
                 accessibility_label: None,
                 accessibility_hint: None,
                 image_src: None,
+                scroll_horizontal: None,
                 has_placeholder: false,
                 open: None,
                 has_on_close: false,

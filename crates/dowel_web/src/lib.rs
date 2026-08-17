@@ -28,6 +28,16 @@ const VIEW_BASE_CSS: &str = ".dowel-view {\n  \
     box-sizing: border-box;\n\
 }\n\n";
 
+const SCROLL_VIEW_BASE_CSS: &str = ".dowel-scroll-view {\n  \
+    overflow-x: hidden;\n  \
+    overflow-y: auto;\n  \
+    -webkit-overflow-scrolling: touch;\n\
+}\n\n\
+.dowel-scroll-view[data-dowel-horizontal] {\n  \
+    overflow-x: auto;\n  \
+    overflow-y: hidden;\n\
+}\n\n";
+
 struct ClassAllocator {
     next: u32,
 }
@@ -66,6 +76,9 @@ pub fn lower(root: &Node, source: &str, theme: &Theme) -> LowerOutput {
     let mut css = String::new();
     if uses_view_base {
         css.push_str(VIEW_BASE_CSS);
+    }
+    if contains_primitive(root, Primitive::ScrollView) {
+        css.push_str(SCROLL_VIEW_BASE_CSS);
     }
     // An `animation` declaration is inert without its `@keyframes`, and
     // those are document-level rather than per-node -- so they're collected
@@ -117,6 +130,17 @@ fn collect_keyframes(node: &Node) -> Vec<&'static str> {
     let mut found: Vec<&'static str> = Vec::new();
     collect_keyframes_into(node, &mut found);
     found
+}
+
+fn contains_primitive(node: &Node, primitive: Primitive) -> bool {
+    if node.primitive == primitive {
+        return true;
+    }
+    node.children.iter().any(|child| match child {
+        dowel_ir::Child::Node(child) => contains_primitive(child, primitive),
+        dowel_ir::Child::Verbatim { nested, .. } => nested.iter().any(|entry| contains_primitive(&entry.node, primitive)),
+        dowel_ir::Child::Text(_) => false,
+    })
 }
 
 fn collect_keyframes_into(node: &Node, found: &mut Vec<&'static str>) {
@@ -205,6 +229,13 @@ fn render_node(
             format!("dowel-view {classes}")
         };
     }
+    if node.primitive == Primitive::ScrollView {
+        classes = if classes.is_empty() {
+            "dowel-scroll-view".to_string()
+        } else {
+            format!("dowel-scroll-view {classes}")
+        };
+    }
 
     // `className`, not `class` -- Dowel's Web output is consumed as JSX
     // (the Vite plugin splices it back into React source), not raw HTML.
@@ -263,6 +294,12 @@ fn render_node(
     }
     if let Some(src) = node.props.image_src {
         attrs.push_str(&format!(" src={{{}}}", source_text(source, src)));
+    }
+    if let Some(horizontal) = &node.props.scroll_horizontal {
+        attrs.push_str(&format!(
+            " data-dowel-horizontal={{{} ? '' : undefined}}",
+            render_condition_expr(source, horizontal)
+        ));
     }
     if node.primitive == Primitive::Image {
         if let Some(label) = node.props.accessibility_label {

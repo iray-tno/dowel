@@ -238,6 +238,30 @@ test('Image maps its URI and alternative onto React Native Image props', () => {
   assert.deepEqual(tree?.props.style, { width: 80, height: 80, objectFit: 'cover' })
 })
 
+test('ScrollView directly uses the Native viewport and keeps child layout explicit', () => {
+  const tree = renderNative(
+    `
+    import { ScrollView, View, Text } from '@dowel/core'
+    export function Rail() {
+      return (
+        <ScrollView horizontal className="h-40">
+          <View className="flex-row gap-4"><Text>One</Text><Text>Two</Text></View>
+        </ScrollView>
+      )
+    }
+    `,
+    'Rail',
+  )
+  assert.equal(tree?.type, 'ScrollView')
+  assert.equal(tree?.props.horizontal, true)
+  assert.deepEqual(tree?.props.style, { height: 160 })
+  const content = tree?.children?.[0]
+  assert.equal(typeof content === 'string' ? content : content?.type, 'View')
+  if (typeof content !== 'string' && content) {
+    assert.deepEqual(content.props.style, { flexDirection: 'row', gap: 16 })
+  }
+})
+
 test('focus-visible installs modality events only on an interaction that asks for them', () => {
   const tree = renderNative(
     `

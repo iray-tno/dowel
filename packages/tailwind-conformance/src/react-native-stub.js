@@ -15,6 +15,7 @@ export const Text = 'Text'
 export const Pressable = 'Pressable'
 export const TextInput = 'TextInput'
 export const Image = 'Image'
+export const ScrollView = 'ScrollView'
 export const Modal = 'Modal'
 
 export const Linking = {

@@ -17,6 +17,12 @@ export const RNW_FREE_CASES: RnwFreeCase[] = [
   { primitive: 'Text', jsx: '<Text>Hello</Text>', webMarker: '<span', nativeMarker: '<Text' },
   { primitive: 'Button', jsx: '<Button>Save</Button>', webMarker: '<button', nativeMarker: '<Pressable' },
   {
+    primitive: 'ScrollView',
+    jsx: '<ScrollView horizontal className="h-40"><View /></ScrollView>',
+    webMarker: '<div',
+    nativeMarker: '<ScrollView',
+  },
+  {
     primitive: 'Image',
     jsx: '<Image src="https://example.com/cover.jpg" alt="Cover" className="w-20 h-20 object-cover" />',
     webMarker: '<img',
@@ -50,7 +56,7 @@ export const RNW_FREE_CASES: RnwFreeCase[] = [
 
 export function compareRnwFree(testCase: RnwFreeCase): RnwFreeResult {
   const source =
-    `import { View, Text, Button, Pressable, Link, TextInput, Dialog, Image } from '@dowel/core'\n` +
+    `import { View, Text, Button, Pressable, Link, TextInput, Dialog, Image, ScrollView } from '@dowel/core'\n` +
     `export function C() { return ${testCase.jsx} }\n`
   const [web] = compile(source)
   const [native] = compileNative(source)

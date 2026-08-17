@@ -55,4 +55,5 @@ export const Animated = {
   createAnimatedComponent: (component) => component,
   timing: () => ({ start: () => {}, stop: () => {} }),
   loop: (animation) => animation,
+  parallel: () => ({ start: () => {}, stop: () => {} }),
 }

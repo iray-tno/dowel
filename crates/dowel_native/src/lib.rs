@@ -426,7 +426,7 @@ fn render_node(
     let style = fold_font_relative(&node.style, inherited);
     // The fast Native transition path is deliberately narrow: opacity on
     // Pressable interaction state can stay entirely on the native driver.
-    let transition = native_opacity_transition(node, &style);
+    let transition = native_driver_transition(node, &style);
 
     for declaration in &style {
         if transition.is_some()
@@ -603,7 +603,7 @@ fn render_node(
             matches!(condition, Condition::Hover | Condition::Focus)
         })
     });
-    let rendered_component = if component == "Pressable" && needs_hover_or_focus {
+    let rendered_component = if component == "Pressable" && (needs_hover_or_focus || transition.is_some()) {
         runtime.need_component("DowelPressable");
         "DowelPressable"
     } else {
@@ -642,9 +642,9 @@ fn render_node(
     } else if !style_array_parts.is_empty() {
         props_text.push_str(&format!(" style={{[{}]}}", style_array_parts.join(", ")));
     }
-    if let Some((duration, easing)) = transition {
+    if let Some((duration, easing, opacity, transform)) = transition {
         props_text.push_str(&format!(
-            " dowelTransition={{{{ duration: {duration}, easing: '{easing}' }}}}"
+            " dowelTransition={{{{ duration: {duration}, easing: '{easing}', opacity: {opacity}, transform: {transform} }}}}"
         ));
     }
     for (key, value) in &extra_props {
@@ -795,32 +795,50 @@ fn condition_contains(condition: &Condition, predicate: impl Fn(&Condition) -> b
         || matches!(condition, Condition::All(conditions) if conditions.iter().any(|condition| condition_contains(condition, predicate)))
 }
 
-fn native_opacity_transition(
+fn native_driver_transition(
     node: &Node,
     declarations: &[StyleDeclaration],
-) -> Option<(u32, &'static str)> {
+) -> Option<(u32, &'static str, bool, bool)> {
     if !matches!(node.primitive, Primitive::Pressable | Primitive::Button) {
         return None;
     }
-    let interactive_opacity = declarations.iter().any(|declaration| {
-        matches!(declaration.property, StyleProperty::Opacity(_))
-            && condition_contains(&declaration.condition, |condition| {
-                matches!(condition, Condition::Hover | Condition::Focus)
+    let interactive = |property: fn(&StyleProperty) -> bool| {
+        declarations.iter().any(|declaration| {
+            property(&declaration.property)
+                && condition_contains(&declaration.condition, |condition| {
+                matches!(condition, Condition::Hover | Condition::Focus | Condition::Pressed)
             })
-    });
-    if !interactive_opacity {
+        })
+    };
+    let interactive_opacity = interactive(|property| matches!(property, StyleProperty::Opacity(_)));
+    let interactive_transform = interactive(|property| matches!(
+        property,
+        StyleProperty::TranslateX(_)
+            | StyleProperty::TranslateY(_)
+            | StyleProperty::Rotate(_)
+            | StyleProperty::RotateX(_)
+            | StyleProperty::RotateY(_)
+            | StyleProperty::RotateZ(_)
+            | StyleProperty::ScaleX(_)
+            | StyleProperty::ScaleY(_)
+    ));
+    if !interactive_opacity && !interactive_transform {
         return None;
     }
     let properties = declarations.iter().rev().find_map(|declaration| match &declaration.property {
         StyleProperty::TransitionProperty(properties) => Some(properties.as_str()),
         _ => None,
     })?;
-    if properties == "none"
-        || !(properties == "all"
-            || properties.split(',').any(|property| property.trim() == "opacity"))
-    {
+    if properties == "none" {
         return None;
     }
+    let includes = |wanted: &[&str]| {
+        properties == "all"
+            || properties.split(',').any(|property| wanted.contains(&property.trim()))
+    };
+    let opacity = interactive_opacity && includes(&["opacity"]);
+    let transform = interactive_transform && includes(&["transform", "translate", "scale", "rotate"]);
+    if !opacity && !transform { return None; }
     let duration = declarations.iter().rev().find_map(|declaration| match declaration.property {
         StyleProperty::TransitionDuration(duration) => Some(duration),
         _ => None,
@@ -835,7 +853,7 @@ fn native_opacity_transition(
         "cubic-bezier(0, 0, 0.2, 1)" => "ease-out",
         _ => "ease-in-out",
     };
-    Some((duration, easing))
+    Some((duration, easing, opacity, transform))
 }
 
 /// Wraps `inner` in `DowelSpaced` when the element carries `space-*` or
@@ -2255,11 +2273,31 @@ export function Login() {
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert!(output.jsx.starts_with("<DowelPressable"), "{}", output.jsx);
         assert!(
-            output.jsx.contains("dowelTransition={{ duration: 200, easing: 'ease-in-out' }}"),
+            output.jsx.contains("dowelTransition={{ duration: 200, easing: 'ease-in-out', opacity: true, transform: false }}"),
             "{}",
             output.jsx
         );
         assert!(output.jsx.contains("hovered && styles.dowel0_hover"), "{}", output.jsx);
+    }
+
+    #[test]
+    fn interactive_transform_transition_stays_on_the_native_driver() {
+        let source = r#"
+            import { Pressable } from '@dowel/core'
+            const el = (
+              <Pressable className="transition duration-200 hover:scale-95 focus:translate-x-2 hover:rotate-45"
+                accessibilityRole="button">Save</Pressable>
+            )
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert!(
+            output.jsx.contains("opacity: false, transform: true"),
+            "{}",
+            output.jsx
+        );
     }
 
     #[test]

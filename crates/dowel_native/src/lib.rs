@@ -17,10 +17,10 @@
 //! `style` prop wrapped in that function instead of being a plain array.
 //! Only applies when `component == "Pressable"` (Button maps to it too);
 //! a function isn't a valid `style` value on View/Text, so `Pressed` stays
-//! unmerged there, same treatment as Hover/Focus/Responsive below.
+//! unmerged there.
 //!
-//! `Hover` and `Focus` still don't merge into anything, and until
-//! 2026-08-15 neither did `Responsive`/`Dark`/`FirstChild`. That was a
+//! Until 2026-08-15 `Hover`/`Focus`/`Responsive`/`Dark`/`FirstChild` did
+//! not merge into anything. That was a
 //! **silent** drop, not the "honest gap" an earlier version of this
 //! comment claimed: their style objects were computed into the StyleSheet
 //! and then never referenced by the rendered JSX, with no diagnostic, and
@@ -43,10 +43,11 @@
 //!   costs nothing at runtime. Only an undecidable position (a component
 //!   root, or a sibling of anything carried as `Child::Verbatim`, which
 //!   may render nothing or a hundred elements) is an error.
-//! - `Hover`/`Focus` are warnings. Also unbuilt rather than impossible --
-//!   a tablet with a trackpad or pencil reports hover, as do the
-//!   macOS/Windows/visionOS targets -- but stopping a cross-platform build
-//!   over a `hover:` written for Web would be worse than the gap.
+//! - `Hover`/`Focus` are wired on Pressable and Button through a small
+//!   runtime wrapper. Only elements that use either condition pay for its
+//!   state and event handlers; ordinary Pressables keep RN's native path.
+//!   A View/Text has no interaction owner, so using either there is an
+//!   error rather than a style silently applied under the wrong condition.
 //! - `Disabled` without a `disabled` prop, and `Pressed` on anything but a
 //!   Pressable, are errors: nothing on the element can drive them.
 
@@ -576,6 +577,17 @@ fn render_node(
         style_array_parts.push(format!("dowelClasses({})", source_text(source, *expr_ref)));
     }
 
+    let needs_hover_or_focus = own_declarations.iter().any(|declaration| {
+        condition_contains(&declaration.condition, |condition| {
+            matches!(condition, Condition::Hover | Condition::Focus)
+        })
+    });
+    let rendered_component = if component == "Pressable" && needs_hover_or_focus {
+        runtime.need_component("DowelPressable");
+        "DowelPressable"
+    } else {
+        component
+    };
     let needs_pressed_fn = component == "Pressable" && !pressed_parts.is_empty();
     if needs_pressed_fn {
         style_array_parts.extend(pressed_parts);
@@ -595,7 +607,15 @@ fn render_node(
 
     let mut props_text = String::new();
     if needs_pressed_fn {
-        props_text.push_str(&format!(" style={{({{ pressed }}) => [{}]}}", style_array_parts.join(", ")));
+        let state = if needs_hover_or_focus {
+            "{ pressed, hovered, focused }"
+        } else {
+            "{ pressed }"
+        };
+        props_text.push_str(&format!(
+            " style={{({state}) => [{}]}}",
+            style_array_parts.join(", ")
+        ));
     } else if style_array_parts.len() == 1 && !style_array_parts[0].contains("&&") {
         props_text.push_str(&format!(" style={{{}}}", style_array_parts[0]));
     } else if !style_array_parts.is_empty() {
@@ -739,9 +759,14 @@ fn render_node(
 
     // React Native's TextInput takes no children either.
     if component == "TextInput" {
-        return format!("<{component}{props_text} />");
+        return format!("<{rendered_component}{props_text} />");
     }
-    format!("<{component}{props_text}>{inner}</{component}>")
+    format!("<{rendered_component}{props_text}>{inner}</{rendered_component}>")
+}
+
+fn condition_contains(condition: &Condition, predicate: impl Fn(&Condition) -> bool + Copy) -> bool {
+    predicate(condition)
+        || matches!(condition, Condition::All(conditions) if conditions.iter().any(|condition| condition_contains(condition, predicate)))
 }
 
 /// Wraps `inner` in `DowelSpaced` when the element carries `space-*` or
@@ -1139,6 +1164,8 @@ fn build_style_entries(
                             | Condition::Disabled
                             | Condition::Pressed
                             | Condition::Expr(_)
+                            | Condition::Hover
+                            | Condition::Focus
                             | Condition::Responsive(_)
                             | Condition::Dark
                             | Condition::FirstChild
@@ -1161,7 +1188,7 @@ fn build_style_entries(
                     ));
                 } else {
                     let mut guards = Vec::new();
-                    let mut uses_pressed = false;
+                    let mut uses_interactive_state = false;
                     let mut applies = true;
                     for atom in atoms {
                         match atom {
@@ -1182,7 +1209,40 @@ fn build_style_entries(
                                     applies = false;
                                 }
                             }
-                            Condition::Pressed => uses_pressed = true,
+                            Condition::Pressed => {
+                                guards.push("pressed".to_string());
+                                uses_interactive_state = true;
+                            }
+                            Condition::Hover => {
+                                if matches!(node.primitive, Primitive::Pressable | Primitive::Button)
+                                {
+                                    guards.push("hovered".to_string());
+                                    uses_interactive_state = true;
+                                } else {
+                                    diagnostics.push(unwired_variant(
+                                        node,
+                                        "`hover:` in a stacked variant is wired only on \
+                                         Pressable and Button on React Native.",
+                                        Severity::Error,
+                                    ));
+                                    applies = false;
+                                }
+                            }
+                            Condition::Focus => {
+                                if matches!(node.primitive, Primitive::Pressable | Primitive::Button)
+                                {
+                                    guards.push("focused".to_string());
+                                    uses_interactive_state = true;
+                                } else {
+                                    diagnostics.push(unwired_variant(
+                                        node,
+                                        "`focus:` in a stacked variant is wired only on \
+                                         Pressable and Button on React Native.",
+                                        Severity::Error,
+                                    ));
+                                    applies = false;
+                                }
+                            }
                             Condition::Expr(expr) => {
                                 guards.push(format!("({})", render_condition_expr(source, expr)));
                             }
@@ -1220,15 +1280,12 @@ fn build_style_entries(
                         }
                     }
                     if applies {
-                        if uses_pressed {
-                            guards.insert(0, "pressed".to_string());
-                        }
                         let prefix = if guards.is_empty() {
                             String::new()
                         } else {
                             format!("{} && ", guards.join(" && "))
                         };
-                        if uses_pressed {
+                        if uses_interactive_state {
                             pressed_parts.extend(guarded(&prefix));
                         } else {
                             conditional_parts.extend(guarded(&prefix));
@@ -1263,17 +1320,20 @@ fn build_style_entries(
             // never referenced -- computed, then dropped, with nothing
             // said. That silence is the bug being fixed here; the styles
             // still don't apply, but no longer without saying so.
-            Condition::Hover => diagnostics.push(unwired_variant(
+            Condition::Hover | Condition::Focus
+                if matches!(node.primitive, Primitive::Pressable | Primitive::Button) =>
+            {
+                let guard = match condition {
+                    Condition::Hover => "hovered && ",
+                    _ => "focused && ",
+                };
+                pressed_parts.extend(guarded(guard));
+            }
+            Condition::Hover | Condition::Focus => diagnostics.push(unwired_variant(
                 node,
-                "`hover:` isn't wired on React Native yet. It is a real condition there -- a \
-                 tablet with a trackpad or pencil, and the macOS/Windows/visionOS targets, all \
-                 report hover -- so this is unbuilt rather than impossible.",
-                Severity::Warning,
-            )),
-            Condition::Focus => diagnostics.push(unwired_variant(
-                node,
-                "`focus:` isn't wired on React Native yet.",
-                Severity::Warning,
+                "`hover:` and `focus:` are wired only on Pressable and Button on React Native, \
+                 because those elements own the interaction events that drive the state.",
+                Severity::Error,
             )),
             // The distinction `focus-visible:` draws -- keyboard focus but
             // not a tap -- is a browser heuristic. React Native's focus
@@ -1948,11 +2008,10 @@ export function Login() {
     #[test]
     fn no_variant_is_dropped_without_saying_so() {
         let cases: &[(&str, dowel_ir::Severity)] = &[
-            // Real on tablets with a pointer and on the desktop targets --
-            // unbuilt, not impossible, so it warns rather than stopping a
-            // cross-platform build.
-            ("hover:bg-blue-500", dowel_ir::Severity::Warning),
-            ("focus:p-4", dowel_ir::Severity::Warning),
+            // Real on pointer/desktop targets, but a bare View has no
+            // interaction wrapper to drive either state.
+            ("hover:bg-blue-500", dowel_ir::Severity::Error),
+            ("focus:p-4", dowel_ir::Severity::Error),
             // Undecidable position, so nothing can resolve it here.
             ("first:mt-0", dowel_ir::Severity::Error),
             // Nothing on a bare View drives these at all.
@@ -2031,7 +2090,7 @@ export function Login() {
         assert!(
             output
                 .jsx
-                .contains("pressed && (isOff) && styles.dowel1_disabled_pressed"),
+                .contains("(isOff) && pressed && styles.dowel1_disabled_pressed"),
             "{}",
             output.jsx
         );
@@ -2041,6 +2100,54 @@ export function Login() {
                 "const __dowelBp_md = useDowelBreakpoint('md')",
                 "const __dowelDark = useDowelDark()",
             ]
+        );
+    }
+
+    #[test]
+    fn pressable_hover_and_focus_use_the_interaction_wrapper() {
+        let source = r#"
+            import { Pressable } from '@dowel/core'
+            const el = (
+              <Pressable className="hover:bg-blue-500 focus:p-4 pressed:opacity-50"
+                onHoverIn={noticeHover} onFocus={noticeFocus}
+                accessibilityRole="button">Save</Pressable>
+            )
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert!(output.jsx.starts_with("<DowelPressable"), "{}", output.jsx);
+        assert!(
+            output.jsx.contains("({ pressed, hovered, focused }) =>"),
+            "{}",
+            output.jsx
+        );
+        assert!(output.jsx.contains("hovered && styles.dowel0_hover"), "{}", output.jsx);
+        assert!(output.jsx.contains("focused && styles.dowel0_focus"), "{}", output.jsx);
+        assert!(output.jsx.contains("pressed && styles.dowel0_pressed"), "{}", output.jsx);
+        assert!(output.jsx.contains("onHoverIn={noticeHover}"), "{}", output.jsx);
+        assert!(output.jsx.contains("onFocus={noticeFocus}"), "{}", output.jsx);
+        assert!(output.runtime_imports.contains(&"DowelPressable"));
+    }
+
+    #[test]
+    fn hover_composes_with_an_ambient_guard_on_pressable() {
+        let source = r#"
+            import { Button } from '@dowel/core'
+            const el = <Button className="md:hover:bg-blue-500">Save</Button>
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert!(output.jsx.starts_with("<DowelPressable"), "{}", output.jsx);
+        assert!(
+            output
+                .jsx
+                .contains("__dowelBp_md && hovered && styles.dowel0_md_hover"),
+            "{}",
+            output.jsx
         );
     }
 

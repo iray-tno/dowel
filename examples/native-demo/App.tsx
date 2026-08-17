@@ -31,7 +31,7 @@ export default function App() {
       </View>
 
       <Pressable
-        className="rounded-lg bg-brand p-3"
+        className="rounded-lg bg-brand p-3 hover:opacity-90 focus:opacity-75"
         accessibilityRole="button"
         onPress={() => setConfirming(true)}
       >

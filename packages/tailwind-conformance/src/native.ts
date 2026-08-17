@@ -100,6 +100,16 @@ const PROBE_CONTEXTS = [
       `export function C() {\n  return <Button disabled={true} className="${candidate}">x</Button>\n}\n`,
   },
   {
+    // Hover and focus are event-driven on Native. Dowel intentionally
+    // wires them only where those events have interactive semantics,
+    // rather than adding state and handlers to every View in the app.
+    name: 'Pressable',
+    render: (candidate: string) =>
+      `import { Pressable } from '@dowel/core'\n` +
+      `export function C() {\n` +
+      `  return <Pressable accessibilityRole="button" className="${candidate}">x</Pressable>\n}\n`,
+  },
+  {
     // `placeholder-*` only means anything where a placeholder exists, and
     // React Native carries that colour as a prop on this component rather
     // than as a style on anything -- so a probe set without a TextInput

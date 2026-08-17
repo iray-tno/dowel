@@ -14,6 +14,11 @@
 export * from './index.ts'
 export { useDowelDark, useDowelBreakpoint, useDowelViewport } from './hooks.native.ts'
 export { DowelSpaced } from './spacing.native.tsx'
+export {
+  DowelPressable,
+  type DowelPressableProps,
+  type DowelPressableState,
+} from './pressable.native.tsx'
 // Re-exported rather than left in `@dowel/a11y`: generated code should
 // depend on one package, not on how the compiler divides its own. The
 // implementation stays there, where its tests and its reasoning are.

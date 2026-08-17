@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { gridCellStyle, gridLayout, gridRows, gridRowSizes, type GridTrack } from './grid.ts'
+import { gridCellStyle, gridLayout, gridRows, gridRowSizes, gridTrackSizes, type GridTrack } from './grid.ts'
 
 const tracks: GridTrack[] = [
   { kind: 'points', value: 120 },
@@ -25,6 +25,19 @@ test('cell styles distinguish fixed space from proportional remainder', () => {
     flexGrow: 2,
     flexShrink: 1,
   })
+})
+
+test('minmax tracks reserve their floor before distributing fractions', () => {
+  const minmax: GridTrack[] = [
+    { kind: 'minmax', min: 120, value: 2 },
+    { kind: 'fr', value: 1 },
+  ]
+  assert.deepEqual(gridCellStyle(minmax.slice(0, 1)), {
+    flexBasis: 120,
+    flexGrow: 2,
+    flexShrink: 1,
+  })
+  assert.deepEqual(gridTrackSizes(minmax, 420, 0), [320, 100])
 })
 
 test('a span moves to the next row when it cannot fit', () => {

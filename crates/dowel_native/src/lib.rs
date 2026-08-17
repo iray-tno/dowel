@@ -997,7 +997,7 @@ fn native_grid(
             StyleProperty::GridTemplateColumns(tracks) => Some(parse_grid_tracks(tracks)),
             _ => None,
         },
-        Some(vec![("fr", 1.0)]),
+        Some(vec![NativeTrack::Fr(1.0)]),
         runtime,
     )?;
     let has_rows = declarations.iter().any(|declaration|
@@ -1028,11 +1028,18 @@ fn native_grid(
     })
 }
 
-type NativeTracks = Vec<(&'static str, f64)>;
+#[derive(Clone)]
+enum NativeTrack {
+    Fr(f64),
+    Points(f64),
+    Minmax { min: f64, fr: f64 },
+}
+
+type NativeTracks = Vec<NativeTrack>;
 
 fn parse_grid_tracks(tracks: &GridTracks) -> Option<NativeTracks> {
     match tracks {
-        GridTracks::Count(count) if *count > 0 => Some(vec![("fr", 1.0); *count as usize]),
+        GridTracks::Count(count) if *count > 0 => Some(vec![NativeTrack::Fr(1.0); *count as usize]),
         GridTracks::Css(css) => parse_native_grid_tracks(css),
         GridTracks::None | GridTracks::Subgrid | GridTracks::Count(_) => None,
     }
@@ -1043,7 +1050,13 @@ fn tracks_js(tracks: &NativeTracks) -> String {
         "[{}]",
         tracks
             .iter()
-            .map(|(kind, value)| format!("{{ kind: '{kind}', value: {value} }}"))
+            .map(|track| match track {
+                NativeTrack::Fr(value) => format!("{{ kind: 'fr', value: {value} }}"),
+                NativeTrack::Points(value) => format!("{{ kind: 'points', value: {value} }}"),
+                NativeTrack::Minmax { min, fr } => {
+                    format!("{{ kind: 'minmax', min: {min}, value: {fr} }}")
+                }
+            })
             .collect::<Vec<_>>()
             .join(", ")
     )
@@ -1280,17 +1293,23 @@ fn resolve_grid_line(line: GridLine, columns: usize) -> Option<usize> {
     }
 }
 
-fn parse_native_grid_tracks(css: &str) -> Option<Vec<(&'static str, f64)>> {
+fn parse_native_grid_tracks(css: &str) -> Option<NativeTracks> {
     let tracks: Option<Vec<_>> = css
         .split_whitespace()
         .map(|token| {
+            if let Some(inner) = token.strip_prefix("minmax(").and_then(|value| value.strip_suffix(')')) {
+                let (min, max) = inner.split_once(',')?;
+                let min = min.strip_suffix("px")?.parse::<f64>().ok()?;
+                let fr = max.strip_suffix("fr")?.parse::<f64>().ok()?;
+                return (min >= 0.0 && fr > 0.0).then_some(NativeTrack::Minmax { min, fr });
+            }
             if let Some(value) = token.strip_suffix("fr") {
                 let value = value.parse::<f64>().ok()?;
-                return (value > 0.0).then_some(("fr", value));
+                return (value > 0.0).then_some(NativeTrack::Fr(value));
             }
             if let Some(value) = token.strip_suffix("px") {
                 let value = value.parse::<f64>().ok()?;
-                return (value >= 0.0).then_some(("points", value));
+                return (value >= 0.0).then_some(NativeTrack::Points(value));
             }
             None
         })
@@ -2698,6 +2717,20 @@ export function Login() {
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert!(output.jsx.contains("{ kind: 'points', value: 120 }"), "{}", output.jsx);
         assert!(output.jsx.contains("{ kind: 'fr', value: 2 }"), "{}", output.jsx);
+        assert!(output.jsx.contains("{ kind: 'fr', value: 1 }"), "{}", output.jsx);
+    }
+
+    #[test]
+    fn grid_accepts_fixed_minimum_fractional_tracks_without_measurement() {
+        let source = r#"
+            import { View } from '@dowel/core'
+            const el = <View className="grid grid-cols-[minmax(120px,2fr)_1fr]"><View /></View>
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert!(output.jsx.contains("{ kind: 'minmax', min: 120, value: 2 }"), "{}", output.jsx);
         assert!(output.jsx.contains("{ kind: 'fr', value: 1 }"), "{}", output.jsx);
     }
 

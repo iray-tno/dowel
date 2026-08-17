@@ -1,6 +1,7 @@
 export type GridTrack =
   | { kind: 'fr'; value: number }
   | { kind: 'points'; value: number }
+  | { kind: 'minmax'; min: number; value: number }
 
 export interface GridCell {
   child: number | null
@@ -99,19 +100,32 @@ export function gridRows(items: readonly GridItemPlacement[], tracks: readonly G
 }
 
 export function gridCellStyle(tracks: readonly GridTrack[], internalGap = 0): Record<string, number> {
-  const fr = tracks.reduce((sum, track) => sum + (track.kind === 'fr' ? track.value : 0), 0)
+  const fr = tracks.reduce(
+    (sum, track) => sum + (track.kind === 'fr' || track.kind === 'minmax' ? track.value : 0),
+    0,
+  )
   const points = tracks.reduce(
-    (sum, track) => sum + (track.kind === 'points' ? track.value : 0),
+    (sum, track) => sum + (track.kind === 'points' ? track.value : track.kind === 'minmax' ? track.min : 0),
     Math.max(0, tracks.length - 1) * internalGap,
   )
   return { flexBasis: points, flexGrow: fr, flexShrink: fr > 0 ? 1 : 0 }
 }
 
 export function gridTrackSizes(tracks: readonly GridTrack[], width: number, gap: number): number[] {
-  const fixed = tracks.reduce((sum, track) => sum + (track.kind === 'points' ? track.value : 0), 0)
-  const fr = tracks.reduce((sum, track) => sum + (track.kind === 'fr' ? track.value : 0), 0)
+  const fixed = tracks.reduce(
+    (sum, track) => sum + (track.kind === 'points' ? track.value : track.kind === 'minmax' ? track.min : 0),
+    0,
+  )
+  const fr = tracks.reduce(
+    (sum, track) => sum + (track.kind === 'fr' || track.kind === 'minmax' ? track.value : 0),
+    0,
+  )
   const free = Math.max(0, width - fixed - Math.max(0, tracks.length - 1) * gap)
-  return tracks.map((track) => track.kind === 'points' ? track.value : free * track.value / fr)
+  return tracks.map((track) => {
+    if (track.kind === 'points') return track.value
+    const share = fr === 0 ? 0 : free * track.value / fr
+    return track.kind === 'minmax' ? track.min + share : share
+  })
 }
 
 export function gridRowSizes(
@@ -122,16 +136,24 @@ export function gridRowSizes(
 ): number[] {
   const count = Math.max(explicitTracks.length, 0, ...layout.map((item) => item.row + item.rowSpan))
   const rows = Array.from({ length: count }, (_, row) =>
-    explicitTracks[row]?.kind === 'points' ? explicitTracks[row].value : 0)
+    explicitTracks[row]?.kind === 'points'
+      ? explicitTracks[row].value
+      : explicitTracks[row]?.kind === 'minmax'
+        ? explicitTracks[row].min
+        : 0)
   for (const item of layout.filter((item) => item.rowSpan === 1)) {
     const track = explicitTracks[item.row]
     if (track?.kind === 'points') continue
-    const factor = track?.kind === 'fr' ? track.value : 1
-    const unit = (measuredHeights[item.child] ?? 0) / factor
-    if (track?.kind === 'fr') {
+    const factor = track?.kind === 'fr' || track?.kind === 'minmax' ? track.value : 1
+    const intrinsic = Math.max(0, (measuredHeights[item.child] ?? 0) - (track?.kind === 'minmax' ? track.min : 0))
+    const unit = intrinsic / factor
+    if (track?.kind === 'fr' || track?.kind === 'minmax') {
       for (let row = 0; row < explicitTracks.length; row += 1) {
         const candidate = explicitTracks[row]
         if (candidate.kind === 'fr') rows[row] = Math.max(rows[row], unit * candidate.value)
+        if (candidate.kind === 'minmax') {
+          rows[row] = Math.max(rows[row], candidate.min + unit * candidate.value)
+        }
       }
     } else {
       rows[item.row] = Math.max(rows[item.row], measuredHeights[item.child] ?? 0)

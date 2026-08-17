@@ -24,6 +24,13 @@ export interface NativeGridContextualResult extends NativeGridContextualCase {
  */
 export const NATIVE_GRID_CONTEXTUAL_CASES: NativeGridContextualCase[] = [
   {
+    name: 'minimum fractional columns',
+    purpose: 'fixed minimums reserve space before fractional distribution without measurement',
+    className: 'grid grid-cols-[minmax(120px,2fr)_1fr]',
+    children: '<View /><View />',
+    expected: ["{ kind: 'minmax', min: 120, value: 2 }", "{ kind: 'fr', value: 1 }"],
+  },
+  {
     name: 'responsive columns and gap',
     purpose: 'breakpoint changes replace tracks without selecting measured layout',
     className: 'grid grid-cols-1 gap-2 md:grid-cols-3 md:gap-4',

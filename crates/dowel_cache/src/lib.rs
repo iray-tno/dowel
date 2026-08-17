@@ -20,7 +20,7 @@
 
 mod store;
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, HashSet};
 
 pub use store::{FileEntry, JsonFileStore, MemoryStore, Snapshot, SnapshotStore, SNAPSHOT_VERSION};
 
@@ -29,6 +29,9 @@ pub use store::{FileEntry, JsonFileStore, MemoryStore, Snapshot, SnapshotStore, 
 pub struct CandidateCache {
     store: Box<dyn SnapshotStore>,
     snapshot: Snapshot,
+    /// Candidate -> number of source files contributing it. Derived from the
+    /// snapshot on open, so the durable format remains source facts only.
+    references: BTreeMap<String, usize>,
     dirty: bool,
 }
 
@@ -38,7 +41,13 @@ impl CandidateCache {
     /// cheap and always correct.
     pub fn open(store: Box<dyn SnapshotStore>) -> Self {
         let snapshot = store.load().unwrap_or_else(|_| Snapshot::current());
-        CandidateCache { store, snapshot, dirty: false }
+        let mut references = BTreeMap::new();
+        for entry in snapshot.files.values() {
+            for class_name in &entry.class_names {
+                *references.entry(class_name.clone()).or_insert(0) += 1;
+            }
+        }
+        CandidateCache { store, snapshot, references, dirty: false }
     }
 
     /// Whether `path`'s entry is present and matches `modified_ms`, i.e.
@@ -55,31 +64,33 @@ impl CandidateCache {
     /// stylesheet byte-identical; callers use this to skip rewriting it.
     pub fn record(&mut self, path: &str, modified_ms: u64, class_names: Vec<String>) -> bool {
         let entry = FileEntry { modified_ms, class_names };
-        match self.snapshot.files.get(path) {
-            Some(existing) if existing == &entry => false,
-            Some(existing) => {
-                let changed = existing.class_names != entry.class_names;
-                self.snapshot.files.insert(path.to_string(), entry);
-                self.dirty = true;
-                changed
-            }
-            None => {
-                self.snapshot.files.insert(path.to_string(), entry);
-                self.dirty = true;
-                true
-            }
+        if self.snapshot.files.get(path) == Some(&entry) {
+            return false;
         }
+
+        let previous = self.snapshot.files.insert(path.to_string(), entry.clone());
+        let changed = previous.as_ref().map(|old| &old.class_names) != Some(&entry.class_names);
+        if changed {
+            if let Some(old) = previous {
+                self.remove_references(&old.class_names);
+            }
+            self.add_references(&entry.class_names);
+        }
+        self.dirty = true;
+        changed
     }
 
     /// Drops a file's entry -- for when a source file is deleted, so its
     /// candidates stop appearing in the union. Returns whether anything was
     /// there to drop.
     pub fn forget(&mut self, path: &str) -> bool {
-        let removed = self.snapshot.files.remove(path).is_some();
-        if removed {
+        if let Some(removed) = self.snapshot.files.remove(path) {
+            self.remove_references(&removed.class_names);
             self.dirty = true;
+            true
+        } else {
+            false
         }
-        removed
     }
 
     /// Drops entries for files that were not present in the latest complete
@@ -88,13 +99,17 @@ impl CandidateCache {
     /// contributing candidates forever.
     pub fn retain_files(&mut self, paths: Vec<String>) -> usize {
         let present: HashSet<String> = paths.into_iter().collect();
-        let before = self.snapshot.files.len();
-        self.snapshot.files.retain(|path, _| present.contains(path));
-        let removed = before - self.snapshot.files.len();
-        if removed > 0 {
-            self.dirty = true;
+        let missing: Vec<String> = self
+            .snapshot
+            .files
+            .keys()
+            .filter(|path| !present.contains(*path))
+            .cloned()
+            .collect();
+        for path in &missing {
+            self.forget(path);
         }
-        removed
+        missing.len()
     }
 
     /// Every candidate class across every file, deduplicated and sorted.
@@ -103,13 +118,7 @@ impl CandidateCache {
     /// is byte-identical between builds that saw the same files in a
     /// different order.
     pub fn union(&self) -> Vec<String> {
-        self.snapshot
-            .files
-            .values()
-            .flat_map(|entry| entry.class_names.iter().cloned())
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .collect()
+        self.references.keys().cloned().collect()
     }
 
     /// Number of files tracked. Mostly for diagnostics.
@@ -119,6 +128,28 @@ impl CandidateCache {
 
     pub fn is_empty(&self) -> bool {
         self.snapshot.files.is_empty()
+    }
+
+    fn add_references(&mut self, class_names: &[String]) {
+        for class_name in class_names {
+            *self.references.entry(class_name.clone()).or_insert(0) += 1;
+        }
+    }
+
+    fn remove_references(&mut self, class_names: &[String]) {
+        for class_name in class_names {
+            let remove = match self.references.get_mut(class_name) {
+                Some(count) if *count > 1 => {
+                    *count -= 1;
+                    false
+                }
+                Some(_) => true,
+                None => false,
+            };
+            if remove {
+                self.references.remove(class_name);
+            }
+        }
     }
 
     /// Writes the snapshot back if anything changed. A no-op otherwise, so
@@ -148,6 +179,28 @@ mod tests {
         cache.record("b.tsx", 1, vec!["p-4".into(), "gap-2".into()]);
         cache.record("a.tsx", 1, vec!["p-4".into(), "flex-1".into()]);
         assert_eq!(cache.union(), vec!["flex-1", "gap-2", "p-4"]);
+    }
+
+    #[test]
+    fn a_shared_candidate_survives_until_its_last_file_leaves() {
+        let mut cache = in_memory();
+        cache.record("a.tsx", 1, vec!["p-4".into()]);
+        cache.record("b.tsx", 1, vec!["p-4".into()]);
+
+        cache.forget("a.tsx");
+        assert_eq!(cache.union(), vec!["p-4"]);
+        cache.forget("b.tsx");
+        assert!(cache.union().is_empty());
+    }
+
+    #[test]
+    fn replacing_a_files_candidates_updates_only_its_references() {
+        let mut cache = in_memory();
+        cache.record("a.tsx", 1, vec!["p-4".into(), "gap-2".into()]);
+        cache.record("b.tsx", 1, vec!["p-4".into()]);
+
+        cache.record("a.tsx", 2, vec!["m-4".into()]);
+        assert_eq!(cache.union(), vec!["m-4", "p-4"]);
     }
 
     #[test]

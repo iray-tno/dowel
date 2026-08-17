@@ -10,7 +10,11 @@
     ".": "./src/index.ts",
     "./project": "./src/project.ts"
   },
+  "dependencies": {
+    "globby": "^14.1.0"
+  },
   "scripts": {
-    "build:native": "node scripts/build-native.mjs"
+    "build:native": "node scripts/build-native.mjs",
+    "test": "node --test src/*.test.ts"
   }
 }

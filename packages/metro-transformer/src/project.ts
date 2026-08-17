@@ -14,10 +14,9 @@
 // transformer. The generated module is deliberately written under
 // `node_modules/.dowel/`, so a restart with a cleared cache regenerates it.
 
-import { writeFileSync } from 'node:fs'
 import path from 'node:path'
 
-import { scanProject } from '@dowel/compiler/project'
+import { scanProject, writeFileIfChanged, type ContentOptions } from '@dowel/compiler/project'
 import { readProjectTheme } from './theme.ts'
 
 /// File name of the generated resolver module. Also read by the
@@ -54,11 +53,11 @@ export function candidateModulePath(projectRoot: string): string {
  */
 export async function generateCandidateModule(
   projectRoot: string,
-  options: { css?: string } = {},
+  options: { css?: string; content?: ContentOptions } = {},
 ): Promise<string> {
   const theme = await readProjectTheme(projectRoot, options.css)
-  const { cache } = scanProject(projectRoot)
+  const { cache } = scanProject(projectRoot, options.content)
   const modulePath = candidateModulePath(projectRoot)
-  writeFileSync(modulePath, cache.renderNativeModule(theme))
+  writeFileIfChanged(modulePath, cache.renderNativeModule(theme))
   return modulePath
 }

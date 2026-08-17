@@ -20,7 +20,7 @@
 
 mod store;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 
 pub use store::{FileEntry, JsonFileStore, MemoryStore, Snapshot, SnapshotStore, SNAPSHOT_VERSION};
 
@@ -77,6 +77,21 @@ impl CandidateCache {
     pub fn forget(&mut self, path: &str) -> bool {
         let removed = self.snapshot.files.remove(path).is_some();
         if removed {
+            self.dirty = true;
+        }
+        removed
+    }
+
+    /// Drops entries for files that were not present in the latest complete
+    /// project walk. This closes the restart gap left by file-watcher delete
+    /// events: a file removed while the bundler was stopped must not keep
+    /// contributing candidates forever.
+    pub fn retain_files(&mut self, paths: Vec<String>) -> usize {
+        let present: HashSet<String> = paths.into_iter().collect();
+        let before = self.snapshot.files.len();
+        self.snapshot.files.retain(|path, _| present.contains(path));
+        let removed = before - self.snapshot.files.len();
+        if removed > 0 {
             self.dirty = true;
         }
         removed
@@ -150,6 +165,17 @@ mod tests {
         cache.record("a.tsx", 1, vec!["p-4".into()]);
         cache.forget("a.tsx");
         assert!(cache.union().is_empty());
+    }
+
+    #[test]
+    fn retain_files_sweeps_entries_missing_from_a_complete_walk() {
+        let mut cache = in_memory();
+        cache.record("a.tsx", 1, vec!["p-4".into()]);
+        cache.record("b.tsx", 1, vec!["gap-2".into()]);
+
+        assert_eq!(cache.retain_files(vec!["b.tsx".into()]), 1);
+        assert_eq!(cache.union(), vec!["gap-2"]);
+        assert_eq!(cache.retain_files(vec!["b.tsx".into()]), 0);
     }
 
     #[test]

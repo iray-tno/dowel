@@ -17,12 +17,19 @@
 // owns the project walk and the file-deletion signal, while the cache in
 // Rust owns scanning, staleness, and persistence.
 
-import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import type { Plugin, ViteDevServer } from 'vite'
 import { compile, type CandidateCache, type Theme } from '@dowel/compiler'
 import { loadTheme } from '@dowel/tailwind'
-import { importSpecifier, scanProject, scannableFile } from '@dowel/compiler/project'
+import {
+  discoverSources,
+  importSpecifier,
+  scanProject,
+  scannableFile,
+  writeFileIfChanged,
+  type ContentOptions,
+} from '@dowel/compiler/project'
 
 const DOWEL_CORE_IMPORT_RE = /import\s*\{[^}]*\}\s*from\s*['"]@dowel\/core['"]\s*\n?/
 
@@ -86,6 +93,10 @@ export interface DowelOptions {
    * than silently compiling against the wrong palette.
    */
   css?: string
+  /** Source globs and ignores used by the project-wide dynamic-class scan. */
+  content?: ContentOptions
+  /** Report project-scan work and timing through Vite's logger. */
+  debug?: boolean
 }
 
 /// Where a Tailwind v4 project usually keeps its entry stylesheet. Only
@@ -97,6 +108,7 @@ export function dowel(options: DowelOptions = {}): Plugin {
   let root = process.cwd()
   let cache: CandidateCache
   let candidateCssPath = ''
+  let includedFiles = new Set<string>()
   let server: ViteDevServer | undefined
 
   /// Regenerates the project-wide candidate stylesheet and, in dev, makes
@@ -104,11 +116,12 @@ export function dowel(options: DowelOptions = {}): Plugin {
   /// `node_modules`, which Vite's watcher ignores by default, so the
   /// invalidation has to be explicit rather than left to the watcher.
   function writeCandidateCss() {
-    writeFileSync(candidateCssPath, cache.renderCss(theme))
+    if (!writeFileIfChanged(candidateCssPath, cache.renderCss(theme))) return false
     const module = server?.moduleGraph.getModuleById(candidateCssPath)
     if (module) {
       void server?.reloadModule(module)
     }
+    return true
   }
 
   return {
@@ -129,24 +142,41 @@ export function dowel(options: DowelOptions = {}): Plugin {
       // The whole project, not just what the bundler happens to reach: a
       // class can be produced by a module the graph never resolves
       // statically.
-      const project = scanProject(root)
+      const project = scanProject(root, options.content)
       cache = project.cache
+      includedFiles = new Set(project.files)
       candidateCssPath = path.join(project.dir, 'candidates.css')
       writeCandidateCss()
+      if (options.debug) {
+        const s = project.stats
+        this.info(
+          `[dowel] discovered ${s.discoveredFiles} files; scanned ${s.scannedFiles}, ` +
+            `skipped ${s.skippedFiles}, removed ${s.deletedFiles} in ${s.durationMs.toFixed(1)}ms`,
+        )
+      }
     },
 
     watchChange(id, change) {
       // Without this a deleted file's classes would stay in the stylesheet
       // for as long as the cache file survives, since nothing else ever
       // revisits an entry that stopped being scanned.
-      if (change.event === 'delete' && cache?.forget(path.resolve(id))) {
-        writeCandidateCss()
+      if (change.event === 'delete') {
+        const absolute = path.resolve(id)
+        includedFiles.delete(absolute)
+        if (cache?.forget(absolute)) writeCandidateCss()
+      }
+      if (change.event === 'create') {
+        const absolute = path.resolve(id)
+        const relative = path.relative(root, absolute).replaceAll('\\', '/')
+        if (discoverSources(root, { ...options.content, include: [relative] }).includes(absolute)) {
+          includedFiles.add(absolute)
+        }
       }
     },
 
     transform(code, id) {
       const file = scannableFile(id)
-      if (file) {
+      if (file && includedFiles.has(path.resolve(file))) {
         // `enforce: 'pre'` means `code` is still the source as written,
         // which is what the scanner expects. Keyed by the same absolute
         // path `scanProject`'s walk used, so a file scanned there isn't
@@ -200,7 +230,7 @@ export function dowel(options: DowelOptions = {}): Plugin {
 
       const cssFileName = `${path.basename(id)}.dowel.css`
       const cssPath = path.join(path.dirname(id), cssFileName)
-      writeFileSync(cssPath, css)
+      writeFileIfChanged(cssPath, css)
       // Imported from every lowered file rather than from one designated
       // entry: the candidate sheet has to be present whichever module the
       // dynamic className lives in, and Vite resolves the repeated import

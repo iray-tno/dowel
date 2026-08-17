@@ -160,6 +160,13 @@ impl CandidateCache {
         self.inner.forget(&path)
     }
 
+    /// Reconciles the persistent cache with one complete project walk and
+    /// returns how many files disappeared since the previous walk.
+    #[napi]
+    pub fn retain_files(&mut self, paths: Vec<String>) -> u32 {
+        self.inner.retain_files(paths) as u32
+    }
+
     /// The stylesheet for every candidate in the project, written under the
     /// classes' real Tailwind names so a runtime-produced string matches by
     /// itself -- no runtime resolution code involved.

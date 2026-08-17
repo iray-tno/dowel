@@ -54,6 +54,8 @@ export interface CandidateCache {
   /// so an unchanged one doesn't cause a stylesheet rewrite.
   scanFile(path: string, source: string, modifiedMs: number): boolean
   forget(path: string): boolean
+  /// Drops cached contributions from files absent from a complete walk.
+  retainFiles(paths: string[]): number
   /// The Web stylesheet: rules under the classes' real Tailwind names, for
   /// the browser's own CSS engine to match.
   renderCss(theme?: Theme): string

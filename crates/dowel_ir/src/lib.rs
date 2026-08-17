@@ -932,8 +932,10 @@ pub enum Display {
     None,
     Contents,
     // A visible Yoga node is necessarily a flex container, so CSS block
-    // lowers to display:flex. The remaining modes require inline or grid
-    // formatting contexts Yoga does not implement.
+    // lowers to display:flex. Inline-flex is approximated by the Native
+    // backend with a flex container whose default alignSelf is flex-start;
+    // Yoga still has no actual inline formatting context. Grid requires a
+    // layout primitive Yoga does not implement.
     Block,
     InlineFlex,
     Grid,
@@ -948,7 +950,14 @@ impl Display {
     /// Whether React Native can express this at all -- see the variants'
     /// own note.
     pub fn is_supported_on_native(self) -> bool {
-        matches!(self, Display::Flex | Display::Block | Display::None | Display::Contents)
+        matches!(
+            self,
+            Display::Flex
+                | Display::Block
+                | Display::InlineFlex
+                | Display::None
+                | Display::Contents
+        )
     }
 }
 

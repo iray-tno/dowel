@@ -55,8 +55,8 @@ mod markup;
 mod style;
 
 use dowel_ir::{
-    Breakpoint, Condition, ConditionExpr, Diagnostic, DiagnosticCode, ExprRef, Length, Node,
-    Primitive,
+    AlignSelf, Breakpoint, Condition, ConditionExpr, Diagnostic, DiagnosticCode, Display, ExprRef,
+    Length, Node, Primitive,
     Severity, StyleDeclaration, StyleProperty, TextOverflow, Theme, WhiteSpace,
 };
 
@@ -425,7 +425,7 @@ fn render_node(
     // `leading-tight`/`tracking-wide` are relative to the font size, which
     // React Native's equivalents aren't. Resolved here, before the refusal
     // check, so only the ones that genuinely can't be resolved are refused.
-    let style = fold_font_relative(&node.style, inherited);
+    let style = lower_inline_flex(fold_font_relative(&node.style, inherited));
     // The fast Native transition path is deliberately narrow: opacity on
     // Pressable interaction state can stay entirely on the native driver.
     let transition = native_driver_transition(node, &style);
@@ -798,6 +798,38 @@ fn render_node(
         return format!("<{rendered_component}{props_text} />");
     }
     format!("<{rendered_component}{props_text}>{inner}</{rendered_component}>")
+}
+
+/// Yoga has no inline formatting context, but an inline-flex box's useful
+/// layout characteristic can be approximated by a flex container that does
+/// not stretch across its parent's cross axis. Keep the authored `self-*`
+/// authoritative across every condition: synthesizing a base or conditional
+/// flex-start beside one could otherwise win only while that condition is on.
+fn lower_inline_flex(mut declarations: Vec<StyleDeclaration>) -> Vec<StyleDeclaration> {
+    let has_authored_align_self = declarations
+        .iter()
+        .any(|declaration| matches!(declaration.property, StyleProperty::AlignSelf(_)));
+    if has_authored_align_self {
+        return declarations;
+    }
+
+    let synthetic: Vec<_> = declarations
+        .iter()
+        .enumerate()
+        .filter(|(index, declaration)| {
+            matches!(declaration.property, StyleProperty::Display(Display::InlineFlex))
+                && !declarations[index + 1..].iter().any(|later| {
+                    later.condition == declaration.condition
+                        && matches!(later.property, StyleProperty::Display(_))
+                })
+        })
+        .map(|(_, declaration)| StyleDeclaration {
+            property: StyleProperty::AlignSelf(AlignSelf::Start),
+            condition: declaration.condition.clone(),
+        })
+        .collect();
+    declarations.extend(synthetic);
+    declarations
 }
 
 fn condition_contains(condition: &Condition, predicate: impl Fn(&Condition) -> bool + Copy) -> bool {
@@ -2129,7 +2161,7 @@ export function Login() {
     }
 
     #[test]
-    fn web_only_display_is_refused_rather_than_dropped() {
+    fn inline_flex_lowers_to_a_shrink_wrapped_flex_container() {
         let source = r#"
             import { View } from '@dowel/core'
             const el = <View className="inline-flex" />
@@ -2137,12 +2169,24 @@ export function Login() {
         let parsed = dowel_parser::parse_tsx(source);
         let output = lower(&parsed.roots[0].node, source, &Theme::default());
 
-        assert_eq!(output.diagnostics.len(), 1);
-        assert_eq!(output.diagnostics[0].code, dowel_ir::DiagnosticCode::WebOnlyPropertyOnNative);
-        assert_eq!(output.diagnostics[0].severity, dowel_ir::Severity::Error);
-        // And nothing is emitted for it, so a build that ignored the error
-        // still can't produce an invalid RN style value.
-        assert!(!output.styles.contains("display"));
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert!(output.styles.contains("display: 'flex',"), "{}", output.styles);
+        assert!(output.styles.contains("alignSelf: 'flex-start',"), "{}", output.styles);
+    }
+
+    #[test]
+    fn inline_flex_never_overrides_an_authored_align_self() {
+        let source = r#"
+            import { View } from '@dowel/core'
+            const el = <View className="self-center md:inline-flex" />
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert!(output.styles.contains("alignSelf: 'center',"), "{}", output.styles);
+        assert!(!output.styles.contains("alignSelf: 'flex-start',"), "{}", output.styles);
+        assert!(output.styles.contains("display: 'flex',"), "{}", output.styles);
     }
 
     #[test]

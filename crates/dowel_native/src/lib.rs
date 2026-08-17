@@ -1996,7 +1996,7 @@ export function Login() {
     fn web_only_display_is_refused_rather_than_dropped() {
         let source = r#"
             import { View } from '@dowel/core'
-            const el = <View className="block" />
+            const el = <View className="inline-flex" />
             "#;
         let parsed = dowel_parser::parse_tsx(source);
         let output = lower(&parsed.roots[0].node, source, &Theme::default());
@@ -2007,6 +2007,21 @@ export function Login() {
         // And nothing is emitted for it, so a build that ignored the error
         // still can't produce an invalid RN style value.
         assert!(!output.styles.contains("display"));
+    }
+
+    #[test]
+    fn block_restores_a_hidden_yoga_node_as_a_flex_container() {
+        let source = r#"
+            import { View } from '@dowel/core'
+            const el = <View className="hidden md:block" />
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert!(output.styles.contains("display: 'none',"), "{}", output.styles);
+        assert!(output.styles.contains("dowel0_md:"), "{}", output.styles);
+        assert_eq!(output.styles.matches("display: 'flex',").count(), 1, "{}", output.styles);
     }
 
     /// Every variant that can't reach the `style` prop, with the severity

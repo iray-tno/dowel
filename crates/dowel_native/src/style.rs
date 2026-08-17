@@ -530,14 +530,17 @@ pub fn property_and_value<'a>(prop: &'a StyleProperty, theme: &Theme) -> Vec<(&'
         | StyleProperty::GradientStopColor(..)
         | StyleProperty::GradientStopPosition(..) => Vec::new(),
         StyleProperty::Display(d) => match d {
-            Display::Flex => vec![("display", "'flex'".to_string())],
+            // Yoga has no block formatting context: every visible View is
+            // a flex container. Emitting flex (rather than dropping block)
+            // is important because it can override an earlier display:none.
+            Display::Flex | Display::Block => vec![("display", "'flex'".to_string())],
             Display::None => vec![("display", "'none'".to_string())],
             Display::Contents => vec![("display", "'contents'".to_string())],
             // No RN equivalent (Yoga has only the three above). The caller
             // raises `WebOnlyPropertyOnNative` and fails the build; nothing
             // is emitted here so a build that ignored the error can't ship
             // an invalid style value either.
-            Display::Block | Display::InlineFlex | Display::Grid | Display::Css(_) => Vec::new(),
+            Display::InlineFlex | Display::Grid | Display::Css(_) => Vec::new(),
         },
         StyleProperty::FlexDirection(dir) => vec![(
             "flexDirection",

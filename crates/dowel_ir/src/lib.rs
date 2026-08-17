@@ -94,8 +94,8 @@ pub enum DiagnosticCode {
     /// A utility with no React Native equivalent reached the Native
     /// backend. Verified against Yoga (RN's layout engine), whose `display`
     /// is only Flex/None/Contents and which has no grid implementation at
-    /// all -- so `block`, `inline-flex`, `grid` and friends can't be
-    /// approximated, only refused.
+    /// all. Dowel maps `block` to Yoga's visible flex mode, but inline and
+    /// grid formatting contexts cannot be approximated and are refused.
     WebOnlyPropertyOnNative,
     /// Part of a `className` couldn't be decomposed statically (proposal
     /// §7's third tier). The expression is preserved so its classes still
@@ -931,9 +931,9 @@ pub enum Display {
     Flex,
     None,
     Contents,
-    // No React Native equivalent: Yoga implements exactly Flex/None/
-    // Contents and has no grid at all, so these can't be approximated.
-    // `dowel_native` refuses them rather than dropping them silently.
+    // A visible Yoga node is necessarily a flex container, so CSS block
+    // lowers to display:flex. The remaining modes require inline or grid
+    // formatting contexts Yoga does not implement.
     Block,
     InlineFlex,
     Grid,
@@ -948,7 +948,7 @@ impl Display {
     /// Whether React Native can express this at all -- see the variants'
     /// own note.
     pub fn is_supported_on_native(self) -> bool {
-        matches!(self, Display::Flex | Display::None | Display::Contents)
+        matches!(self, Display::Flex | Display::Block | Display::None | Display::Contents)
     }
 }
 

@@ -2302,9 +2302,10 @@ fn parse_keyword_utility(token: &str) -> Option<StyleProperty> {
         return blend_mode(rest, BLEND_MODES).map(StyleProperty::BackgroundBlendMode);
     }
 
-    // The display keywords Yoga doesn't implement. `inline-flex`, `block`
-    // and `grid` are modelled individually because the Native backend
-    // refuses each by name; the rest share one refusal.
+    // The display keywords Yoga doesn't implement. `inline-flex` and
+    // `grid` are modelled individually so the Native backend can refuse
+    // each by name; `block` is also typed because Native lowers it to the
+    // visible flex mode rather than grouping it with the refusals.
     const DISPLAYS: &[&str] = &[
         "inline", "inline-block", "inline-grid", "inline-table", "flow-root", "list-item",
         "table", "table-caption", "table-cell", "table-column", "table-column-group",

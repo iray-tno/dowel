@@ -4,6 +4,7 @@ temp/
 node_modules/
 dist/
 dist-ssr/
+.output/
 .turbo/
 *.log
 

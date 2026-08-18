@@ -72,6 +72,14 @@ function namespaceHozoClasses(text: string, rootIndex: number): string {
   return text.replace(/\bhozo-(\d+)\b/g, `hozo-r${rootIndex}-$1`)
 }
 
+function moduleIdHash(id: string): string {
+  let hash = 0x811c9dc5
+  for (let index = 0; index < id.length; index++) {
+    hash = Math.imul(hash ^ id.charCodeAt(index), 0x01000193)
+  }
+  return (hash >>> 0).toString(36)
+}
+
 
 /**
  * A project's design tokens reach the compiler from here.
@@ -172,7 +180,8 @@ export function hozo(options: HozoOptions = {}): Plugin {
 
     transform(code, id) {
       const file = scannableFile(id)
-      if (file && includedFiles.has(path.resolve(file))) {
+      const isDerivedModule = id.includes('?')
+      if (file && !isDerivedModule && includedFiles.has(path.resolve(file))) {
         // `enforce: 'pre'` means `code` is still the source as written,
         // which is what the scanner expects. Keyed by the same absolute
         // path `scanProject`'s walk used, so a file scanned there isn't
@@ -183,7 +192,7 @@ export function hozo(options: HozoOptions = {}): Plugin {
         }
       }
 
-      if (!id.endsWith('.tsx') || !code.includes('@hozo/core')) {
+      if (!file?.endsWith('.tsx') || !code.includes('@hozo/core')) {
         return
       }
 
@@ -224,14 +233,20 @@ export function hozo(options: HozoOptions = {}): Plugin {
         next = next.replace(HOZO_CORE_IMPORT_RE, '')
       }
 
-      const cssFileName = `${path.basename(id)}.hozo.css`
-      const cssPath = path.join(path.dirname(id), cssFileName)
+      // Route-splitting frameworks can transform several query-qualified
+      // modules from one source file. Each derived module owns different
+      // JSX, so sharing one companion path would make the last transform
+      // overwrite the others' CSS.
+      const cssFileName = isDerivedModule
+        ? `${path.basename(file)}.${moduleIdHash(id)}.hozo.css`
+        : `${path.basename(file)}.hozo.css`
+      const cssPath = path.join(path.dirname(file), cssFileName)
       writeFileIfChanged(cssPath, css)
       // Imported from every lowered file rather than from one designated
       // entry: the candidate sheet has to be present whichever module the
       // dynamic className lives in, and Vite resolves the repeated import
       // to a single module in the graph.
-      next = `import './${cssFileName}'\nimport '${importSpecifier(id, candidateCssPath)}'\n${next}`
+      next = `import './${cssFileName}'\nimport '${importSpecifier(file, candidateCssPath)}'\n${next}`
 
       return { code: next, map: null }
     },

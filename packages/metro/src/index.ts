@@ -93,7 +93,8 @@ function loadUpstream(projectRoot?: string): UpstreamTransformer {
 // exists to prevent.
 export async function transform(params: TransformParams): Promise<unknown> {
   const projectRoot = params.options?.projectRoot
-  const theme = projectRoot ? await readProjectTheme(projectRoot) : undefined
+  const state = projectRoot ? readMetroState(projectRoot) : undefined
+  const theme = projectRoot ? await readProjectTheme(projectRoot, state?.css) : undefined
   const rewritten = transformHozoSource(params.src, params.filename, projectRoot, theme)
   const nextParams = rewritten === null ? params : { ...params, src: rewritten }
   return loadUpstream(projectRoot).transform(nextParams)

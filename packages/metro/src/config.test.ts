@@ -44,11 +44,14 @@ test('withHozo accepts a promised config and an explicit project root', async ()
   try {
     const result = await withHozo(Promise.resolve({ transformer: {} }), {
       projectRoot: root,
+      css: 'styles/tailwind.css',
       content: { include: [] },
     })
 
     assert.match(result.transformer.babelTransformerPath, /index\.ts$/)
-    assert.deepEqual(JSON.parse(readFileSync(metroStatePath(root), 'utf8')), {})
+    assert.deepEqual(JSON.parse(readFileSync(metroStatePath(root), 'utf8')), {
+      css: 'styles/tailwind.css',
+    })
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

@@ -23,6 +23,7 @@ interface MetroConfigShape {
 
 export interface HozoMetroState {
   upstreamTransformer?: string
+  css?: string
 }
 
 export const METRO_STATE_FILE = 'metro.json'
@@ -69,7 +70,7 @@ export async function withHozo<T extends MetroConfigShape>(
   })
   writeFileIfChanged(
     metroStatePath(projectRoot),
-    `${JSON.stringify({ upstreamTransformer } satisfies HozoMetroState, null, 2)}\n`,
+    `${JSON.stringify({ upstreamTransformer, css: options.css } satisfies HozoMetroState, null, 2)}\n`,
   )
 
   return {

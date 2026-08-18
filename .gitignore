@@ -6,6 +6,7 @@ dist/
 dist-ssr/
 .output/
 storybook-static/
+artifacts/
 .next/
 next-env.d.ts
 .turbo/

@@ -271,10 +271,6 @@ pub fn parse_dimension(css: &str) -> Dimension {
     }
 }
 
-/// A colour from arbitrary text.
-pub fn parse_color(css: &str) -> Color {
-    Color::Css(css.to_string())
-}
 
 // ---------------------------------------------------------------------------
 // Splitting a token

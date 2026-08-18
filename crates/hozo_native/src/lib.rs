@@ -877,13 +877,10 @@ fn render_node(
         })
         .collect();
 
-    let mut seen_element = false;
-    let mut position_known = true;
     for (index, child) in node.children.iter().enumerate() {
         match child {
             hozo_ir::Child::Node(child_node) => {
                 let child_position = positions[index];
-                seen_element = true;
                 inner.push_str(&render_node(
                     child_node,
                     child_position,
@@ -919,8 +916,6 @@ fn render_node(
                 });
             }
             hozo_ir::Child::Verbatim { source: expr_ref, nested } => {
-                seen_element = true;
-                position_known = false;
                 inner.push_str(&render_verbatim(
                     *expr_ref,
                     nested,

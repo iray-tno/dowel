@@ -1,0 +1,113 @@
+# Builds the native binding for every platform Hozo claims, and publishes
+# one npm package per platform plus `@hozo/compiler` itself.
+#
+# The shape is napi-rs's, without its CLI: a package per platform declaring
+# `os`/`cpu`/`libc`, all of them optional dependencies of the real package,
+# so npm installs the single one this machine can run and skips the rest.
+# `packages/compiler/src/native-targets.ts` is the list, and a test in that
+# package checks it against what the runtime loader asks for -- the two are
+# independent derivations of one fact and a disagreement only shows up on
+# the platform nobody develops on.
+#
+# NOT YET RUN. This was written on a machine that can build exactly one of
+# these eight targets and has no way to execute a GitHub Actions workflow,
+# so it is a design that compiles in principle. The first real run should
+# be expected to need corrections -- most likely the musl and cross-arch
+# jobs, which are the ones with a toolchain step that cannot be checked
+# from here.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - triple: x86_64-pc-windows-msvc
+            runner: windows-latest
+          - triple: aarch64-pc-windows-msvc
+            runner: windows-11-arm
+          - triple: x86_64-apple-darwin
+            runner: macos-latest
+          - triple: aarch64-apple-darwin
+            runner: macos-latest
+          - triple: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+          - triple: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+            musl: true
+          - triple: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+          - triple: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+            musl: true
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.triple }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.triple }}
+      # musl needs a linker the GNU-hosted runners do not carry.
+      - if: matrix.musl
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - run: node scripts/pack-native.mjs --target ${{ matrix.triple }}
+        working-directory: packages/compiler
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.triple }}
+          path: artifacts/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      # npm trusted publishing, so no long-lived token lives in this repo.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      # Fails if any of the eight is missing, rather than publishing a
+      # `@hozo/compiler` whose optional dependency does not exist -- which
+      # installs cleanly and then cannot load on that platform.
+      - run: node scripts/check-artifacts.mjs
+        working-directory: packages/compiler
+
+      - run: |
+          for dir in artifacts/*/; do
+            npm publish "$dir" --access public --provenance
+          done
+      # Writes the optional-dependency list, which is generated rather
+      # than committed -- see scripts/prepare-publish.mjs.
+      - run: node scripts/prepare-publish.mjs
+        working-directory: packages/compiler
+      - run: npm publish --access public --provenance
+        working-directory: packages/compiler

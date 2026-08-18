@@ -1,0 +1,38 @@
+# Everything that has to pass on every push, on the one platform this
+# repository is developed on plus the two it claims to support.
+#
+# The Rust tests and the JS suite are platform-independent in principle and
+# have only ever been run on Windows, which is exactly the kind of claim
+# that is true until it isn't -- path separators and line endings are where
+# this codebase would break first.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25
+          cache: pnpm
+
+      - run: cargo test --workspace
+      - run: pnpm install --frozen-lockfile
+      # The JS side needs the addon that `pnpm test` will load. Built
+      # before the install's own scripts would want it, because nothing
+      # else puts it there on a fresh checkout.
+      - run: pnpm --filter @hozo/compiler build:native
+      - run: pnpm test

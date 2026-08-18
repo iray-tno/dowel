@@ -7,7 +7,7 @@ if (first !== second) throw new Error('SSR output is not deterministic across id
 for (const expected of [
   'data-testid="compatibility-root"',
   'id="compatibility"',
-  'data-dowel-pointer-events="box-none"',
+  'data-hozo-pointer-events="box-none"',
   'aria-live="polite"',
   'Compatibility fixture',
   'Universal Web adapter',

@@ -1,4 +1,4 @@
-// The only thing Dowel ships to a device, and it exists for exactly one
+// The only thing Hozo ships to a device, and it exists for exactly one
 // reason: React Native has no CSS engine.
 //
 // On Web, a `className` the compiler couldn't read needs no runtime at all
@@ -51,7 +51,7 @@ export function createClassResolver(
   // render path would otherwise repeat for every row, every frame.
   const warned = new Set<string>()
 
-  return function dowelClasses(value: unknown): StyleObject[] {
+  return function hozoClasses(value: unknown): StyleObject[] {
     // Falsy is the normal case, not an error: `cond && 'p-4'` yields
     // `false` whenever the condition is off.
     if (typeof value !== 'string' || value === '') {
@@ -73,14 +73,14 @@ export function createClassResolver(
         resolved.push(style)
         continue
       }
-      // An unknown class isn't necessarily a Dowel problem -- it may be an
+      // An unknown class isn't necessarily a Hozo problem -- it may be an
       // app's own non-Tailwind class, or a testID-ish marker -- so only the
       // ones the compiler recognized and refused are reported.
       const reason = unsupported[name]
       if (reason && !warned.has(name)) {
         warned.add(name)
         // eslint-disable-next-line no-console
-        console.warn(`[dowel] ${reason}`)
+        console.warn(`[hozo] ${reason}`)
       }
     }
 

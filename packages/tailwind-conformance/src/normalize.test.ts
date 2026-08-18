@@ -79,7 +79,7 @@ test('resolves --tw-border-style to its registered initial value', () => {
 })
 
 test('expands the border-style shorthand to per-side longhands', () => {
-  // Tailwind writes the shorthand; Dowel emits per-side longhands so that
+  // Tailwind writes the shorthand; Hozo emits per-side longhands so that
   // `border-t` can scope its style to one edge.
   assert.deepEqual(
     decls('border-style: solid;'),
@@ -161,7 +161,7 @@ test('skips Tailwind runtime register declarations', () => {
 test('folds calc arithmetic in em, where the unit is shared', () => {
   // Every term shares one unit, so the arithmetic is exact whatever that
   // unit means -- no font size needed. Excluding `em` here left all six
-  // `-tracking-*` unresolvable on Tailwind's side, which hid a real Dowel
+  // `-tracking-*` unresolvable on Tailwind's side, which hid a real Hozo
   // gap behind a harness limitation.
   const vars = new Map([['--tracking-tight', '-0.025em']])
   const out = normalize('letter-spacing: calc(var(--tracking-tight) * -1);', vars)

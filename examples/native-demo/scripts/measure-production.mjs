@@ -12,7 +12,7 @@ mkdirSync(outputDirectory, { recursive: true })
 const config = await Metro.loadConfig({ cwd: projectRoot, resetCache: true })
 const builds = [
   ['application', 'index.js'],
-  ['dowel', 'bench-dowel.js'],
+  ['hozo', 'bench-hozo.js'],
   ['native', 'bench-native.js'],
 ]
 
@@ -33,9 +33,9 @@ for (const [name, entry] of builds) {
 const result = {
   mode: { platform: 'android', dev: false, minify: true },
   bytes: sizes,
-  dowelIncrement: {
-    raw: sizes.dowel.raw - sizes.native.raw,
-    gzip: sizes.dowel.gzip - sizes.native.gzip,
+  hozoIncrement: {
+    raw: sizes.hozo.raw - sizes.native.raw,
+    gzip: sizes.hozo.gzip - sizes.native.gzip,
   },
 }
 writeFileSync(path.join(outputDirectory, 'bundle-sizes.json'), `${JSON.stringify(result, null, 2)}\n`)
@@ -43,8 +43,8 @@ writeFileSync(path.join(outputDirectory, 'bundle-sizes.json'), `${JSON.stringify
 console.log(JSON.stringify(result, null, 2))
 
 // This pair has the same React Native dependencies and UI structure. A
-// large positive delta means build-time Dowel code or an accidental runtime
+// large positive delta means build-time Hozo code or an accidental runtime
 // dependency leaked into the application bundle.
-if (result.dowelIncrement.raw > 5_000 || result.dowelIncrement.gzip > 1_500) {
-  throw new Error(`Dowel production increment is unexpectedly large: ${JSON.stringify(result.dowelIncrement)}`)
+if (result.hozoIncrement.raw > 5_000 || result.hozoIncrement.gzip > 1_500) {
+  throw new Error(`Hozo production increment is unexpectedly large: ${JSON.stringify(result.hozoIncrement)}`)
 }

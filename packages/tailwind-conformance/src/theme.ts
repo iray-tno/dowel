@@ -1,5 +1,5 @@
 // Tailwind v4 emits utilities in terms of its own custom properties
-// (`padding: calc(var(--spacing) * 4)`), so comparing against Dowel's
+// (`padding: calc(var(--spacing) * 4)`), so comparing against Hozo's
 // resolved pixel values means resolving those first. This reads the real
 // `theme.css` shipped in the installed tailwindcss package rather than
 // hardcoding a copy, so the numbers can't drift from the version under test.

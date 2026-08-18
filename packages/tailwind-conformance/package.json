@@ -1,8 +1,8 @@
 {
-  "name": "@dowel/tailwind-conformance",
+  "name": "@hozo/tailwind-conformance",
   "version": "0.0.0",
   "private": true,
-  "description": "Differential test: compares Dowel's compiled CSS against the real Tailwind engine's output, per utility.",
+  "description": "Differential test: compares Hozo's compiled CSS against the real Tailwind engine's output, per utility.",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -10,10 +10,10 @@
     "report": "node src/run.ts"
   },
   "dependencies": {
-    "@dowel/a11y": "workspace:^",
-    "@dowel/compiler": "workspace:*",
-    "@dowel/metro-transformer": "workspace:^",
-    "@dowel/runtime": "workspace:^",
+    "@hozo/a11y": "workspace:^",
+    "@hozo/compiler": "workspace:*",
+    "@hozo/metro": "workspace:^",
+    "@hozo/runtime": "workspace:^",
     "tailwindcss": "^4.3.3"
   },
   "devDependencies": {

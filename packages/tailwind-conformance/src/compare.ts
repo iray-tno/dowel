@@ -1,8 +1,8 @@
-// Compares one utility's Dowel output against the Tailwind oracle's,
+// Compares one utility's Hozo output against the Tailwind oracle's,
 // producing an explicit verdict per candidate. The verdicts distinguish
 // three failure modes that mean very different things:
 //
-//   UNSUPPORTED      -- Dowel emits nothing. A coverage gap, not a bug.
+//   UNSUPPORTED      -- Hozo emits nothing. A coverage gap, not a bug.
 //   MISMATCH         -- both emit, and they disagree. A fidelity bug.
 //   SKIPPED          -- the normalizer couldn't resolve one side
 //                       confidently, so no claim is made either way.
@@ -12,7 +12,7 @@
 //                       here, and it leaves the denominator for the same
 //                       reason the candidates Tailwind emits no rule for do.
 
-import { compile as dowelCompile } from '@dowel/compiler'
+import { compile as hozoCompile } from '@hozo/compiler'
 import { extractRules } from './extract.ts'
 import { normalize } from './normalize.ts'
 
@@ -31,7 +31,7 @@ export interface Comparison {
  *
  * Deliberately empty: the one entry that lived here (`rounded-full`) was
  * justified by a React Native limitation, which is not a valid excuse in a
- * comparison that only ever exercises the *Web* backend. Dowel now models
+ * comparison that only ever exercises the *Web* backend. Hozo now models
  * the radius as an intent (`Radius::Full`) so Web emits Tailwind's exact
  * `calc(infinity * 1px)` and only Native falls back to a finite value.
  */
@@ -39,7 +39,7 @@ const ACCEPTED_DIFFERENCES: Record<string, { property: string; reason: string }>
   'bg-linear-to-r from-red-500 from-blue-500 to-green-500': {
     property: 'background-image',
     reason:
-      'Two utilities setting the same thing, resolved by different orders. Dowel compiles a ' +
+      'Two utilities setting the same thing, resolved by different orders. Hozo compiles a ' +
       'class attribute into one rule, so the later class wins -- blue. Tailwind emits a rule ' +
       'per class and lets the cascade decide, so whichever it happens to write later wins -- ' +
       'red, on nothing the author can see. Matching it would mean reproducing Tailwind\'s ' +
@@ -48,25 +48,25 @@ const ACCEPTED_DIFFERENCES: Record<string, { property: string; reason: string }>
   'shadow-none': {
     property: 'box-shadow',
     reason:
-      'Dowel emits `none`; Tailwind clears its own `--tw-shadow` register and leaves the ' +
+      'Hozo emits `none`; Tailwind clears its own `--tw-shadow` register and leaves the ' +
       'ring/inset chain in place, which resolves to fully transparent layers. Both render no ' +
       'shadow. The composition hazard flagged when this was added is now handled: `shadow-none` ' +
       'clears only the shadow layer, so `shadow-none ring-2` still draws the ring.',
   },
 }
 
-/** Runs a single utility through Dowel and returns its declaration block. */
-function dowelDeclarations(candidate: string): string {
-  const source = `import { View } from '@dowel/core'\nconst el = <View className="${candidate}" />\n`
-  const results = dowelCompile(source)
+/** Runs a single utility through Hozo and returns its declaration block. */
+function hozoDeclarations(candidate: string): string {
+  const source = `import { View } from '@hozo/core'\nconst el = <View className="${candidate}" />\n`
+  const results = hozoCompile(source)
   if (results.length === 0) return ''
   const rules = extractRules(results[0].css)
-    // Keep only rules targeting one of Dowel's generated classes. That
-    // drops the shared `.dowel-view` base rule (View's own semantics,
+    // Keep only rules targeting one of Hozo's generated classes. That
+    // drops the shared `.hozo-view` base rule (View's own semantics,
     // proposal 8.1, not something this utility produced) and the steps
     // inside an `@keyframes` block, whose selectors are `to`/`50%` and
     // whose declarations would otherwise be counted as the utility's own.
-    .filter((rule) => rule.selector.includes('.dowel-') && rule.selector !== '.dowel-view')
+    .filter((rule) => rule.selector.includes('.hozo-') && rule.selector !== '.hozo-view')
   if (rules.length === 0) return ''
 
   // Only the least-conditional rules, which is what the expected side
@@ -75,7 +75,7 @@ function dowelDeclarations(candidate: string): string {
   //
   // Symmetry, not a shortcut. `container` is the only utility that emits
   // both -- `width: 100%` plus a max-width at each breakpoint -- and
-  // counting Dowel's conditional half against an expected that has none
+  // counting Hozo's conditional half against an expected that has none
   // reported `extra max-width: 1536px`, a difference that exists only
   // between the two sides of this function. A responsive candidate like
   // `md:flex-row` is unaffected: every rule it produces is at the same
@@ -123,11 +123,11 @@ export function compareCandidate(
       detail: `unresolvable in tailwind output: ${expected.unresolved.join(', ')}`,
     }
   }
-  // Checked before Dowel's side, deliberately. Some utilities only set a
+  // Checked before Hozo's side, deliberately. Some utilities only set a
   // custom property and paint nothing on their own -- `ring-blue-500` is
   // the colour a ring renders in, and does nothing until a `ring-2` exists
   // to paint. A standalone comparison cannot measure those either way, so
-  // scoring them as a Dowel gap would be wrong: emitting nothing is the
+  // scoring them as a Hozo gap would be wrong: emitting nothing is the
   // correct output. Same treatment as the candidates Tailwind produces no
   // rule for at all -- out of the denominator, decided by Tailwind.
   if (expected.declarations.size === 0) {
@@ -138,17 +138,17 @@ export function compareCandidate(
     }
   }
 
-  const dowelBlock = dowelDeclarations(candidate)
-  if (dowelBlock.trim() === '') {
+  const hozoBlock = hozoDeclarations(candidate)
+  if (hozoBlock.trim() === '') {
     return { candidate, verdict: 'UNSUPPORTED' }
   }
 
-  const actual = normalize(dowelBlock, vars)
+  const actual = normalize(hozoBlock, vars)
   if (actual.unresolved.length > 0) {
     return {
       candidate,
       verdict: 'SKIPPED',
-      detail: `unresolvable in dowel output: ${actual.unresolved.join(', ')}`,
+      detail: `unresolvable in hozo output: ${actual.unresolved.join(', ')}`,
     }
   }
 

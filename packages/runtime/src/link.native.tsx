@@ -1,14 +1,14 @@
 import type { ReactNode } from 'react'
 import { Linking, Pressable, type PressableProps } from 'react-native'
 
-export interface DowelLinkProps extends Omit<PressableProps, 'onPress'> {
+export interface HozoLinkProps extends Omit<PressableProps, 'onPress'> {
   href: string
   onPress?: PressableProps['onPress']
   children?: ReactNode
 }
 
 /** Native semantic link with the same destination-bearing API as `<a>`. */
-export function DowelLink({ href, onPress, children, ...props }: DowelLinkProps) {
+export function HozoLink({ href, onPress, children, ...props }: HozoLinkProps) {
   return (
     <Pressable
       {...props}

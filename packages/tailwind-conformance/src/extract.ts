@@ -27,7 +27,7 @@
 // Only `@supports`. A nested `@media` is an environment condition rather
 // than a capability, and folding one in describes an element that isn't
 // the element being compared: `outline-hidden` carries a
-// `@media (forced-colors: active)` branch, and counting it made Dowel
+// `@media (forced-colors: active)` branch, and counting it made Hozo
 // look like it was missing two declarations that only exist when the
 // user has turned forced colours on.
 

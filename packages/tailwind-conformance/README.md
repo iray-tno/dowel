@@ -1,16 +1,16 @@
-# @dowel/tailwind-conformance
+# @hozo/tailwind-conformance
 
-Differential test against the real Tailwind engine. For each candidate utility it compiles the class both ways — through the actual `tailwindcss` package and through Dowel — and compares the results.
+Differential test against the real Tailwind engine. For each candidate utility it compiles the class both ways — through the actual `tailwindcss` package and through Hozo — and compares the results.
 
 ## Two denominators
 
 It measures against two lists, and they say different things.
 
-**Curated** (`candidates.ts`, 120 utilities) — a hand-picked slice of what real app code uses. Good for "does the common path work", useless as a claim about Tailwind coverage: we chose it, and we chose it knowing what Dowel implements.
+**Curated** (`candidates.ts`, 120 utilities) — a hand-picked slice of what real app code uses. Good for "does the common path work", useless as a claim about Tailwind coverage: we chose it, and we chose it knowing what Hozo implements.
 
 **Full catalogue** (`catalog.ts`) — every class Tailwind's own design system can generate, asked for through `__unstable__loadDesignSystem().getClassList()`, the entry point the official IntelliSense extension uses. Nothing in it is our choice. Entries Tailwind itself produces no standalone CSS for (a gradient stop with no gradient, a negative form of something that takes none) leave the denominator, and Tailwind decides that too.
 
-Read the full percentage with its shape in mind: value expansion dominates it. `mask-*` alone is over a quarter of the catalogue, and covering `bg-blue-500` and `bg-blue-600` is one code path counted twice. The per-namespace table is the actionable view — which families Dowel handles, which it doesn't, and where it emits something *wrong*.
+Read the full percentage with its shape in mind: value expansion dominates it. `mask-*` alone is over a quarter of the catalogue, and covering `bg-blue-500` and `bg-blue-600` is one code path counted twice. The per-namespace table is the actionable view — which families Hozo handles, which it doesn't, and where it emits something *wrong*.
 
 ## Sections
 
@@ -18,7 +18,7 @@ The report has three sections, measuring different things:
 
 **Web** — coverage *and* fidelity, because Tailwind is the oracle.
 
-**Native** — coverage only. Tailwind exists as CSS, so it can't say what `p-4` "should" be in React Native; there's nothing to diff against. What it can measure is what Dowel does with each utility, split three ways:
+**Native** — coverage only. Tailwind exists as CSS, so it can't say what `p-4` "should" be in React Native; there's nothing to diff against. What it can measure is what Hozo does with each utility, split three ways:
 
 | | meaning |
 |---|---|
@@ -37,14 +37,14 @@ A refusal outranks partial output: `truncate`'s `overflow` lowers fine while its
 Because Web fidelity is measured against Tailwind alone, a React Native limitation is never a valid reason to accept a Web mismatch — Native isn't what that section measures.
 
 ```
-pnpm --filter @dowel/compiler build:native   # the report needs the native addon
-pnpm --filter @dowel/tailwind-conformance report
-pnpm --filter @dowel/tailwind-conformance test   # the normalizer's own tests
+pnpm --filter @hozo/compiler build:native   # the report needs the native addon
+pnpm --filter @hozo/tailwind-conformance report
+pnpm --filter @hozo/tailwind-conformance test   # the normalizer's own tests
 ```
 
 ## The two numbers
 
-- **Coverage** — of the candidates Tailwind produces a rule for, how many Dowel emits *something* for. A gap here is unimplemented surface, not a bug.
+- **Coverage** — of the candidates Tailwind produces a rule for, how many Hozo emits *something* for. A gap here is unimplemented surface, not a bug.
 - **Fidelity** — of those, how many match Tailwind's meaning exactly. A gap here *is* a bug: the class is accepted but compiles to the wrong thing, which is worse than not supporting it.
 
 Both are measured against `src/candidates.ts` — a representative slice of what real app code uses, not all of Tailwind (which is unbounded once arbitrary values count). The denominator is a judgement call, so the number is only meaningful alongside that list.
@@ -53,7 +53,7 @@ Both are measured against `src/candidates.ts` — a representative slice of what
 
 The two sides constantly differ without disagreeing:
 
-| Tailwind | Dowel |
+| Tailwind | Hozo |
 |---|---|
 | `flex: 1` | `flex: 1 1 0%` |
 | `padding: calc(var(--spacing) * 4)` | four `padding-*: 16px` longhands |
@@ -70,7 +70,7 @@ So `normalize.ts` resolves custom properties, folds `calc()`, converts rem→px,
 |---|---|
 | `MATCH` | normalized declarations are identical |
 | `MISMATCH` | both emit, and they disagree — a fidelity bug |
-| `UNSUPPORTED` | Dowel emits nothing — a coverage gap |
+| `UNSUPPORTED` | Hozo emits nothing — a coverage gap |
 | `SKIPPED` | one side couldn't be normalized; no claim made |
 
 `compare.ts` also has an accepted-differences list for deliberate, permanent divergences. It's currently empty, and the bar for adding to it is high: its one former entry (`rounded-full`) turned out to be excused by a Native constraint in a Web-only comparison, which is exactly the kind of reasoning an allowlist makes easy to smuggle in. The fix was to model the difference properly — `Radius::Full` lets Web emit Tailwind's exact `calc(infinity * 1px)` while Native falls back to a finite value — not to keep waving it through.

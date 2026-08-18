@@ -1,4 +1,4 @@
-import { compile, compileNative } from '@dowel/compiler'
+import { compile, compileNative } from '@hozo/compiler'
 
 export interface A11yContextualCase {
   name: string
@@ -56,7 +56,7 @@ export const A11Y_CONTEXTUAL_CASES: A11yContextualCase[] = [
     purpose: 'a destination remains an anchor on Web and an opening link interaction on Native',
     source: '<Link href="https://example.com" accessibilityLabel="Documentation">Docs</Link>',
     web: ['<a', 'href="https://example.com"', 'aria-label={"Documentation"}'],
-    native: ['<DowelLink', 'href="https://example.com"', 'accessibilityLabel={"Documentation"}'],
+    native: ['<HozoLink', 'href="https://example.com"', 'accessibilityLabel={"Documentation"}'],
   },
   {
     name: 'semantic Button',
@@ -89,8 +89,8 @@ export const A11Y_CONTEXTUAL_CASES: A11yContextualCase[] = [
     name: 'modal Dialog',
     purpose: 'the accessible name, hint and dismissal callback reach the modal runtime',
     source: '<Dialog open={showing} onClose={dismiss} accessibilityLabel="Confirm" accessibilityHint="Review before continuing" />',
-    web: ['<DowelDialog', 'open={showing}', 'onClose={dismiss}', 'accessibilityLabel={"Confirm"}', 'accessibilityHint={"Review before continuing"}'],
-    native: ['<DowelDialog', 'open={showing}', 'onClose={dismiss}', 'accessibilityLabel={"Confirm"}', 'accessibilityHint={"Review before continuing"}'],
+    web: ['<HozoDialog', 'open={showing}', 'onClose={dismiss}', 'accessibilityLabel={"Confirm"}', 'accessibilityHint={"Review before continuing"}'],
+    native: ['<HozoDialog', 'open={showing}', 'onClose={dismiss}', 'accessibilityLabel={"Confirm"}', 'accessibilityHint={"Review before continuing"}'],
   },
   {
     name: 'missing interaction role diagnostic',
@@ -112,15 +112,15 @@ export const A11Y_CONTEXTUAL_CASES: A11yContextualCase[] = [
     name: 'incomplete Dialog diagnostic',
     purpose: 'an unnamed modal with no dismissal route reports both defects',
     source: '<Dialog open={showing} />',
-    web: ['<DowelDialog'],
-    native: ['<DowelDialog'],
+    web: ['<HozoDialog'],
+    native: ['<HozoDialog'],
     diagnostics: ['A11Y_MISSING_ACCESSIBLE_NAME', 'A11Y_DIALOG_WITHOUT_DISMISS'],
   },
 ]
 
 export function compareA11yContextual(testCase: A11yContextualCase): A11yContextualResult {
   const source =
-    `import { Article, Button, Dialog, Heading, Image, Link, List, ListItem, Nav, Paragraph, Pressable, Section, TextInput } from '@dowel/core'\n` +
+    `import { Article, Button, Dialog, Heading, Image, Link, List, ListItem, Nav, Paragraph, Pressable, Section, TextInput } from '@hozo/core'\n` +
     `export function C() { return ${testCase.source} }\n`
   const [web] = compile(source)
   const [native] = compileNative(source)

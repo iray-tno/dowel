@@ -1,4 +1,4 @@
-import { View, Text, Button } from '@dowel/core'
+import { View, Text, Button } from '@hozo/core'
 import { accentFor } from './variants'
 
 export function Login({ enabled = true }: { enabled?: boolean }) {

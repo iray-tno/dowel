@@ -12,7 +12,7 @@
 // already compiles each class; the expected CSS for a combination is its
 // classes' declarations concatenated in Tailwind's own emission order,
 // which is the order the cascade resolves them in for equal specificity.
-// Dowel's side needs no special handling at all -- it has always taken a
+// Hozo's side needs no special handling at all -- it has always taken a
 // whole class attribute.
 //
 // The list is hand-written, unlike every other denominator here, and that

@@ -28,8 +28,8 @@ const expect = (condition, description) => {
 for (const component of ['View', 'Text', 'TextInput', 'Image', 'ScrollView', 'FlatList']) {
   expect(app.includes(`_reactNative.${component}`), `${component} is imported from react-native`)
 }
-expect(/DowelSpaced/.test(bundle), 'DowelSpaced is bundled')
-expect(/DowelDialog/.test(bundle), 'DowelDialog is bundled')
+expect(/HozoSpaced/.test(bundle), 'HozoSpaced is bundled')
+expect(/HozoDialog/.test(bundle), 'HozoDialog is bundled')
 expect(/smoke-grid/.test(bundle), 'the device acceptance grid is bundled')
 expect(/smoke-horizontal-scroll/.test(bundle), 'the horizontal ScrollView fixture is bundled')
 expect(/smoke-row-/.test(bundle), 'the virtualized renderItem fixture is bundled')
@@ -48,7 +48,7 @@ expect(/fontSize:/.test(bundle), 'text styles reached the StyleSheet')
 // resolves to a real hex rather than the not-a-colour marker.
 expect(/paddingTop: 19.2/.test(app), 'the project spacing scale reached the styles')
 expect(bundle.includes('#3581f6'), 'the project colour resolved')
-expect(!/dowel-unresolved/.test(bundle), 'no colour was left unresolved')
+expect(!/hozo-unresolved/.test(bundle), 'no colour was left unresolved')
 
 // A coarse dependency/runtime regression guard. This is an unminified dev
 // bundle, so the margin is intentionally broad; crossing it means a feature
@@ -71,7 +71,7 @@ console.log(`bundle check passed (${bundle.length} bytes)`)
 const themed = []
 if (!/paddingTop: 19\.2/.test(app)) themed.push('the project spacing scale reached the styles')
 if (!bundle.includes('#3581f6')) themed.push('the project colour resolved')
-if (/dowel-unresolved/.test(bundle)) themed.push('no colour was left unresolved')
+if (/hozo-unresolved/.test(bundle)) themed.push('no colour was left unresolved')
 
 if (themed.length > 0) {
   console.error('theme check failed:')

@@ -1,0 +1,13 @@
+[package]
+name = "hozo_web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Hozo IR to DOM/CSS/ARIA lowering (Web backend)."
+
+[dependencies]
+hozo_ir = { path = "../hozo_ir" }
+# Not just for tests: the fallback path emits CSS for candidate classes
+# found by `hozo_parser::scan_class_candidates`.
+hozo_parser = { path = "../hozo_parser" }

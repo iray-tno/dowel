@@ -1,6 +1,6 @@
 // Reads a project's design tokens out of its Tailwind setup.
 //
-// This is what `@dowel/tailwind` is for (proposal §6.2): Tailwind is the
+// This is what `@hozo/tailwind` is for (proposal §6.2): Tailwind is the
 // frontend, the Style IR is the internal representation, and this is the
 // boundary between them. The utility-to-IR translation lives in Rust and
 // stays there; what a JavaScript package can do that Rust can't is ask
@@ -83,7 +83,7 @@ export async function loadTheme(css: string, base: string): Promise<Theme> {
  * convert.
  *
  * Through `culori` rather than by hand: the same library, and the same
- * conversion, that produced Dowel's built-in copy of the default palette,
+ * conversion, that produced Hozo's built-in copy of the default palette,
  * so a project's tokens and the built-ins can't disagree about what a
  * given oklch means.
  */
@@ -108,7 +108,7 @@ const ROOT_FONT_SIZE_PX = 16
 /**
  * `--spacing` in pixels, or `undefined` if the project leaves it alone.
  *
- * Undefined rather than the default: an absent value means "whatever Dowel
+ * Undefined rather than the default: an absent value means "whatever Hozo
  * already does", which keeps a project that never touched the scale on
  * exactly the path it was on.
  */

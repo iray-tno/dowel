@@ -2,7 +2,7 @@
 // at any moment -- colour scheme and viewport width.
 //
 // These are what make `dark:` and `md:` workable on React Native without
-// the reactive engine Dowel deliberately doesn't ship. They aren't
+// the reactive engine Hozo deliberately doesn't ship. They aren't
 // per-element state, so a single module-level subscription serves every
 // component; each one only needs React to re-render it when the value
 // changes, which is what `useSyncExternalStore` is for.
@@ -61,7 +61,7 @@ export function createStore<T>(initial: T, equals: (a: T, b: T) => boolean = Obj
 }
 
 /// Tailwind's default `min-width` breakpoints, widest first. Kept in step
-/// with `dowel_ir::Breakpoint`, whose names the compiler emits.
+/// with `hozo_ir::Breakpoint`, whose names the compiler emits.
 export const BREAKPOINTS = [
   ['2xl', 1536],
   ['xl', 1280],

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { test } from 'node:test'
 
-import { compile, compileNative } from '@dowel/compiler'
+import { compile, compileNative } from '@hozo/compiler'
 import { loadTheme, toHex } from './theme.ts'
 
 /** Writes a stylesheet somewhere Tailwind can resolve imports from. */
@@ -40,7 +40,7 @@ test('a token the project redefines wins over the built-in copy', async () => {
   assert.equal(blue?.oklch, 'oklch(50% 0.2 200)')
 
   const source =
-    `import { View } from '@dowel/core'\n` +
+    `import { View } from '@hozo/core'\n` +
     `export function C() { return <View className="bg-blue-500" /> }\n`
   assert.match(compile(source, theme)[0].css, /background-color: oklch\(50% 0\.2 200\)/)
 })
@@ -49,7 +49,7 @@ test('a custom colour reaches both backends in the spelling each needs', async (
   const theme = await themeFrom(`@import "tailwindcss";
     @theme { --color-brand: oklch(62% 0.19 259); }`)
   const source =
-    `import { View } from '@dowel/core'\n` +
+    `import { View } from '@hozo/core'\n` +
     `export function C() { return <View className="bg-brand" /> }\n`
 
   // Web keeps the oklch Tailwind itself would emit; React Native has no
@@ -63,10 +63,10 @@ test('without a theme the same source is unresolved, not wrong', async () => {
   // gets for a token nothing defines. Both backends say "unresolved" in
   // their own way rather than inventing a colour.
   const source =
-    `import { View } from '@dowel/core'\n` +
+    `import { View } from '@hozo/core'\n` +
     `export function C() { return <View className="bg-brand" /> }\n`
-  assert.match(compile(source)[0].css, /background-color: var\(--dowel-color-brand\)/)
-  assert.match(compileNative(source)[0].styles, /dowel-unresolved:brand/)
+  assert.match(compile(source)[0].css, /background-color: var\(--hozo-color-brand\)/)
+  assert.match(compileNative(source)[0].styles, /hozo-unresolved:brand/)
 })
 
 test('a colour that will not convert is left out rather than guessed', () => {
@@ -86,7 +86,7 @@ test('a project spacing scale reaches every spacing utility', async () => {
   assert.equal(theme.spacingPx, 3.2)
 
   const source =
-    `import { View } from '@dowel/core'\n` +
+    `import { View } from '@hozo/core'\n` +
     `export function C() { return <View className="p-4 -mt-2 gap-3 border-2" /> }\n`
   const css = compile(source, theme)[0].css
 
@@ -101,7 +101,7 @@ test('a project spacing scale reaches every spacing utility', async () => {
   assert.match(css, /border-top-width: 2px/)
 })
 
-test('a spacing scale Dowel cannot read leaves the default alone', async () => {
+test('a spacing scale Hozo cannot read leaves the default alone', async () => {
   // Guessing here would rescale every padding, margin and gap in the
   // project by a number nobody chose.
   const theme = await themeFrom(`@import "tailwindcss";
@@ -114,7 +114,7 @@ test('p-px stays one physical pixel', async () => {
   const theme = await themeFrom(`@import "tailwindcss";
     @theme { --spacing: 0.2rem; }`)
   const source =
-    `import { View } from '@dowel/core'\n` +
+    `import { View } from '@hozo/core'\n` +
     `export function C() { return <View className="p-px" /> }\n`
   assert.match(compile(source, theme)[0].css, /padding-top: 1px/)
 })

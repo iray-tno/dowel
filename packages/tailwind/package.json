@@ -1,8 +1,8 @@
 {
-  "name": "@dowel/tailwind",
+  "name": "@hozo/tailwind",
   "version": "0.0.0",
   "private": true,
-  "description": "Tailwind integration for Dowel's Style IR.",
+  "description": "Tailwind integration for Hozo's Style IR.",
   "license": "MIT",
   "type": "module",
   "main": "./src/index.ts",
@@ -14,6 +14,6 @@
     "test": "node --test src/*.test.ts"
   },
   "devDependencies": {
-    "@dowel/compiler": "workspace:*"
+    "@hozo/compiler": "workspace:*"
   }
 }

@@ -11,7 +11,7 @@
 // So the list is built by asking Tailwind, not by picking favourites. Every
 // prefix that appears anywhere in the real catalogue is crossed with a
 // fixed set of representative values, and whatever Tailwind emits a rule
-// for is what Dowel is then held to. Neither half is ours to choose: the
+// for is what Hozo is then held to. Neither half is ours to choose: the
 // prefixes come from Tailwind's class list and the verdict comes from
 // Tailwind's compiler.
 
@@ -71,7 +71,7 @@ export function prefixesFrom(catalog: string[]): string[] {
  * The candidates Tailwind actually generates a rule for.
  *
  * Everything else is dropped from the denominator rather than counted as a
- * Dowel gap -- the same treatment the named catalogue gives a candidate
+ * Hozo gap -- the same treatment the named catalogue gives a candidate
  * Tailwind emits nothing for. A class the reference engine ignores is not
  * a coverage failure, and counting it as one would make the score
  * unimprovable and therefore useless.

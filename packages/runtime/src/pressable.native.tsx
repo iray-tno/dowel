@@ -19,7 +19,7 @@ import {
 
 import { blendColor } from './color-transition.ts'
 
-export interface DowelTransition {
+export interface HozoTransition {
   duration: number
   easing: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out'
   opacity: boolean
@@ -27,17 +27,17 @@ export interface DowelTransition {
   colors: boolean
 }
 
-export interface DowelPressableState extends PressableStateCallbackType {
+export interface HozoPressableState extends PressableStateCallbackType {
   hovered: boolean
   focused: boolean
   focusVisible: boolean
 }
 
-export interface DowelPressableProps extends Omit<PressableProps, 'style'> {
-  style?: StyleProp<ViewStyle> | ((state: DowelPressableState) => StyleProp<ViewStyle>)
-  dowelTransition?: DowelTransition
+export interface HozoPressableProps extends Omit<PressableProps, 'style'> {
+  style?: StyleProp<ViewStyle> | ((state: HozoPressableState) => StyleProp<ViewStyle>)
+  hozoTransition?: HozoTransition
   /** Enables per-element pointer/keyboard modality inference. */
-  dowelFocusVisible?: boolean
+  hozoFocusVisible?: boolean
 }
 
 const HOVERED = 1
@@ -46,10 +46,10 @@ const PRESSED = 4
 const FOCUS_VISIBLE = 8
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable)
 const AnimatedText = Animated.createAnimatedComponent(Text)
-type InteractionContextValue = DowelPressableState & { transition?: DowelTransition }
+type InteractionContextValue = HozoPressableState & { transition?: HozoTransition }
 const InteractionContext = createContext<InteractionContextValue | null>(null)
 
-function easingFor(name: DowelTransition['easing']) {
+function easingFor(name: HozoTransition['easing']) {
   switch (name) {
     case 'linear': return Easing.linear
     case 'ease-in': return Easing.in(Easing.ease)
@@ -103,7 +103,7 @@ function colorTargets(style: StyleProp<ViewStyle>) {
   return colors
 }
 
-export function DowelPressable({
+export function HozoPressable({
   style,
   onHoverIn,
   onHoverOut,
@@ -113,10 +113,10 @@ export function DowelPressable({
   onPressOut,
   onPointerDown,
   onKeyDown,
-  dowelTransition,
-  dowelFocusVisible = false,
+  hozoTransition,
+  hozoFocusVisible = false,
   ...props
-}: DowelPressableProps) {
+}: HozoPressableProps) {
   const [interaction, setInteraction] = useState(0)
   const interactionRef = useRef(0)
   const initialStyle = typeof style === 'function'
@@ -127,7 +127,7 @@ export function DowelPressable({
     typeof initialOpacity === 'number' ? initialOpacity : 1,
   )).current
   const colorSpecs = useMemo(() => {
-    if (!dowelTransition?.colors || typeof style !== 'function') return [] as ColorKey[]
+    if (!hozoTransition?.colors || typeof style !== 'function') return [] as ColorKey[]
     const found = new Set<ColorKey>()
     for (const pressed of [false, true]) {
       for (const hovered of [false, true]) {
@@ -139,7 +139,7 @@ export function DowelPressable({
       }
     }
     return [...found]
-  }, [dowelTransition?.colors, style])
+  }, [hozoTransition?.colors, style])
   const initialColors = colorTargets(initialStyle)
   const colorRanges = useRef(new Map<ColorKey, ColorRange>()).current
   for (const key of colorSpecs) {
@@ -161,7 +161,7 @@ export function DowelPressable({
     })]),
   )
   const transformSpecs = useMemo(() => {
-    if (!dowelTransition?.transform || typeof style !== 'function') return []
+    if (!hozoTransition?.transform || typeof style !== 'function') return []
     const states = [false, true].flatMap((pressed) =>
       [false, true].flatMap((hovered) =>
         [false, true].flatMap((focused) =>
@@ -174,7 +174,7 @@ export function DowelPressable({
       for (const target of transformTargets(style(state))) merged.set(target.key, target)
     }
     return [...merged.values()].sort((a, b) => transformRank(a.key) - transformRank(b.key))
-  }, [dowelTransition?.transform, style])
+  }, [hozoTransition?.transform, style])
   const transformValues = useRef(new Map<string, Animated.Value>()).current
   const initialTargets = new Map(transformTargets(initialStyle).map((target) => [target.key, target]))
   for (const spec of transformSpecs) {
@@ -194,7 +194,7 @@ export function DowelPressable({
       : transformValues.get(spec.key)!,
   }))
   const animateInteraction = useCallback((next: number) => {
-    if (!dowelTransition || typeof style !== 'function') return
+    if (!hozoTransition || typeof style !== 'function') return
     const flattened = StyleSheet.flatten(style({
       pressed: (next & PRESSED) !== 0,
       hovered: (next & HOVERED) !== 0,
@@ -202,16 +202,16 @@ export function DowelPressable({
       focusVisible: (next & FOCUS_VISIBLE) !== 0,
     }))
     const animations: Animated.CompositeAnimation[] = []
-    if (dowelTransition.opacity) {
+    if (hozoTransition.opacity) {
       const targetOpacity = typeof flattened?.opacity === 'number' ? flattened.opacity : 1
       animations.push(Animated.timing(opacity, {
         toValue: targetOpacity,
-        duration: dowelTransition.duration,
-        easing: easingFor(dowelTransition.easing),
+        duration: hozoTransition.duration,
+        easing: easingFor(hozoTransition.easing),
         useNativeDriver: true,
       }))
     }
-    if (dowelTransition.transform) {
+    if (hozoTransition.transform) {
       const targets = new Map(transformTargets(style({
         pressed: (next & PRESSED) !== 0,
         hovered: (next & HOVERED) !== 0,
@@ -221,13 +221,13 @@ export function DowelPressable({
       for (const spec of transformSpecs) {
         animations.push(Animated.timing(transformValues.get(spec.key)!, {
           toValue: targets.get(spec.key) ?? identityFor(spec),
-          duration: dowelTransition.duration,
-          easing: easingFor(dowelTransition.easing),
+          duration: hozoTransition.duration,
+          easing: easingFor(hozoTransition.easing),
           useNativeDriver: true,
         }))
       }
     }
-    if (dowelTransition.colors) {
+    if (hozoTransition.colors) {
       const targets = colorTargets(style({
         pressed: (next & PRESSED) !== 0,
         hovered: (next & HOVERED) !== 0,
@@ -243,13 +243,13 @@ export function DowelPressable({
       colorFraction.current = 0
       animations.push(Animated.timing(colorProgress, {
         toValue: 1,
-        duration: dowelTransition.duration,
-        easing: easingFor(dowelTransition.easing),
+        duration: hozoTransition.duration,
+        easing: easingFor(hozoTransition.easing),
         useNativeDriver: false,
       }))
     }
     Animated.parallel(animations).start()
-  }, [colorProgress, colorRanges, dowelTransition, opacity, style, transformSpecs, transformValues])
+  }, [colorProgress, colorRanges, hozoTransition, opacity, style, transformSpecs, transformValues])
   const setFlag = useCallback((flag: number, active: boolean) => {
     const current = interactionRef.current
     const next = active ? current | flag : current & ~flag
@@ -264,8 +264,8 @@ export function DowelPressable({
     hovered: (interaction & HOVERED) !== 0,
     focused: (interaction & FOCUSED) !== 0,
     focusVisible: (interaction & FOCUS_VISIBLE) !== 0,
-    transition: dowelTransition,
-  }), [dowelTransition, interaction])
+    transition: hozoTransition,
+  }), [hozoTransition, interaction])
 
   return (
     <InteractionContext.Provider value={context}>
@@ -281,27 +281,27 @@ export function DowelPressable({
       }}
       onFocus={(event: NativeSyntheticEvent<TargetedEvent>) => {
         setFlag(FOCUSED, true)
-        if (dowelFocusVisible) setFlag(FOCUS_VISIBLE, modality.current === 'keyboard')
+        if (hozoFocusVisible) setFlag(FOCUS_VISIBLE, modality.current === 'keyboard')
         onFocus?.(event)
       }}
       onBlur={(event: NativeSyntheticEvent<TargetedEvent>) => {
         setFlag(FOCUSED, false)
-        if (dowelFocusVisible) setFlag(FOCUS_VISIBLE, false)
+        if (hozoFocusVisible) setFlag(FOCUS_VISIBLE, false)
         onBlur?.(event)
       }}
-      onPointerDown={dowelFocusVisible ? (event) => {
+      onPointerDown={hozoFocusVisible ? (event) => {
         modality.current = 'pointer'
         setFlag(FOCUS_VISIBLE, false)
         onPointerDown?.(event)
       } : onPointerDown}
-      onKeyDown={dowelFocusVisible ? (event) => {
+      onKeyDown={hozoFocusVisible ? (event) => {
         modality.current = 'keyboard'
         if ((interactionRef.current & FOCUSED) !== 0) setFlag(FOCUS_VISIBLE, true)
         onKeyDown?.(event)
       } : onKeyDown}
       onPressIn={(event: GestureResponderEvent) => {
         modality.current = 'pointer'
-        if (dowelFocusVisible) setFlag(FOCUS_VISIBLE, false)
+        if (hozoFocusVisible) setFlag(FOCUS_VISIBLE, false)
         setFlag(PRESSED, true)
         onPressIn?.(event)
       }}
@@ -318,11 +318,11 @@ export function DowelPressable({
               focusVisible: (interaction & FOCUS_VISIBLE) !== 0,
             })
           : style
-        if (!dowelTransition) return resolved
+        if (!hozoTransition) return resolved
         return [resolved, {
-          ...(dowelTransition.opacity ? { opacity } : null),
-          ...(dowelTransition.transform ? { transform: animatedTransform } : null),
-          ...(dowelTransition.colors ? animatedColors : null),
+          ...(hozoTransition.opacity ? { opacity } : null),
+          ...(hozoTransition.transform ? { transform: animatedTransform } : null),
+          ...(hozoTransition.colors ? animatedColors : null),
         }]
       }}
     />
@@ -330,13 +330,13 @@ export function DowelPressable({
   )
 }
 
-export interface DowelTextProps extends Omit<TextProps, 'style'> {
+export interface HozoTextProps extends Omit<TextProps, 'style'> {
   children?: ReactNode
-  style?: StyleProp<TextStyle> | ((state: DowelPressableState) => StyleProp<TextStyle>)
+  style?: StyleProp<TextStyle> | ((state: HozoPressableState) => StyleProp<TextStyle>)
 }
 
-/** Text whose interaction state and transition are owned by an enclosing DowelPressable. */
-export function DowelText({ style, ...props }: DowelTextProps) {
+/** Text whose interaction state and transition are owned by an enclosing HozoPressable. */
+export function HozoText({ style, ...props }: HozoTextProps) {
   const context = useContext(InteractionContext)
   const state = context ?? { pressed: false, hovered: false, focused: false, focusVisible: false }
   const resolved = typeof style === 'function' ? style(state) : style

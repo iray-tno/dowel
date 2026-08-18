@@ -1,4 +1,4 @@
-import { Image, PanResponder, ScrollView, Text, View } from '@dowel/core'
+import { Image, PanResponder, ScrollView, Text, View } from '@hozo/core'
 
 const imageSource = {
   uri: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/%3E',

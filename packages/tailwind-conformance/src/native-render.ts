@@ -8,9 +8,9 @@
 //
 // What it does prove is the part nothing else touches: that the generated
 // module parses and evaluates, that the tree it builds has the styles and
-// props on the components they were meant for, and that Dowel's own runtime
-// components behave -- `DowelSpaced` distributing a parent's `space-*` over
-// children, `DowelDialog` opening. Those are ordinary React, and until now
+// props on the components they were meant for, and that Hozo's own runtime
+// components behave -- `HozoSpaced` distributing a parent's `space-*` over
+// children, `HozoDialog` opening. Those are ordinary React, and until now
 // they had never run.
 //
 // It pairs with the type check, which asks React Native's own declarations
@@ -24,12 +24,12 @@ import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
-import { transformDowelSource } from '@dowel/metro-transformer'
+import { transformHozoSource } from '@hozo/metro'
 
 const require = createRequire(import.meta.url)
 
 // Redirects every `react-native` import in the graph -- the generated
-// module's, and `@dowel/runtime`'s and `@dowel/a11y`'s own -- to the stub.
+// module's, and `@hozo/runtime`'s and `@hozo/a11y`'s own -- to the stub.
 // A `require` shim isn't enough: those packages are ESM and Node's loader
 // resolves their imports before any of this runs.
 // `act` warns without it, and the warning is noise rather than signal
@@ -43,11 +43,11 @@ registerHooks({
     }
     // Metro picks a `.native` entry ahead of the plain one; Node does not.
     // This has to be a resolve hook rather than a `require` shim, because
-    // these packages import each other -- `@dowel/runtime` re-exports
-    // `DowelDialog` from `@dowel/a11y` -- and those imports are resolved by
+    // these packages import each other -- `@hozo/runtime` re-exports
+    // `HozoDialog` from `@hozo/a11y` -- and those imports are resolved by
     // Node's loader, out of reach of anything the generated module is
     // handed. Without it the Web dialog loads and renders a `<dialog>`.
-    if (specifier === '@dowel/runtime' || specifier === '@dowel/a11y') {
+    if (specifier === '@hozo/runtime' || specifier === '@hozo/a11y') {
       const root = path.dirname(require.resolve(`${specifier}/package.json`))
       return {
         url: pathToFileURL(path.join(root, 'src', 'index.native.ts')).href,
@@ -56,7 +56,7 @@ registerHooks({
     }
     return next(specifier, context)
   },
-  // Node strips types from `.ts` but has no JSX transform, and Dowel's
+  // Node strips types from `.ts` but has no JSX transform, and Hozo's
   // runtime components are `.tsx` -- shipped as source, because a bundler
   // is what consumes them. Transpiling them here keeps that source
   // idiomatic instead of writing `createElement` by hand to suit a test.
@@ -111,9 +111,9 @@ export interface NativeLayoutBox {
  * Transforms a source file the way Metro would, runs it, and renders the
  * named export.
  *
- * Uses `transformDowelSource` rather than assembling the module here, so
+ * Uses `transformHozoSource` rather than assembling the module here, so
  * what runs is what ships -- including the `StyleSheet.create` wrapper and
- * the `@dowel/runtime` imports, which are where a mistake would otherwise
+ * the `@hozo/runtime` imports, which are where a mistake would otherwise
  * hide behind a hand-written approximation.
  */
 export function renderNative(
@@ -146,7 +146,7 @@ function renderNativeFixture(
   scope: Record<string, unknown>,
   layoutPasses: readonly (readonly NativeLayoutBox[])[],
 ): Tree {
-  const transformed = transformDowelSource(source, 'Component.tsx')
+  const transformed = transformHozoSource(source, 'Component.tsx')
   if (transformed === null) {
     throw new Error('the transformer declined this source')
   }
@@ -218,7 +218,7 @@ function renderNativeFixture(
 }
 
 /// The generated module's own requires. Nothing is intercepted here: the
-/// resolve hook above already redirects `react-native` and the two Dowel
+/// resolve hook above already redirects `react-native` and the two Hozo
 /// packages, and it has to, since those packages import each other through
 /// Node's loader rather than through anything handed to this module.
 function nativeRequire(id: string): unknown {

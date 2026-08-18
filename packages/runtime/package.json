@@ -1,5 +1,5 @@
 {
-  "name": "@dowel/runtime",
+  "name": "@hozo/runtime",
   "version": "0.0.0",
   "private": true,
   "description": "Runtime fallback for genuinely dynamic styles, interactive behavior, and accessibility behavior.",
@@ -23,6 +23,6 @@
     "react-native": "^0.87.0"
   },
   "dependencies": {
-    "@dowel/a11y": "workspace:^"
+    "@hozo/a11y": "workspace:^"
   }
 }

@@ -17,7 +17,7 @@ test('a compiled component builds the tree it was meant to', () => {
   // the module runs.
   const tree = renderNative(
     `
-    import { View, Text } from '@dowel/core'
+    import { View, Text } from '@hozo/core'
     export function Card() {
       return <View className="p-4"><Text className="text-xl">Hi</Text></View>
     }
@@ -39,7 +39,7 @@ test('a compiled component builds the tree it was meant to', () => {
 test('semantic document primitives retain native accessibility intent', () => {
   const tree = renderNative(
     `
-    import { Section, Heading, Paragraph } from '@dowel/core'
+    import { Section, Heading, Paragraph } from '@hozo/core'
     export function Article() {
       return <Section><Heading level={3}>Title</Heading><Paragraph>Body</Paragraph></Section>
     }
@@ -56,7 +56,7 @@ test('semantic document primitives retain native accessibility intent', () => {
 test('article and navigation landmarks retain Native roles', () => {
   const tree = renderNative(
     `
-    import { Article, Nav } from '@dowel/core'
+    import { Article, Nav } from '@hozo/core'
     export function Shell() {
       return <Article><Nav accessibilityLabel="Primary" /></Article>
     }
@@ -74,7 +74,7 @@ test('article and navigation landmarks retain Native roles', () => {
 test('a small static list retains Native list roles', () => {
   const tree = renderNative(
     `
-    import { List, ListItem } from '@dowel/core'
+    import { List, ListItem } from '@hozo/core'
     export function Steps() {
       return <List ordered><ListItem>One</ListItem><ListItem>Two</ListItem></List>
     }
@@ -87,13 +87,13 @@ test('a small static list retains Native list roles', () => {
   assert.equal(second.props.role, 'listitem')
 })
 
-test('DowelSpaced puts the spacing on every child but the last', () => {
+test('HozoSpaced puts the spacing on every child but the last', () => {
   // The component's first execution. Its rule -- `:not(:last-child)`, and
   // the parent's style behind the child's own so the child wins -- was
   // tested as a pure function; this is the React half of it.
   const tree = renderNative(
     `
-    import { View, Text } from '@dowel/core'
+    import { View, Text } from '@hozo/core'
     export function List() {
       return (
         <View className="space-y-4">
@@ -119,10 +119,10 @@ test('DowelSpaced puts the spacing on every child but the last', () => {
   assert.equal(items[2].props.style, undefined)
 })
 
-test('DowelGrid auto-places unequal tracks without a measurement pass', () => {
+test('HozoGrid auto-places unequal tracks without a measurement pass', () => {
   const tree = renderNative(
     `
-    import { View, Text } from '@dowel/core'
+    import { View, Text } from '@hozo/core'
     export function Grid() {
       return (
         <View className="grid grid-cols-[120px_2fr_1fr] gap-4">
@@ -147,9 +147,9 @@ test('DowelGrid auto-places unequal tracks without a measurement pass', () => {
   assert.equal(rows.some((row) => typeof row.props.onLayout === 'function'), false)
 })
 
-test('DowelGrid measured rows settle after layout and respond to width changes', () => {
+test('HozoGrid measured rows settle after layout and respond to width changes', () => {
   const source = `
-    import { View, Text } from '@dowel/core'
+    import { View, Text } from '@hozo/core'
     export function Grid() {
       return (
         <View className="grid grid-cols-2 gap-2">
@@ -201,7 +201,7 @@ test('a text style set on a View reaches the Text underneath it', () => {
   // emitted string, which is where it would look right either way.
   const tree = renderNative(
     `
-    import { View, Text } from '@dowel/core'
+    import { View, Text } from '@hozo/core'
     export function Card() {
       return <View className="text-xl text-red-500"><Text>Hi</Text></View>
     }
@@ -216,7 +216,7 @@ test('a text style set on a View reaches the Text underneath it', () => {
 
 test('a Dialog renders its children only while it is open', () => {
   const source = `
-    import { Dialog, Text } from '@dowel/core'
+    import { Dialog, Text } from '@hozo/core'
     export function Confirm() {
       return (
         <Dialog className="p-6" open={showing} onClose={dismiss} accessibilityLabel="Confirm">
@@ -247,7 +247,7 @@ test('a Dialog renders its children only while it is open', () => {
 test('truncation reaches the prop React Native carries it on', () => {
   const tree = renderNative(
     `
-    import { Text } from '@dowel/core'
+    import { Text } from '@hozo/core'
     export function Clamped() {
       return <Text className="line-clamp-2">a long line</Text>
     }
@@ -260,7 +260,7 @@ test('truncation reaches the prop React Native carries it on', () => {
 test('Link renders as a native link interaction with its destination', () => {
   const tree = renderNative(
     `
-    import { Link } from '@dowel/core'
+    import { Link } from '@hozo/core'
     export function Docs() {
       return <Link href="https://example.com" accessibilityLabel="Documentation">Docs</Link>
     }
@@ -276,7 +276,7 @@ test('Link renders as a native link interaction with its destination', () => {
 test('Image maps its URI and alternative onto React Native Image props', () => {
   const tree = renderNative(
     `
-    import { Image } from '@dowel/core'
+    import { Image } from '@hozo/core'
     export function Cover() {
       return <Image className="w-20 h-20 object-cover" src="https://example.com/cover.jpg" alt="Cover" />
     }
@@ -294,7 +294,7 @@ test('Image retains a Metro local asset and load state callbacks', () => {
   const failed = () => {}
   const tree = renderNative(
     `
-    import { Image } from '@dowel/core'
+    import { Image } from '@hozo/core'
     export function Logo() {
       return <Image src={logo} alt="Logo" onLoad={loaded} onError={failed} />
     }
@@ -310,7 +310,7 @@ test('Image retains a Metro local asset and load state callbacks', () => {
 test('ScrollView directly uses the Native viewport and keeps child layout explicit', () => {
   const tree = renderNative(
     `
-    import { ScrollView, View, Text } from '@dowel/core'
+    import { ScrollView, View, Text } from '@hozo/core'
     export function Rail() {
       return (
         <ScrollView horizontal className="h-40">
@@ -334,7 +334,7 @@ test('ScrollView directly uses the Native viewport and keeps child layout explic
 test('FlatList stays virtualized and its renderItem body is compiled', () => {
   const tree = renderNative(
     `
-    import { FlatList, Text } from '@dowel/core'
+    import { FlatList, Text } from '@hozo/core'
     export function Rows() {
       return <FlatList className="h-40" data={rows} renderItem={({ item }) => <Text className="p-2">{item}</Text>} />
     }
@@ -355,7 +355,7 @@ test('FlatList stays virtualized and its renderItem body is compiled', () => {
 test('focus-visible installs modality events only on an interaction that asks for them', () => {
   const tree = renderNative(
     `
-    import { Pressable } from '@dowel/core'
+    import { Pressable } from '@hozo/core'
     export function Save() {
       return <Pressable className="focus-visible:opacity-50" accessibilityRole="button">Save</Pressable>
     }

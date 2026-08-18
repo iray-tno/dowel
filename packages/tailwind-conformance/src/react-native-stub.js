@@ -2,13 +2,13 @@
 //
 // React Native ships Flow-typed JavaScript that Node cannot parse, so the
 // real package is not importable here. See `./native-render.ts` for what
-// that means for what these tests establish -- in short, the tree Dowel
+// that means for what these tests establish -- in short, the tree Hozo
 // builds is checked, React Native's runtime is not.
 //
 // The components are strings, which `react-test-renderer` reports as host
 // elements: `<View style={...}>` comes back as
 // `{ type: 'View', props: { style } }`, so an assertion can be about what
-// Dowel put there rather than about what React Native did with it.
+// Hozo put there rather than about what React Native did with it.
 
 export const View = 'View'
 export const Text = 'Text'
@@ -26,7 +26,7 @@ export const Linking = {
 
 export const StyleSheet = {
   // Identity, deliberately. The real `create` returns opaque registry
-  // values; the point here is to read back the style Dowel wrote. Whether
+  // values; the point here is to read back the style Hozo wrote. Whether
   // React Native would accept it is the type check's question, asked
   // against its declarations rather than its runtime.
   create: (styles) => styles,

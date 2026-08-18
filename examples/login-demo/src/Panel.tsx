@@ -1,4 +1,4 @@
-import { View, Text } from '@dowel/core'
+import { View, Text } from '@hozo/core'
 import { accentFor } from './variants'
 
 export function Panel({ show, items }: { show?: boolean; items?: string[] }) {

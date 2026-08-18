@@ -28,7 +28,7 @@ const DEFAULT_EXCLUDE = [
   '**/.generated/**',
 ]
 
-export const CACHE_DIR = path.join('node_modules', '.dowel')
+export const CACHE_DIR = path.join('node_modules', '.hozo')
 
 export interface ContentOptions {
   /** Globs relative to the project root. */
@@ -50,7 +50,7 @@ export interface ScanStats {
 
 export interface ProjectCache {
   cache: CandidateCache
-  /** Absolute path of node_modules/.dowel, already created. */
+  /** Absolute path of node_modules/.hozo, already created. */
   dir: string
   /** Whether the project-wide candidate set changed. */
   changed: boolean
@@ -79,7 +79,7 @@ export function discoverSources(root: string, options: ContentOptions = {}): str
     .sort()
 }
 
-/** The real file behind a bundler module id, if Dowel should inspect it. */
+/** The real file behind a bundler module id, if Hozo should inspect it. */
 export function scannableFile(id: string): string | undefined {
   if (id.startsWith('\0') || id.includes('node_modules')) return undefined
   const file = id.split('?')[0]

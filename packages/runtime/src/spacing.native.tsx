@@ -34,7 +34,7 @@ interface Props {
  * and any number of them at runtime, so the count that decides which child
  * is last is only known here.
  */
-export function DowelSpaced({ style, children }: Props): ReactNode {
+export function HozoSpaced({ style, children }: Props): ReactNode {
   // `toArray` flattens nested arrays and drops null/undefined/booleans, so
   // a conditional child that renders nothing doesn't take the last slot and
   // silently swallow the spacing -- the same way an unrendered element

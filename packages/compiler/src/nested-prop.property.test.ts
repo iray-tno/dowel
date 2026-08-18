@@ -26,7 +26,7 @@ test('nested prop lowering preserves structure and removes every nested classNam
     const requiredRenderer = propName === 'renderItem'
       ? ''
       : ` renderItem={() => <Text className="p-1">row-${seed}</Text>}`
-    const source = `import { FlatList, View, Text, Pressable } from '@dowel/core'
+    const source = `import { FlatList, View, Text, Pressable } from '@hozo/core'
 export function Fixture({ rows, flag, items }) {
   return <FlatList data={rows} ${propName}={${value}}${requiredRenderer} />
 }

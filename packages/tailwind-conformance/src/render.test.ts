@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { compile } from '@dowel/compiler'
+import { compile } from '@hozo/compiler'
 import { classesDefinedIn, renderWeb } from './render.ts'
 
 /** Compiles one source and renders the first component it produced. */
@@ -16,20 +16,20 @@ test('a compiled component mounts and produces the expected markup', () => {
   // comparison here is between strings, and none of them establishes that
   // the generated JSX parses, let alone renders.
   const { rendered } = round(`
-    import { View, Text } from '@dowel/core'
+    import { View, Text } from '@hozo/core'
     export function Card() {
       return <View className="p-4"><Text className="text-xl">Hello</Text></View>
     }
   `)
   assert.equal(
     rendered.html,
-    '<div class="dowel-view dowel-0"><span class="dowel-1">Hello</span></div>',
+    '<div class="hozo-view hozo-0"><span class="hozo-1">Hello</span></div>',
   )
 })
 
 test('semantic primitives render native document elements', () => {
   const { rendered } = round(`
-    import { Section, Heading, Paragraph } from '@dowel/core'
+    import { Section, Heading, Paragraph } from '@hozo/core'
     export function Article() {
       return <Section><Heading level={3}>Title</Heading><Paragraph>Body</Paragraph></Section>
     }
@@ -39,7 +39,7 @@ test('semantic primitives render native document elements', () => {
 
 test('article and navigation landmarks survive an actual Web render', () => {
   const { rendered } = round(`
-    import { Article, Nav } from '@dowel/core'
+    import { Article, Nav } from '@hozo/core'
     export function Shell() {
       return <Article><Nav accessibilityLabel="Primary" /></Article>
     }
@@ -49,7 +49,7 @@ test('article and navigation landmarks survive an actual Web render', () => {
 
 test('a small ordered list renders as native HTML list elements', () => {
   const { rendered } = round(`
-    import { List, ListItem } from '@dowel/core'
+    import { List, ListItem } from '@hozo/core'
     export function Steps() {
       return <List ordered><ListItem>One</ListItem><ListItem>Two</ListItem></List>
     }
@@ -64,7 +64,7 @@ test('every class in the DOM has a rule in the stylesheet', () => {
   // emitted for elements with no declarations at all.
   const { compiled, rendered } = round(
     `
-    import { View, Text, Button } from '@dowel/core'
+    import { View, Text, Button } from '@hozo/core'
     export function Card() {
       return (
         <View className="p-4 bg-blue-500">
@@ -86,7 +86,7 @@ test('an element with no declarations carries no class at all', () => {
   // Not merely an unused class -- no attribute. It was bytes in every
   // render of every unstyled element, matching nothing.
   const { rendered } = round(`
-    import { Text } from '@dowel/core'
+    import { Text } from '@hozo/core'
     export function Bare() {
       return <Text>plain</Text>
     }
@@ -95,20 +95,20 @@ test('an element with no declarations carries no class at all', () => {
 })
 
 test('a View keeps its base class even with nothing else on it', () => {
-  // `dowel-view` is View's own semantics rather than a compiled utility
+  // `hozo-view` is View's own semantics rather than a compiled utility
   // (proposal §8.1), so dropping it with the rest would change the layout.
   const { rendered } = round(`
-    import { View } from '@dowel/core'
+    import { View } from '@hozo/core'
     export function Bare() {
       return <View />
     }
   `)
-  assert.equal(rendered.html, '<div class="dowel-view"></div>')
+  assert.equal(rendered.html, '<div class="hozo-view"></div>')
 })
 
 test('Image renders a semantic img with its universal source and alternative', () => {
   const { rendered } = round(`
-    import { Image } from '@dowel/core'
+    import { Image } from '@hozo/core'
     export function Cover() {
       return <Image className="w-20 h-20 object-cover" src="https://example.com/cover.jpg" alt="Cover" />
     }
@@ -116,13 +116,13 @@ test('Image renders a semantic img with its universal source and alternative', (
   assert.equal(
     rendered.html,
     '<link rel="preload" as="image" href="https://example.com/cover.jpg"/>' +
-      '<img class="dowel-0" src="https://example.com/cover.jpg" alt="Cover"/>',
+      '<img class="hozo-0" src="https://example.com/cover.jpg" alt="Cover"/>',
   )
 })
 
 test('ScrollView owns only its viewport axis while its child owns content layout', () => {
   const { compiled, rendered } = round(`
-    import { ScrollView, View, Text } from '@dowel/core'
+    import { ScrollView, View, Text } from '@hozo/core'
     export function Rail() {
       return (
         <ScrollView horizontal className="h-40">
@@ -131,9 +131,9 @@ test('ScrollView owns only its viewport axis while its child owns content layout
       )
     }
   `)
-  assert.match(rendered.html, /^<div class="dowel-scroll-view dowel-0" data-dowel-horizontal="">/)
-  assert.match(compiled.css, /\.dowel-scroll-view \{[\s\S]*overflow-y: auto/)
-  assert.match(compiled.css, /\.dowel-scroll-view\[data-dowel-horizontal\] \{[\s\S]*overflow-x: auto/)
+  assert.match(rendered.html, /^<div class="hozo-scroll-view hozo-0" data-hozo-horizontal="">/)
+  assert.match(compiled.css, /\.hozo-scroll-view \{[\s\S]*overflow-y: auto/)
+  assert.match(compiled.css, /\.hozo-scroll-view\[data-hozo-horizontal\] \{[\s\S]*overflow-x: auto/)
 })
 
 test('text kept its spacing around an interpolation', () => {
@@ -142,12 +142,12 @@ test('text kept its spacing around an interpolation', () => {
   // comparison that trims.
   const { rendered } = round(
     `
-    import { Text } from '@dowel/core'
+    import { Text } from '@hozo/core'
     export function Greeting() {
       return <Text className="text-xl">Hello {name}</Text>
     }
     `,
     { name: 'world' },
   )
-  assert.equal(rendered.html, '<span class="dowel-0">Hello world</span>')
+  assert.equal(rendered.html, '<span class="hozo-0">Hello world</span>')
 })

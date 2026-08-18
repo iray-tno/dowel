@@ -30,7 +30,7 @@ export interface CompiledNativeComponent {
   /// Statements to splice at `hookSlot` for `jsx` to work. Empty unless a
   /// condition needed a React hook (`dark:`, breakpoints).
   prelude: string[]
-  /// Named imports `prelude` needs from `@dowel/runtime`.
+  /// Named imports `prelude` needs from `@hozo/runtime`.
   runtimeImports: string[]
   /// Byte offset just inside the enclosing function's `{` -- the only safe
   /// place for `prelude`, since a hook must be called unconditionally and
@@ -59,7 +59,7 @@ export interface CandidateCache {
   /// The Web stylesheet: rules under the classes' real Tailwind names, for
   /// the browser's own CSS engine to match.
   renderCss(theme?: Theme): string
-  /// The Native equivalent: a JS module exporting `dowelClasses`, a
+  /// The Native equivalent: a JS module exporting `hozoClasses`, a
   /// resolver bound to this project's class-name -> style-object map.
   renderNativeModule(theme?: Theme): string
   persist(): void
@@ -83,10 +83,10 @@ let native: NativeBinding | undefined
 function loadNative(): NativeBinding {
   if (!native) {
     try {
-      native = require('../dowel_napi.node') as NativeBinding
+      native = require('../hozo_napi.node') as NativeBinding
     } catch (cause) {
       throw new Error(
-        '@dowel/compiler: native addon not found. Run `pnpm --filter @dowel/compiler build:native` first.',
+        '@hozo/compiler: native addon not found. Run `pnpm --filter @hozo/compiler build:native` first.',
         { cause },
       )
     }
@@ -95,7 +95,7 @@ function loadNative(): NativeBinding {
 }
 
 /**
- * A project's design tokens, as `@dowel/tailwind` extracts them.
+ * A project's design tokens, as `@hozo/tailwind` extracts them.
  *
  * Optional everywhere: an absent theme means Tailwind's default palette,
  * which is what every caller got before themes existed. Passing one only
@@ -109,7 +109,7 @@ export function compile(source: string, theme?: Theme): CompiledComponent[] {
   return loadNative().compile(source, theme)
 }
 
-// Not yet wired into a Metro transformer (@dowel/vite-plugin's Metro
+// Not yet wired into a Metro transformer (@hozo/vite's Metro
 // counterpart doesn't exist yet -- Native was deliberately validated after
 // Web, per the A-phase decision). Exposed now so the binding layer mirrors
 // both backends; the transformer-side integration is separate future work.

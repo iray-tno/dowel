@@ -5,7 +5,7 @@
 // imports so the rules can be tested at all. The rest of a dialog's
 // behaviour -- the trap, the inert background, Escape -- is delegated to
 // the platform rather than reimplemented (see `./dialog.tsx`), so these
-// two rules are the whole of what Dowel decides.
+// two rules are the whole of what Hozo decides.
 
 /** The subset of an element the focus rules actually look at. */
 export interface FocusCandidate {

@@ -1,8 +1,8 @@
 {
-  "name": "@dowel/example-native-demo",
+  "name": "@hozo/example-native-demo",
   "version": "0.0.0",
   "private": true,
-  "description": "React Native example, and the end-to-end check that a Dowel source survives a real Metro bundle.",
+  "description": "React Native example, and the end-to-end check that a Hozo source survives a real Metro bundle.",
   "license": "MIT",
   "scripts": {
     "bundle": "node ./scripts/bundle.mjs",
@@ -12,13 +12,13 @@
   },
   "dependencies": {
     "@babel/runtime": "^8.0.0",
-    "@dowel/core": "workspace:*",
-    "@dowel/runtime": "workspace:*",
+    "@hozo/core": "workspace:*",
+    "@hozo/runtime": "workspace:*",
     "react": "^19.2.0",
     "react-native": "^0.87.0"
   },
   "devDependencies": {
-    "@dowel/metro-transformer": "workspace:*",
+    "@hozo/metro": "workspace:*",
     "@react-native/metro-babel-transformer": "^0.87.0",
     "@react-native/metro-config": "^0.87.0",
     "metro": "^0.87.0"

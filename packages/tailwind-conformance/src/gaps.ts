@@ -1,4 +1,4 @@
-// Ad-hoc: the arbitrary candidates Dowel gets wrong, emits nothing for, or
+// Ad-hoc: the arbitrary candidates Hozo gets wrong, emits nothing for, or
 // the harness can't judge. `node src/gaps.ts [SKIPPED]` -- not part of the
 // report.
 import { buildArbitraryCatalog } from './arbitrary-catalog.ts'

@@ -1,4 +1,4 @@
 import { AppRegistry } from 'react-native'
 import App from './App.tsx'
 
-AppRegistry.registerComponent('DowelNativeDemo', () => App)
+AppRegistry.registerComponent('HozoNativeDemo', () => App)

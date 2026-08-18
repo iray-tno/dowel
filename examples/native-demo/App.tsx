@@ -1,7 +1,7 @@
 // A bundle fixture and a device acceptance screen. Stable testIDs make
 // manual VoiceOver/TalkBack and layout results reproducible.
 
-import { Dialog, FlatList, Image, PanResponder, Pressable, ScrollView, Text, TextInput, View } from '@dowel/core'
+import { Dialog, FlatList, Image, PanResponder, Pressable, ScrollView, Text, TextInput, View } from '@hozo/core'
 import { useRef, useState } from 'react'
 
 const rows = [
@@ -26,12 +26,12 @@ export default function App() {
     <View className="flex-1 bg-slate-50 text-slate-900">
       <FlatList
         className="flex-1"
-        accessibilityLabel="Dowel native acceptance screen"
+        accessibilityLabel="Hozo native acceptance screen"
         data={rows}
         keyExtractor={(item) => item.id}
         ListHeaderComponent={
           <View className="p-6 space-y-4">
-            <Text className="text-2xl font-bold">Dowel device checks</Text>
+            <Text className="text-2xl font-bold">Hozo device checks</Text>
 
             <Image
               className="w-20 h-20 rounded-lg object-cover"

@@ -1,7 +1,7 @@
 // React Native's own enumeration of what a style can contain.
 //
-// The Native half of this report rests on Dowel's `unsupported_on_native()`
-// -- roughly ten thousand refusals, every one of them Dowel's own say-so.
+// The Native half of this report rests on Hozo's `unsupported_on_native()`
+// -- roughly ten thousand refusals, every one of them Hozo's own say-so.
 // That is the same "grading our own homework" problem the full Tailwind
 // catalogue solved for the Web half, and it wants the same solution: ask
 // the other tool to enumerate itself.
@@ -84,7 +84,7 @@ function styleTypesSource(): string {
  * Every style key React Native's types declare, across every style
  * interface.
  *
- * Deliberately the union of all of them: Dowel refuses a property because
+ * Deliberately the union of all of them: Hozo refuses a property because
  * React Native has no such style *at all*, not because it is unavailable on
  * one primitive. A per-primitive restriction is a different (and narrower)
  * claim, and the report already reports that separately as `restrictedTo`.
@@ -195,7 +195,7 @@ function literalUnion(type: string, aliases: Map<string, string>, depth = 0): Se
 // ---------------------------------------------------------------------------
 
 /// A peer project solving the same problem, used as a cross-check rather
-/// than an authority: where it converts a CSS property that Dowel refuses,
+/// than an authority: where it converts a CSS property that Hozo refuses,
 /// that refusal is worth re-reading even if React Native's types agree with
 /// us. Read from a clone under `temp/` (gitignored), so this is optional --
 /// absent, the audit just runs without the second column.
@@ -209,7 +209,7 @@ function repoRoot(): string {
 
 /**
  * The CSS properties react-native-css has a parser for -- its own answer to
- * "what can be lowered to a React Native style", keyed the way Dowel's
+ * "what can be lowered to a React Native style", keyed the way Hozo's
  * refusals are (by CSS property, not by RN style key).
  */
 export function reactNativeCssProperties(): Set<string> | undefined {

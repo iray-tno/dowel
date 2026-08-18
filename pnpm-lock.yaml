@@ -14,7 +14,7 @@ importers:
 
   examples/login-demo:
     dependencies:
-      '@dowel/core':
+      '@hozo/core':
         specifier: workspace:*
         version: link:../../packages/core
       react:
@@ -24,9 +24,9 @@ importers:
         specifier: ^19.2.8
         version: 19.2.8(react@19.2.8)
     devDependencies:
-      '@dowel/vite-plugin':
+      '@hozo/vite':
         specifier: workspace:*
-        version: link:../../packages/vite-plugin
+        version: link:../../packages/vite
       '@vitejs/plugin-react':
         specifier: ^6.0.5
         version: 6.0.5(vite@8.2.1(@types/node@26.2.0)(terser@5.50.0))
@@ -39,10 +39,10 @@ importers:
       '@babel/runtime':
         specifier: ^8.0.0
         version: 8.0.0
-      '@dowel/core':
+      '@hozo/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@dowel/runtime':
+      '@hozo/runtime':
         specifier: workspace:*
         version: link:../../packages/runtime
       react:
@@ -52,9 +52,9 @@ importers:
         specifier: ^0.87.0
         version: 0.87.0(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.8)
     devDependencies:
-      '@dowel/metro-transformer':
+      '@hozo/metro':
         specifier: workspace:*
-        version: link:../../packages/metro-transformer
+        version: link:../../packages/metro
       '@react-native/metro-babel-transformer':
         specifier: ^0.87.0
         version: 0.87.0(@babel/core@7.29.7)
@@ -82,22 +82,22 @@ importers:
 
   packages/core:
     dependencies:
-      '@dowel/a11y':
+      '@hozo/a11y':
         specifier: workspace:*
         version: link:../a11y
       react:
         specifier: ^19.0.0
         version: 19.2.8
 
-  packages/metro-transformer:
+  packages/metro:
     dependencies:
-      '@dowel/compiler':
+      '@hozo/compiler':
         specifier: workspace:*
         version: link:../compiler
-      '@dowel/runtime':
+      '@hozo/runtime':
         specifier: workspace:*
         version: link:../runtime
-      '@dowel/tailwind':
+      '@hozo/tailwind':
         specifier: workspace:^
         version: link:../tailwind
       '@react-native/metro-babel-transformer':
@@ -106,7 +106,7 @@ importers:
 
   packages/runtime:
     dependencies:
-      '@dowel/a11y':
+      '@hozo/a11y':
         specifier: workspace:^
         version: link:../a11y
     devDependencies:
@@ -126,22 +126,22 @@ importers:
         specifier: ^4.3.3
         version: 4.3.3
     devDependencies:
-      '@dowel/compiler':
+      '@hozo/compiler':
         specifier: workspace:*
         version: link:../compiler
 
   packages/tailwind-conformance:
     dependencies:
-      '@dowel/a11y':
+      '@hozo/a11y':
         specifier: workspace:^
         version: link:../a11y
-      '@dowel/compiler':
+      '@hozo/compiler':
         specifier: workspace:*
         version: link:../compiler
-      '@dowel/metro-transformer':
+      '@hozo/metro':
         specifier: workspace:^
-        version: link:../metro-transformer
-      '@dowel/runtime':
+        version: link:../metro
+      '@hozo/runtime':
         specifier: workspace:^
         version: link:../runtime
       tailwindcss:
@@ -167,12 +167,12 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
 
-  packages/vite-plugin:
+  packages/vite:
     dependencies:
-      '@dowel/compiler':
+      '@hozo/compiler':
         specifier: workspace:*
         version: link:../compiler
-      '@dowel/tailwind':
+      '@hozo/tailwind':
         specifier: workspace:^
         version: link:../tailwind
       vite:

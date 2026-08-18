@@ -4,7 +4,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react'
 
 import {
   createResponderDomProps,
-  type DowelResponderEvent,
+  type HozoResponderEvent,
   type ResponderProps,
 } from '../../core/src/responder.ts'
 import { PanResponder, type PanResponderGestureState } from '../../core/src/pan-responder.ts'
@@ -48,7 +48,7 @@ function pointer(currentTarget: FakeElement, pointerId: number, overrides = {}) 
 test('the Web responder bridge grants, moves, releases, and normalizes coordinates', () => {
   const target = element()
   const lifecycle: string[] = []
-  let moveEvent: DowelResponderEvent | undefined
+  let moveEvent: HozoResponderEvent | undefined
   const props: ResponderProps = {
     onStartShouldSetResponder: () => true,
     onResponderGrant: () => lifecycle.push('grant'),

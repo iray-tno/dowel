@@ -1,5 +1,5 @@
 // Prints the conformance report: per-group coverage and fidelity, plus
-// every individual mismatch. `pnpm --filter @dowel/tailwind-conformance report`
+// every individual mismatch. `pnpm --filter @hozo/tailwind-conformance report`
 
 import { auditRefusal, type RefusalAudit, type RefusalVerdict } from './audit.ts'
 import { CANDIDATE_GROUPS, ALL_CANDIDATES, stripVariant } from './candidates.ts'
@@ -17,7 +17,7 @@ import {
 } from './native-grid-contextual.ts'
 import { typeCheckStyles } from './typecheck.ts'
 import { classesDefinedIn, renderWeb } from './render.ts'
-import { compile as dowelCompile, compileNative } from '@dowel/compiler'
+import { compile as hozoCompile, compileNative } from '@hozo/compiler'
 import { buildOracle } from './oracle.ts'
 import { loadThemeVars, tailwindVersion } from './theme.ts'
 import { A11Y_CONTEXTUAL_CASES, compareA11yContextual } from './a11y-contextual.ts'
@@ -41,7 +41,7 @@ const count = (verdict: string, list: Comparison[] = all) => list.filter((r) => 
 const pct = (n: number, d: number) => (d === 0 ? '--' : `${((n / d) * 100).toFixed(1)}%`)
 
 console.log(`Tailwind conformance vs tailwindcss v${tailwindVersion()}\n`)
-console.log('== Web (dowel_web) ==')
+console.log('== Web (hozo_web) ==')
 // Stated up front so the Web numbers can't be read as covering both
 // backends: Tailwind only exists as CSS, so it can only be an oracle for
 // the Web lowering. The Native section below measures coverage only.
@@ -63,7 +63,7 @@ console.table(rows)
 const comparable = all.length - count('SKIPPED')
 const supported = count('MATCH') + count('MISMATCH')
 console.log(`Candidates:  ${all.length}   (comparable: ${comparable}, skipped: ${count('SKIPPED')})`)
-console.log(`Coverage:    ${supported}/${comparable} = ${pct(supported, comparable)}  (Dowel emits something)`)
+console.log(`Coverage:    ${supported}/${comparable} = ${pct(supported, comparable)}  (Hozo emits something)`)
 console.log(`Fidelity:    ${count('MATCH')}/${supported} = ${pct(count('MATCH'), supported)}  (of those, matches Tailwind exactly)`)
 
 const mismatches = all.filter((r) => r.verdict === 'MISMATCH')
@@ -106,7 +106,7 @@ if (skipped.length > 0) {
 // Native
 // ---------------------------------------------------------------------------
 
-console.log('\n\n== Native (dowel_native) ==')
+console.log('\n\n== Native (hozo_native) ==')
 console.log('Coverage only: Tailwind is CSS, so there is no oracle to check fidelity against.')
 console.log('REFUSED is a known gap named at build time; SILENT is one nothing reports.\n')
 
@@ -132,7 +132,7 @@ console.table(
 
 console.log(
   `Coverage:    ${nativeCount('COVERED')}/${nativeAll.length} = ` +
-    `${pct(nativeCount('COVERED'), nativeAll.length)}  (Dowel emits a style)`,
+    `${pct(nativeCount('COVERED'), nativeAll.length)}  (Hozo emits a style)`,
 )
 console.log(
   `Refused:     ${nativeCount('REFUSED')}   (named at build time; error, or warning where the ` +
@@ -237,7 +237,7 @@ for (const result of rnwFree) {
 // The number above is measured against a list we chose. This one is
 // measured against Tailwind's own, asked for through the same entry point
 // its IntelliSense extension uses -- so it can't be flattered by picking
-// the utilities Dowel happens to implement.
+// the utilities Hozo happens to implement.
 
 console.log('\n\n== Full catalogue (Tailwind enumerates its own surface) ==')
 
@@ -263,7 +263,7 @@ const catalogCounts: Record<Verdict, number> = {
 const byNamespace = new Map<string, NamespaceRow>()
 // Entries Tailwind lists but produces no standalone CSS for -- a gradient
 // stop with no gradient, a negative form of something that takes no
-// negative. There is nothing for Dowel to cover, so they leave the
+// negative. There is nothing for Hozo to cover, so they leave the
 // denominator. Tailwind decides this, not us.
 //
 // `COMPOSITION_ONLY` is the same situation one step later: Tailwind emits a
@@ -302,7 +302,7 @@ console.log(
 console.log(
   `Match:       ${catalogCounts.MATCH}/${catalogComparable} = ${pct(catalogCounts.MATCH, catalogComparable)}\n` +
     `Mismatch:    ${catalogCounts.MISMATCH}\n` +
-    `Unsupported: ${catalogCounts.UNSUPPORTED}   (Dowel emits nothing)\n` +
+    `Unsupported: ${catalogCounts.UNSUPPORTED}   (Hozo emits nothing)\n` +
     `Skipped:     ${catalogCounts.SKIPPED}   (one side wouldn't resolve; no claim made)`,
 )
 console.log(
@@ -334,8 +334,8 @@ console.log(
 // Refusal audit
 // ---------------------------------------------------------------------------
 //
-// The Native coverage number above is a ratio whose denominator Dowel picks:
-// a utility Dowel refuses leaves the numerator and the denominator together,
+// The Native coverage number above is a ratio whose denominator Hozo picks:
+// a utility Hozo refuses leaves the numerator and the denominator together,
 // so a wrong refusal never moves the percentage and nothing points at it.
 // This section takes the refusals apart against React Native's own types --
 // the same "ask the other tool to enumerate itself" move the full catalogue
@@ -356,7 +356,7 @@ for (const candidate of catalog) {
   if (native.verdict !== 'REFUSED') continue
   nativeRefusals += 1
   // Only WEB_ONLY refusals assert anything about React Native.
-  // VARIANT_NOT_WIRED already says "Dowel hasn't built this", which is not a
+  // VARIANT_NOT_WIRED already says "Hozo hasn't built this", which is not a
   // claim the types can contradict.
   if (native.code !== 'WEB_ONLY_PROPERTY_ON_NATIVE') continue
   const audit = auditRefusal(candidate, fullOracle.rules.get(candidate), fullVars)
@@ -404,7 +404,7 @@ if (partials.length > 0) {
 // ---------------------------------------------------------------------------
 //
 // The refusal audit above checks the denominator. This checks the
-// numerator, which nothing did until 2026-08-16: for every style Dowel
+// numerator, which nothing did until 2026-08-16: for every style Hozo
 // actually emits, `tsc` asks React Native's own declarations whether it
 // would be accepted. Same check an app would get, rather than this repo's
 // regex reading of the same file.
@@ -418,7 +418,7 @@ for (const candidate of catalog) {
   if (compareCandidate(candidate, expected, fullVars).verdict !== 'MATCH') continue
   for (const context of ['View', 'Text']) {
     const source =
-      `import { ${context} } from '@dowel/core'\n` +
+      `import { ${context} } from '@hozo/core'\n` +
       `export function C() { return <${context} className="${candidate}">x</${context}> }\n`
     const [result] = compileNative(source)
     if (!result) continue
@@ -462,9 +462,9 @@ const rendering: { name: string; jsx: string }[] = []
 const sheets = new Map<string, { candidate: string; css: string }>()
 ALL_CANDIDATES.forEach((candidate, index) => {
   const source =
-    `import { View } from '@dowel/core'\n` +
+    `import { View } from '@hozo/core'\n` +
     `export function C() { return <View className="${candidate}">x</View> }\n`
-  const [compiled] = dowelCompile(source)
+  const [compiled] = hozoCompile(source)
   if (!compiled) return
   const name = `C${index}`
   rendering.push({ name, jsx: compiled.jsx })
@@ -569,7 +569,7 @@ console.log(
     'Declarations, the selector matched, and the at-rules around it.\n\n' +
     `Match:       ${variantCount('MATCH')}\n` +
     `Mismatch:    ${variantCount('MISMATCH')}\n` +
-    `Unsupported: ${variantCount('UNSUPPORTED')}   (Dowel emits no rule)`,
+    `Unsupported: ${variantCount('UNSUPPORTED')}   (Hozo emits no rule)`,
 )
 for (const result of variantResults) {
   if (result.verdict === 'MATCH') continue

@@ -1,6 +1,6 @@
 // Deliberately opaque to the compiler: this is proposal §7's third tier.
 //
-// Dowel reads `className` from the AST, which is what lets it compile the
+// Hozo reads `className` from the AST, which is what lets it compile the
 // other two tiers away entirely -- but it can't read *this*, because the
 // class only exists as the return value of a function in another module.
 // The byte scan of the project finds `bg-blue-500` and `bg-slate-500`

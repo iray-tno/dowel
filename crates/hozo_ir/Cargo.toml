@@ -1,0 +1,9 @@
+[package]
+name = "hozo_ir"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Platform-independent intermediate representation shared across the Hozo compiler pipeline."
+
+[dependencies]

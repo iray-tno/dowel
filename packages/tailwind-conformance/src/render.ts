@@ -1,7 +1,7 @@
 // Renders the Web backend's output and returns the DOM it produces.
 //
-// Everything else in this package compares text: Dowel's CSS against
-// Tailwind's CSS, Dowel's styles against React Native's types. None of it
+// Everything else in this package compares text: Hozo's CSS against
+// Tailwind's CSS, Hozo's styles against React Native's types. None of it
 // establishes that the generated component *runs* -- that the JSX parses,
 // that it mounts, that the class the CSS defines is the class that reaches
 // the element. A compiler whose output has never been executed has a gap
@@ -44,7 +44,7 @@ export interface Rendered {
  * binary is already how the type-check runs. One process for the whole
  * batch, since starting it is the expensive part.
  *
- * The automatic JSX runtime matters here: Dowel's generated code has no
+ * The automatic JSX runtime matters here: Hozo's generated code has no
  * `React` in scope, and requiring one would mean testing something other
  * than what the compiler emits.
  */

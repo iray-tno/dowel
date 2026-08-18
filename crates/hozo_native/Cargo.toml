@@ -1,0 +1,11 @@
+[package]
+name = "hozo_native"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Hozo IR to React Native primitive/StyleSheet lowering (Native backend)."
+
+[dependencies]
+hozo_ir = { path = "../hozo_ir" }
+hozo_parser = { path = "../hozo_parser" }

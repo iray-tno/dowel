@@ -1,5 +1,5 @@
 // Normalizes a CSS declaration block into a canonical longhand map, so
-// Tailwind's output and Dowel's can be compared by meaning rather than by
+// Tailwind's output and Hozo's can be compared by meaning rather than by
 // spelling. The two differ constantly without disagreeing:
 //
 //   flex: 1                        vs  flex: 1 1 0%
@@ -50,7 +50,7 @@ function splitOne(decl: string): [string, string] {
  * Substitutes `var(--x)` / `var(--x, fallback)` using `vars`.
  * `--tw-*` properties are Tailwind's own runtime registers, declared via
  * `@property` with initial values; the two that matter for the utilities
- * Dowel supports are resolved here explicitly, and anything else `--tw-*`
+ * Hozo supports are resolved here explicitly, and anything else `--tw-*`
  * is left in place so the caller marks the rule unresolved.
  */
 function resolveVars(value: string, vars: Map<string, string>, depth = 0): string {
@@ -197,7 +197,7 @@ function evaluateArithmetic(expr: string): string | null {
  * so that its `/50` opacity modifier has somewhere to go, and at the
  * default 100% that wrapper carries no information. Folding it here rather
  * than reproducing it in the compiler keeps the workaround on the side
- * that has the reason for it -- Dowel has no `--tw-shadow-alpha` register
+ * that has the reason for it -- Hozo has no `--tw-shadow-alpha` register
  * to defer to, so it just writes the colour.
  *
  * Only the exact 100% case. Any other percentage is a real alpha change
@@ -242,7 +242,7 @@ function canonicalizeValue(value: string): string {
 /**
  * Block-axis logical properties only diverge from their physical
  * counterparts under a vertical `writing-mode`. React Native has no such
- * mode, so Dowel assumes horizontal throughout and lowers `py-*` to
+ * mode, so Hozo assumes horizontal throughout and lowers `py-*` to
  * top/bottom; treating the two as equal here reflects that project-wide
  * assumption rather than papering over a difference.
  *
@@ -264,7 +264,7 @@ function canonicalizePropertyName(prop: string): string {
 /**
  * Per-property canonicalization for values that are equivalent in CSS but
  * spelled differently. `opacity: 50%` and `opacity: 0.5` are the same
- * declaration; Tailwind writes the former, Dowel the latter.
+ * declaration; Tailwind writes the former, Hozo the latter.
  */
 function canonicalizeProperty(prop: string, value: string): string {
   if (prop === 'opacity') {
@@ -275,7 +275,7 @@ function canonicalizeProperty(prop: string, value: string): string {
   // Tailwind builds `filter` from a fixed list of slots
   // (`var(--tw-blur,) var(--tw-brightness,) ...`), most of which resolve to
   // nothing; collapse the leftover whitespace so one active filter compares
-  // equal to Dowel's single function.
+  // equal to Hozo's single function.
   if (prop === 'filter') return value.replace(/\s+/g, ' ').trim()
   return value
 }
@@ -283,7 +283,7 @@ function canonicalizeProperty(prop: string, value: string): string {
 /**
  * Tailwind's `box-shadow` always splices in its ring/inset-ring registers,
  * which default to `0 0 #0000` -- fully transparent, i.e. no shadow at all.
- * Dropping them lets a rule with one real shadow compare equal to Dowel's,
+ * Dropping them lets a rule with one real shadow compare equal to Hozo's,
  * which emits only that shadow.
  */
 function dropNoOpShadowLayers(value: string): string {
@@ -404,7 +404,7 @@ function expandFlex(value: string): Array<[string, string]> {
   // The two-value form is ambiguous and the spec resolves it by type: a
   // number is the shrink factor, anything else is the basis. Reading it
   // positionally made Tailwind's `flex: 0 auto` (which is exactly
-  // `flex: 0 1 auto`) look like a mismatch against Dowel's longhand.
+  // `flex: 0 1 auto`) look like a mismatch against Hozo's longhand.
   const grow = parts[0]
   let shrink = '1'
   let basis = '0%'
@@ -480,7 +480,7 @@ export function normalize(block: string, vars: Map<string, string>): Normalized 
 
 /**
  * Tailwind states a text size's line-height as a unitless ratio of its own
- * font size; Dowel resolves it to px. With the font size present in the
+ * font size; Hozo resolves it to px. With the font size present in the
  * same rule the two are directly comparable, so fold the ratio here.
  */
 function applyLineHeightRatio(declarations: Map<string, string>): void {

@@ -1,12 +1,12 @@
 [workspace]
 resolver = "2"
 members = [
-  "crates/dowel_cache",
-  "crates/dowel_ir",
-  "crates/dowel_parser",
-  "crates/dowel_web",
-  "crates/dowel_native",
-  "crates/dowel_napi",
+  "crates/hozo_cache",
+  "crates/hozo_ir",
+  "crates/hozo_parser",
+  "crates/hozo_web",
+  "crates/hozo_native",
+  "crates/hozo_napi",
 ]
 
 [workspace.package]

@@ -1,6 +1,6 @@
 import { useEffect, useRef, type PointerEvent as ReactPointerEvent, type PointerEventHandler, type RefObject } from 'react'
 
-export interface DowelResponderTouch {
+export interface HozoResponderTouch {
   identifier: number
   locationX: number
   locationY: number
@@ -10,17 +10,17 @@ export interface DowelResponderTouch {
   timestamp: number
 }
 
-export interface DowelResponderEvent {
-  nativeEvent: DowelResponderTouch & {
-    changedTouches: DowelResponderTouch[]
-    touches: DowelResponderTouch[]
+export interface HozoResponderEvent {
+  nativeEvent: HozoResponderTouch & {
+    changedTouches: HozoResponderTouch[]
+    touches: HozoResponderTouch[]
   }
-  touchHistory: DowelTouchHistory
+  touchHistory: HozoTouchHistory
   preventDefault(): void
   stopPropagation(): void
 }
 
-export interface DowelTouchTrack {
+export interface HozoTouchTrack {
   touchActive: boolean
   currentPageX: number
   currentPageY: number
@@ -30,26 +30,26 @@ export interface DowelTouchTrack {
   previousTimeStamp: number
 }
 
-export interface DowelTouchHistory {
-  touchBank: DowelTouchTrack[]
+export interface HozoTouchHistory {
+  touchBank: HozoTouchTrack[]
   numberActiveTouches: number
   indexOfSingleActiveTouch: number
   mostRecentTimeStamp: number
 }
 
 export interface ResponderProps {
-  onStartShouldSetResponder?: (event: DowelResponderEvent) => boolean
-  onStartShouldSetResponderCapture?: (event: DowelResponderEvent) => boolean
-  onMoveShouldSetResponder?: (event: DowelResponderEvent) => boolean
-  onMoveShouldSetResponderCapture?: (event: DowelResponderEvent) => boolean
-  onResponderGrant?: (event: DowelResponderEvent) => void
-  onResponderStart?: (event: DowelResponderEvent) => void
-  onResponderMove?: (event: DowelResponderEvent) => void
-  onResponderEnd?: (event: DowelResponderEvent) => void
-  onResponderRelease?: (event: DowelResponderEvent) => void
-  onResponderReject?: (event: DowelResponderEvent) => void
-  onResponderTerminate?: (event: DowelResponderEvent) => void
-  onResponderTerminationRequest?: (event: DowelResponderEvent) => boolean
+  onStartShouldSetResponder?: (event: HozoResponderEvent) => boolean
+  onStartShouldSetResponderCapture?: (event: HozoResponderEvent) => boolean
+  onMoveShouldSetResponder?: (event: HozoResponderEvent) => boolean
+  onMoveShouldSetResponderCapture?: (event: HozoResponderEvent) => boolean
+  onResponderGrant?: (event: HozoResponderEvent) => void
+  onResponderStart?: (event: HozoResponderEvent) => void
+  onResponderMove?: (event: HozoResponderEvent) => void
+  onResponderEnd?: (event: HozoResponderEvent) => void
+  onResponderRelease?: (event: HozoResponderEvent) => void
+  onResponderReject?: (event: HozoResponderEvent) => void
+  onResponderTerminate?: (event: HozoResponderEvent) => void
+  onResponderTerminationRequest?: (event: HozoResponderEvent) => boolean
 }
 
 interface Registration {
@@ -71,7 +71,7 @@ interface PointerSnapshot {
 }
 
 const activePointers = new Map<number, PointerSnapshot>()
-const pointerHistory = new Map<number, DowelTouchTrack>()
+const pointerHistory = new Map<number, HozoTouchTrack>()
 const trackedEvents = new WeakSet<object>()
 let globalCleanupInstalled = false
 
@@ -160,9 +160,9 @@ function releaseRegistration(props: RefObject<ResponderProps>) {
   }
 }
 
-function responderEvent(event: ReactPointerEvent<HTMLElement>, ended = false): DowelResponderEvent {
+function responderEvent(event: ReactPointerEvent<HTMLElement>, ended = false): HozoResponderEvent {
   const rect = event.currentTarget.getBoundingClientRect()
-  const toTouch = (pointer: PointerSnapshot): DowelResponderTouch => ({
+  const toTouch = (pointer: PointerSnapshot): HozoResponderTouch => ({
     identifier: pointer.identifier,
     locationX: pointer.clientX - rect.left,
     locationY: pointer.clientY - rect.top,
@@ -268,7 +268,7 @@ export function createResponderDomProps<T extends HTMLElement>(
   if (!enabled) return {}
 
   const negotiate = (
-    shouldSet: ((event: DowelResponderEvent) => boolean) | undefined,
+    shouldSet: ((event: HozoResponderEvent) => boolean) | undefined,
     event: ReactPointerEvent<T>,
   ) => {
     const element = elementRef.current

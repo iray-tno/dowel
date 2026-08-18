@@ -14,13 +14,13 @@
 // the declarations, the selector the rule matches, and the at-rules around
 // it. The last two are the ones nothing else looks at.
 
-import { compile as dowelCompile } from '@dowel/compiler'
+import { compile as hozoCompile } from '@hozo/compiler'
 import { extractRules } from './extract.ts'
 import { normalize } from './normalize.ts'
 import { buildOracle } from './oracle.ts'
 import { loadThemeVars } from './theme.ts'
 
-/** The variants Dowel claims to know, plus a few it doesn't. */
+/** The variants Hozo claims to know, plus a few it doesn't. */
 const VARIANTS = [
   'hover',
   'focus',
@@ -98,10 +98,10 @@ export async function buildVariantCatalog(): Promise<VariantCatalog> {
 
 export function compareVariant(entry: VariantCase, vars: Map<string, string>): VariantVerdict {
   const source =
-    `import { View } from '@dowel/core'\n` +
+    `import { View } from '@hozo/core'\n` +
     `const el = <View className="${entry.candidate}" />\n`
-  const [compiled] = dowelCompile(source)
-  const actual = compiled ? shapesFor(compiled.css, /\.dowel-\d+/.source, true) : []
+  const [compiled] = hozoCompile(source)
+  const actual = compiled ? shapesFor(compiled.css, /\.hozo-\d+/.source, true) : []
   if (actual.length === 0) {
     return { candidate: entry.candidate, verdict: 'UNSUPPORTED' }
   }
@@ -137,7 +137,7 @@ export function compareVariant(entry: VariantCase, vars: Map<string, string>): V
 
 /**
  * `@media (width >= 48rem)` and `@media (min-width: 768px)` are the same
- * query written two ways -- Tailwind's range syntax and Dowel's.
+ * query written two ways -- Tailwind's range syntax and Hozo's.
  *
  * Rewritten rather than accepted as a difference: it is a spelling, and
  * leaving it in place would drown every real one.
@@ -154,7 +154,7 @@ function canonicalAtRule(rule: string): string {
  *
  * Through the shared normalizer rather than a local split, so a theme
  * token resolves the same way it does everywhere else -- comparing the raw
- * text put `var(--color-blue-500)` against the `oklch()` Dowel writes and
+ * text put `var(--color-blue-500)` against the `oklch()` Hozo writes and
  * called every coloured utility a mismatch.
  */
 function declarationText(declarations: string, vars: Map<string, string>): string {
@@ -176,9 +176,9 @@ function shapesFor(css: string, className: string, isPattern = false): RuleShape
   const shapes: RuleShape[] = []
   for (const rule of extractRules(css)) {
     if (!target.test(rule.selector)) continue
-    // The base `.dowel-view` rule is View's own semantics, not this
+    // The base `.hozo-view` rule is View's own semantics, not this
     // candidate's.
-    if (rule.selector === '.dowel-view') continue
+    if (rule.selector === '.hozo-view') continue
     shapes.push({
       atRules: rule.atRules.filter((at) => !at.startsWith('@layer')),
       suffix: rule.selector.replace(target, '&').replace(/^&/, ''),

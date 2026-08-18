@@ -7,7 +7,7 @@ import test from 'node:test'
 import { discoverSources, scanProject, writeFileIfChanged } from './project.ts'
 
 function project(): string {
-  return mkdtempSync(path.join(tmpdir(), 'dowel-project-'))
+  return mkdtempSync(path.join(tmpdir(), 'hozo-project-'))
 }
 
 function source(root: string, relative: string, text = 'export const x = "p-4"'): string {

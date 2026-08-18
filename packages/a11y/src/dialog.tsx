@@ -1,4 +1,4 @@
-// The Web half of Dowel's Dialog (proposal §10.3), which names it as v1's
+// The Web half of Hozo's Dialog (proposal §10.3), which names it as v1's
 // first hard primitive and sets the quality bar at: initial focus, focus
 // trap, focus restoration, Escape, modal semantics, background inert,
 // screen reader behaviour.
@@ -9,14 +9,14 @@
 // browser -- the proposal's own principle is «prefer platform semantics
 // over compatibility emulation», and a hand-rolled focus trap is the
 // canonical example of emulation that is subtly wrong forever. What's left
-// for Dowel to decide is where focus starts and where it goes back to,
+// for Hozo to decide is where focus starts and where it goes back to,
 // which is `./focus.ts`.
 
 import { useEffect, useRef, type ReactNode } from 'react'
 
 import { shouldRestoreFocus } from './focus.ts'
 
-export interface DowelDialogProps {
+export interface HozoDialogProps {
   /** Whether the dialog is showing. Render is driven by this, not by mounting. */
   open?: boolean
   /**
@@ -32,14 +32,14 @@ export interface DowelDialogProps {
   children?: ReactNode
 }
 
-export function DowelDialog({
+export function HozoDialog({
   open = false,
   onClose,
   accessibilityLabel,
   accessibilityHint,
   className,
   children,
-}: DowelDialogProps) {
+}: HozoDialogProps) {
   const ref = useRef<HTMLDialogElement | null>(null)
   // Captured on open rather than read on close: by the time the dialog
   // closes, the thing that opened it may be gone -- a confirm action that

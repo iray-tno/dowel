@@ -1,4 +1,4 @@
-import { compile, compileNative } from '@dowel/compiler'
+import { compile, compileNative } from '@hozo/compiler'
 
 interface RnwFreeCase {
   primitive: string
@@ -69,7 +69,7 @@ export const RNW_FREE_CASES: RnwFreeCase[] = [
     primitive: 'Link',
     jsx: '<Link href="https://example.com">Docs</Link>',
     webMarker: '<a',
-    nativeMarker: '<DowelLink',
+    nativeMarker: '<HozoLink',
   },
   {
     primitive: 'TextInput',
@@ -80,14 +80,14 @@ export const RNW_FREE_CASES: RnwFreeCase[] = [
   {
     primitive: 'Dialog',
     jsx: '<Dialog open={showing} onClose={dismiss} accessibilityLabel="Confirm" />',
-    webMarker: '<DowelDialog',
-    nativeMarker: '<DowelDialog',
+    webMarker: '<HozoDialog',
+    nativeMarker: '<HozoDialog',
   },
 ]
 
 export function compareRnwFree(testCase: RnwFreeCase): RnwFreeResult {
   const source =
-    `import { View, Text, Paragraph, Heading, Section, Article, Nav, List, ListItem, Button, Pressable, Link, TextInput, Dialog, Image, ScrollView, FlatList } from '@dowel/core'\n` +
+    `import { View, Text, Paragraph, Heading, Section, Article, Nav, List, ListItem, Button, Pressable, Link, TextInput, Dialog, Image, ScrollView, FlatList } from '@hozo/core'\n` +
     `export function C() { return ${testCase.jsx} }\n`
   const [web] = compile(source)
   const [native] = compileNative(source)

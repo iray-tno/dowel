@@ -1,4 +1,4 @@
-import { compileNative } from '@dowel/compiler'
+import { compileNative } from '@hozo/compiler'
 
 export type ContextualVerdict = 'COVERED' | 'REFUSED' | 'SILENT'
 
@@ -19,25 +19,25 @@ export const NATIVE_CONTEXTUAL_CASES: NativeContextualCase[] = [
     candidate: 'transition',
     purpose: 'default transition drives an interactive transform',
     className: 'transition hover:scale-95',
-    expected: ['DowelPressable', 'duration: 150', 'transform: true'],
+    expected: ['HozoPressable', 'duration: 150', 'transform: true'],
   },
   {
     candidate: 'duration-200',
     purpose: 'duration override drives an interactive background colour',
     className: 'bg-white transition duration-200 hover:bg-blue-500',
-    expected: ['DowelPressable', 'duration: 200', 'colors: true'],
+    expected: ['HozoPressable', 'duration: 200', 'colors: true'],
   },
   {
     candidate: 'ease-in-out',
     purpose: 'easing override reaches inherited Animated.Text colour',
     className: 'text-gray-500 transition ease-in-out hover:text-blue-500',
-    expected: ["easing: 'ease-in-out'", 'DowelText', 'colors: true'],
+    expected: ["easing: 'ease-in-out'", 'HozoText', 'colors: true'],
   },
 ]
 
 export function compareNativeContextual(testCase: NativeContextualCase): NativeContextualResult {
   const source =
-    `import { Pressable } from '@dowel/core'\n` +
+    `import { Pressable } from '@hozo/core'\n` +
     `export function C() {\n` +
     `  return <Pressable accessibilityRole="button" className="${testCase.className}">x</Pressable>\n` +
     `}\n`

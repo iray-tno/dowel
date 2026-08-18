@@ -1,11 +1,11 @@
 {
-  "name": "@dowel/core",
+  "name": "@hozo/core",
   "version": "0.0.0",
   "private": true,
-  "description": "Canonical primitives and semantic components for new Dowel projects.",
+  "description": "Canonical primitives and semantic components for new Hozo projects.",
   "license": "MIT",
   "dependencies": {
-    "@dowel/a11y": "workspace:*"
+    "@hozo/a11y": "workspace:*"
   },
   "type": "module",
   "main": "./src/index.tsx",

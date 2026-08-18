@@ -1,4 +1,4 @@
-// The React Native half of Dowel's Dialog (proposal §10.3).
+// The React Native half of Hozo's Dialog (proposal §10.3).
 //
 // Same shape as the Web one and the same posture: delegate. React Native's
 // `Modal` is the platform's modal, and `accessibilityViewIsModal` is what
@@ -21,7 +21,7 @@
 import { Modal, View } from 'react-native'
 import type { ReactNode } from 'react'
 
-export interface DowelDialogProps {
+export interface HozoDialogProps {
   open?: boolean
   onClose?: () => void
   accessibilityLabel?: string
@@ -30,14 +30,14 @@ export interface DowelDialogProps {
   children?: ReactNode
 }
 
-export function DowelDialog({
+export function HozoDialog({
   open = false,
   onClose,
   accessibilityLabel,
   accessibilityHint,
   style,
   children,
-}: DowelDialogProps) {
+}: HozoDialogProps) {
   return (
     <Modal
       visible={open}

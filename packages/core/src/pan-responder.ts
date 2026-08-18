@@ -1,7 +1,7 @@
 import type {
-  DowelResponderEvent,
-  DowelTouchHistory,
-  DowelTouchTrack,
+  HozoResponderEvent,
+  HozoTouchHistory,
+  HozoTouchTrack,
   ResponderProps,
 } from './responder.ts'
 
@@ -19,8 +19,8 @@ export interface PanResponderGestureState {
   _accountsForMovesUpTo: number
 }
 
-type ActiveCallback = (event: DowelResponderEvent, state: PanResponderGestureState) => boolean
-type PassiveCallback = (event: DowelResponderEvent, state: PanResponderGestureState) => unknown
+type ActiveCallback = (event: HozoResponderEvent, state: PanResponderGestureState) => boolean
+type PassiveCallback = (event: HozoResponderEvent, state: PanResponderGestureState) => unknown
 
 export interface PanResponderCallbacks {
   onMoveShouldSetPanResponder?: ActiveCallback
@@ -46,7 +46,7 @@ export interface PanResponderInstance {
 let nextStateID = 1
 
 function centroidDimension(
-  history: DowelTouchHistory,
+  history: HozoTouchHistory,
   changedAfter: number,
   axis: 'x' | 'y',
   current: boolean,
@@ -69,7 +69,7 @@ function centroidDimension(
   return count > 0 ? total / count : -1
 }
 
-function coordinate(track: DowelTouchTrack, axis: 'x' | 'y', current: boolean) {
+function coordinate(track: HozoTouchTrack, axis: 'x' | 'y', current: boolean) {
   if (current) return axis === 'x' ? track.currentPageX : track.currentPageY
   return axis === 'x' ? track.previousPageX : track.previousPageY
 }
@@ -102,7 +102,7 @@ export const PanResponder = {
       numberActiveTouches: 0,
       _accountsForMovesUpTo: 0,
     }
-    const updateMove = (event: DowelResponderEvent) => {
+    const updateMove = (event: HozoResponderEvent) => {
       const history = event.touchHistory
       const timestamp = history.mostRecentTimeStamp
       if (gestureState._accountsForMovesUpTo === timestamp) return false

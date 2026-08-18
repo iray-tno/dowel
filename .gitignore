@@ -7,8 +7,8 @@ dist-ssr/
 .turbo/
 *.log
 
-# Dowel build artifacts
-*.dowel.css
+# Hozo build artifacts
+*.hozo.css
 *.node
 
 # Rust

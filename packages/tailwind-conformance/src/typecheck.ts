@@ -1,10 +1,10 @@
 // Type-checks the Native backend's *output* against React Native's own
 // types.
 //
-// The refusal audit checks the denominator: for everything Dowel declines
+// The refusal audit checks the denominator: for everything Hozo declines
 // to lower, it asks React Native's types whether that refusal is honest.
 // This is the other half, and it had been missing the whole time -- for
-// everything Dowel *does* lower, nothing ever checked that the style it
+// everything Hozo *does* lower, nothing ever checked that the style it
 // emits is one React Native would accept. Every key and value was the
 // compiler's own say-so, verified against a surface this repo extracts with
 // a regex.
@@ -80,7 +80,7 @@ export function typeCheckStyles(entries: { candidate: string; style: string }[])
           strict: true,
           // React Native's own declarations don't pass `skipLibCheck: false`
           // cleanly, and their internal consistency isn't what's being
-          // measured here -- Dowel's output against them is.
+          // measured here -- Hozo's output against them is.
           skipLibCheck: true,
           moduleResolution: 'bundler',
           module: 'esnext',

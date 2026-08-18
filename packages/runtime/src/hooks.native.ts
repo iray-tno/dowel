@@ -2,7 +2,7 @@
 // logic worth testing lives there, free of `react`/`react-native` imports
 // so it can be tested without a device or a native module registry. This
 // file is the part that can only be verified by running an app, same
-// division as `@dowel/metro-transformer`'s `index.ts`.
+// division as `@hozo/metro`'s `index.ts`.
 //
 // Generated components call these; nothing here is meant to be imported by
 // hand.
@@ -45,7 +45,7 @@ Dimensions.addEventListener('change', ({ window }) => {
 })
 
 /** Whether the OS is in dark mode. Drives `dark:` utilities. */
-export function useDowelDark(): boolean {
+export function useHozoDark(): boolean {
   return useSyncExternalStore(darkStore.subscribe, darkStore.get, darkStore.get)
 }
 
@@ -55,9 +55,9 @@ export function useDowelDark(): boolean {
  *
  * Takes the name rather than returning the current bucket so the call
  * reads as the condition it was compiled from: `md:` becomes
- * `useDowelBreakpoint('md')`.
+ * `useHozoBreakpoint('md')`.
  */
-export function useDowelBreakpoint(name: BreakpointName): boolean {
+export function useHozoBreakpoint(name: BreakpointName): boolean {
   const bucket = useSyncExternalStore(
     breakpointStore.subscribe,
     breakpointStore.get,
@@ -68,7 +68,7 @@ export function useDowelBreakpoint(name: BreakpointName): boolean {
 
 /**
  * The current window size. Drives the viewport-relative sizes -- `h-screen`
- * compiles to `{ height: useDowelViewport().height }`.
+ * compiles to `{ height: useHozoViewport().height }`.
  *
  * The window, not the screen: the window excludes system UI the app can't
  * draw under, which is the closer analogue of the Web viewport. It does not
@@ -80,12 +80,12 @@ export function useDowelBreakpoint(name: BreakpointName): boolean {
  * has to track the window exactly, and it's why this is a separate store
  * rather than the breakpoints being rebuilt on top of it.
  */
-export function useDowelViewport(): Viewport {
+export function useHozoViewport(): Viewport {
   return useSyncExternalStore(viewportStore.subscribe, viewportStore.get, viewportStore.get)
 }
 
 /** Tailwind's `animate-spin`: one clockwise turn per second, forever. */
-export function useDowelSpin() {
+export function useHozoSpin() {
   const progress = useRef(new Animated.Value(0)).current
 
   useEffect(() => {

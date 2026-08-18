@@ -1,4 +1,4 @@
-import { compileNative } from '@dowel/compiler'
+import { compileNative } from '@hozo/compiler'
 
 import type { ContextualVerdict } from './native-contextual.ts'
 
@@ -19,7 +19,7 @@ export interface NativeGridContextualResult extends NativeGridContextualCase {
  * Grid utilities are intentionally refused in isolation: React Native has no
  * style object that can carry `display: grid`. In a grid container, however,
  * the compiler lowers the container and its item metadata together to the
- * Dowel solver. These cases measure that contextual contract separately from
+ * Hozo solver. These cases measure that contextual contract separately from
  * the one-utility Native coverage number.
  */
 export const NATIVE_GRID_CONTEXTUAL_CASES: NativeGridContextualCase[] = [
@@ -36,10 +36,10 @@ export const NATIVE_GRID_CONTEXTUAL_CASES: NativeGridContextualCase[] = [
     className: 'grid grid-cols-1 gap-2 md:grid-cols-3 md:gap-4',
     children: '<View /><View /><View />',
     expected: [
-      'useDowelBreakpoint',
-      '__dowelBp_md ?',
-      'columnGap={__dowelBp_md ? 16 : (8)}',
-      'rowGap={__dowelBp_md ? 16 : (8)}',
+      'useHozoBreakpoint',
+      '__hozoBp_md ?',
+      'columnGap={__hozoBp_md ? 16 : (8)}',
+      'rowGap={__hozoBp_md ? 16 : (8)}',
     ],
   },
   {
@@ -48,7 +48,7 @@ export const NATIVE_GRID_CONTEXTUAL_CASES: NativeGridContextualCase[] = [
     className: 'grid grid-cols-3 gap-4',
     children: '<View /><View /><View /><View />',
     expected: [
-      'DowelGrid',
+      'HozoGrid',
       "{ kind: 'fr', value: 1 }",
       'columnGap={16}',
       'rowGap={16}',
@@ -70,14 +70,14 @@ export const NATIVE_GRID_CONTEXTUAL_CASES: NativeGridContextualCase[] = [
     purpose: 'column lines and spans become solver item metadata',
     className: 'grid grid-cols-3',
     children: '<View className="col-start-2 col-end-4" /><View />',
-    expected: ['DowelGridItem', 'columnSpan={2}', 'columnStart={1}'],
+    expected: ['HozoGridItem', 'columnSpan={2}', 'columnStart={1}'],
   },
   {
     name: 'measured row span',
     purpose: 'row spans opt into the measured two-dimensional renderer',
     className: 'grid grid-cols-2 gap-2',
     children: '<View className="row-span-2" /><View /><View />',
-    expected: ['DowelGridItem', 'rowSpan={2}'],
+    expected: ['HozoGridItem', 'rowSpan={2}'],
   },
   {
     name: 'explicit rows and full span',
@@ -96,7 +96,7 @@ export function compareNativeGridContextual(
   testCase: NativeGridContextualCase,
 ): NativeGridContextualResult {
   const source =
-    `import { View } from '@dowel/core'\n` +
+    `import { View } from '@hozo/core'\n` +
     `export function C() {\n` +
     `  return <View className="${testCase.className}">${testCase.children}</View>\n` +
     `}\n`

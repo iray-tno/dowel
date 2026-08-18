@@ -1,8 +1,8 @@
-// Audits Dowel's Native refusals against React Native's own type surface.
+// Audits Hozo's Native refusals against React Native's own type surface.
 //
 // `unsupported_on_native()` refuses thousands of utilities, and until now
-// every one of those refusals was unchecked: Dowel decided what React Native
-// can't do, and then Dowel's report counted its own decisions as the
+// every one of those refusals was unchecked: Hozo decided what React Native
+// can't do, and then Hozo's report counted its own decisions as the
 // denominator. A wrong refusal is invisible that way -- it removes a utility
 // from the numerator *and* the denominator at once, so the percentage never
 // moves and nothing ever points at it.
@@ -46,7 +46,7 @@ function expressible(property: string, value: string): { ok: boolean; reason?: s
   if (key === undefined) return { ok: false, reason: 'no such style key' }
   // A closed union of string literals is the only case where the type says
   // anything useful about values. Everything else -- numbers, colours,
-  // dimensions -- is a conversion question Dowel already answers elsewhere,
+  // dimensions -- is a conversion question Hozo already answers elsewhere,
   // not an expressibility one.
   const text = value.trim()
   const numeric = /^-?[\d.]+(px)?$/.test(text)
@@ -78,7 +78,7 @@ function expressible(property: string, value: string): { ok: boolean; reason?: s
 const ACKNOWLEDGED_REFUSALS: Record<string, string> = {
   'bg-none': `\`backgroundImage\` is typed \`ReadonlyArray<BackgroundImageValue> | string\`,
     which a string can satisfy -- but React Native's value there is a list of
-    gradients, and \`none\` is not one of them. Dowel emits no gradients on
+    gradients, and \`none\` is not one of them. Hozo emits no gradients on
     Native either, so there is nothing for this to clear.`,
   'aspect-auto': `\`aspectRatio\` is typed \`number | string\`, so the types can't rule out
     \`auto\` -- but React Native has no auto aspect ratio, and passing the

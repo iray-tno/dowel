@@ -19,16 +19,16 @@ interface Props {
 }
 
 /**
- * The first renderer for Dowel's grid solver boundary. It needs no
+ * The first renderer for Hozo's grid solver boundary. It needs no
  * measurement: fixed tracks and fr tracks are solved by one Yoga flex row.
  * Empty cells preserve track widths on the final row.
  */
-export function DowelGrid({ tracks, rowTracks = [], columnGap = 0, rowGap = 0, children }: Props): ReactNode {
+export function HozoGrid({ tracks, rowTracks = [], columnGap = 0, rowGap = 0, children }: Props): ReactNode {
   const [width, setWidth] = useState(0)
   const [heights, setHeights] = useState<number[]>([])
   const list = Children.toArray(children)
   const placements = list.map((child) =>
-    isValidElement<ItemProps>(child) && child.type === DowelGridItem
+    isValidElement<ItemProps>(child) && child.type === HozoGridItem
       ? {
           span: child.props.columnSpan ?? 1,
           columnStart: child.props.columnStart,
@@ -104,13 +104,13 @@ interface ItemProps {
   children?: ReactNode
 }
 
-/** Compiler marker consumed by DowelGrid; outside one it is an identity wrapper. */
-export function DowelGridItem({ children }: ItemProps): ReactNode {
+/** Compiler marker consumed by HozoGrid; outside one it is an identity wrapper. */
+export function HozoGridItem({ children }: ItemProps): ReactNode {
   return children
 }
 
 function unwrapGridItem(child: ReactNode): ReactNode {
-  return isValidElement<ItemProps>(child) && child.type === DowelGridItem
+  return isValidElement<ItemProps>(child) && child.type === HozoGridItem
     ? child.props.children
     : child
 }

@@ -1,0 +1,22 @@
+[package]
+name = "hozo_napi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Node native binding exposing the Hozo compiler to JS build tooling."
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+hozo_cache = { path = "../hozo_cache" }
+hozo_ir = { path = "../hozo_ir" }
+hozo_native = { version = "0.0.0", path = "../hozo_native" }
+hozo_parser = { path = "../hozo_parser" }
+hozo_web = { path = "../hozo_web" }
+napi = "3.12.1"
+napi-derive = "3.6.3"
+
+[build-dependencies]
+napi-build = "2.4.1"

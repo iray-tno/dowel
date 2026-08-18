@@ -1,4 +1,4 @@
-// The `TextInput` half of `@dowel/core`'s fallback primitives, kept in its
+// The `TextInput` half of `@hozo/core`'s fallback primitives, kept in its
 // own file because it carries an accessibility rule the others don't.
 //
 // See `./index.tsx` for why these fallbacks exist at all: the compiler's

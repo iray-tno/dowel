@@ -52,7 +52,7 @@ test('warns once for a class the compiler recognized but cannot express', () => 
 })
 
 test('stays silent on a class it never recognized', () => {
-  // Could be the app's own non-Tailwind class; not Dowel's business.
+  // Could be the app's own non-Tailwind class; not Hozo's business.
   const cx = createClassResolver(STYLES)
   const warn = mock.method(console, 'warn', () => {})
   try {

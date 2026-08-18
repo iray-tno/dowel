@@ -1,6 +1,6 @@
-// Real, working fallback implementations of Dowel's canonical primitives
+// Real, working fallback implementations of Hozo's canonical primitives
 // (proposal §2.3: "fall back gracefully" -- these run as plain React
-// components whenever the Dowel compiler doesn't (or can't yet) fully
+// components whenever the Hozo compiler doesn't (or can't yet) fully
 // lower a given usage, not just when it's totally absent). The compiler's
 // job is to make invoking these at runtime unnecessary where it can, not
 // to make them required.
@@ -9,24 +9,24 @@ import { useEffect, useRef, useState, type MouseEventHandler, type ReactNode, ty
 import { useResponderDomProps, type ResponderProps } from './responder.ts'
 
 export type {
-  DowelResponderEvent,
-  DowelResponderTouch,
-  DowelTouchHistory,
-  DowelTouchTrack,
+  HozoResponderEvent,
+  HozoResponderTouch,
+  HozoTouchHistory,
+  HozoTouchTrack,
   ResponderProps,
 } from './responder.ts'
 export { PanResponder } from './pan-responder.ts'
 export type { PanResponderCallbacks, PanResponderGestureState, PanResponderInstance } from './pan-responder.ts'
 
-export interface DowelLayoutRectangle {
+export interface HozoLayoutRectangle {
   x: number
   y: number
   width: number
   height: number
 }
 
-export interface DowelLayoutEvent {
-  nativeEvent: { layout: DowelLayoutRectangle }
+export interface HozoLayoutEvent {
+  nativeEvent: { layout: HozoLayoutRectangle }
 }
 
 export interface UniversalProps {
@@ -44,7 +44,7 @@ export interface UniversalProps {
   accessibilityLiveRegion?: 'none' | 'polite' | 'assertive'
   accessibilityLabel?: string
   accessibilityHint?: string
-  onLayout?: (event: DowelLayoutEvent) => void
+  onLayout?: (event: HozoLayoutEvent) => void
 }
 
 function universalDomProps(props: UniversalProps) {
@@ -53,7 +53,7 @@ function universalDomProps(props: UniversalProps) {
   return {
     'data-testid': props.testID,
     id: props.nativeID,
-    'data-dowel-pointer-events': props.pointerEvents,
+    'data-hozo-pointer-events': props.pointerEvents,
     'aria-disabled': state?.disabled,
     'aria-selected': state?.selected,
     'aria-checked': state?.checked,
@@ -69,7 +69,7 @@ function universalDomProps(props: UniversalProps) {
   } as const
 }
 
-function useLayoutRef<T extends HTMLElement>(onLayout?: (event: DowelLayoutEvent) => void) {
+function useLayoutRef<T extends HTMLElement>(onLayout?: (event: HozoLayoutEvent) => void) {
   const elementRef = useRef<T>(null)
   const callbackRef = useRef(onLayout)
   callbackRef.current = onLayout
@@ -99,7 +99,7 @@ function useLayoutRef<T extends HTMLElement>(onLayout?: (event: DowelLayoutEvent
 }
 
 function useScrollHandler<T extends HTMLElement>(
-  onScroll?: (event: DowelScrollEvent) => void,
+  onScroll?: (event: HozoScrollEvent) => void,
   scrollEventThrottle = 0,
 ): UIEventHandler<T> | undefined {
   const lastEmission = useRef(0)
@@ -195,9 +195,9 @@ export function ListItem({ className, children, onLayout, ...universal }: ViewPr
 export interface ImageProps extends UniversalProps {
   className?: string
   /** URL/import on Web; URI metadata or Metro's numeric asset id on Native. */
-  src: DowelImageSource
+  src: HozoImageSource
   /** Native loading placeholder; Web uses it when the primary source fails or cannot be resolved. */
-  defaultSource?: DowelImageSource
+  defaultSource?: HozoImageSource
   /** Empty string marks a decorative image. */
   alt?: string
   accessibilityLabel?: string
@@ -205,15 +205,15 @@ export interface ImageProps extends UniversalProps {
   onError?: (event: unknown) => void
 }
 
-export interface DowelImageSourceObject {
+export interface HozoImageSourceObject {
   uri?: string
   /** ESM namespace shape returned by some asset bundlers. */
   default?: string
 }
 
-export type DowelImageSource = string | number | DowelImageSourceObject | readonly DowelImageSourceObject[]
+export type HozoImageSource = string | number | HozoImageSourceObject | readonly HozoImageSourceObject[]
 
-function webImageSource(source?: DowelImageSource): string | undefined {
+function webImageSource(source?: HozoImageSource): string | undefined {
   if (typeof source === 'string') return source
   if (!source || typeof source !== 'object') return undefined
   if (Array.isArray(source)) {
@@ -223,7 +223,7 @@ function webImageSource(source?: DowelImageSource): string | undefined {
     }
     return undefined
   }
-  const object = source as DowelImageSourceObject
+  const object = source as HozoImageSourceObject
   return typeof object.uri === 'string' ? object.uri : typeof object.default === 'string' ? object.default : undefined
 }
 
@@ -259,11 +259,11 @@ export interface ScrollViewProps extends UniversalProps {
   showsHorizontalScrollIndicator?: boolean
   accessibilityLabel?: string
   accessibilityHint?: string
-  onScroll?: (event: DowelScrollEvent) => void
+  onScroll?: (event: HozoScrollEvent) => void
   scrollEventThrottle?: number
 }
 
-export interface DowelScrollEvent {
+export interface HozoScrollEvent {
   nativeEvent: {
     contentOffset: { x: number; y: number }
     contentSize: { width: number; height: number }
@@ -337,7 +337,7 @@ export interface FlatListProps<T> extends UniversalProps {
   keyboardShouldPersistTaps?: 'always' | 'never' | 'handled'
   showsVerticalScrollIndicator?: boolean
   showsHorizontalScrollIndicator?: boolean
-  onScroll?: (event: DowelScrollEvent) => void
+  onScroll?: (event: HozoScrollEvent) => void
   scrollEventThrottle?: number
 }
 
@@ -442,7 +442,7 @@ export interface PressableProps extends ResponderProps {
 
 // No native HTML element matches Pressable's semantics (proposal §10.2):
 // without an explicit `accessibilityRole`, this is exactly the
-// interactive-without-role case Dowel's compiler is meant to diagnose.
+// interactive-without-role case Hozo's compiler is meant to diagnose.
 export function Pressable({
   className,
   children,
@@ -535,6 +535,6 @@ export function Link({
 export { TextInput, type TextInputProps } from './text-input.tsx'
 
 // Dialog is not implemented here: its behaviour is the whole point of it
-// (proposal §10.3), and that lives in `@dowel/a11y` so there is exactly one
+// (proposal §10.3), and that lives in `@hozo/a11y` so there is exactly one
 // implementation for the compiler to lower to and for tests to cover.
-export { DowelDialog as Dialog, type DowelDialogProps as DialogProps } from '@dowel/a11y'
+export { HozoDialog as Dialog, type HozoDialogProps as DialogProps } from '@hozo/a11y'

@@ -1,15 +1,15 @@
 // Native-side coverage. Deliberately *not* a fidelity check: Tailwind is
 // CSS, so it can only be ground truth for the Web lowering. Nothing
 // authoritative defines what `p-4` should be in React Native, so there's
-// nothing to diff against -- only what Dowel does with each utility.
+// nothing to diff against -- only what Hozo does with each utility.
 //
-// The distinction that matters here is between a gap Dowel *knows about*
+// The distinction that matters here is between a gap Hozo *knows about*
 // and one it doesn't. Refusing `grid` by name is a supportable answer;
 // quietly emitting nothing is the failure mode this project keeps trying
 // to avoid, so the two are counted separately rather than lumped together
 // as "unsupported".
 
-import { compileNative } from '@dowel/compiler'
+import { compileNative } from '@hozo/compiler'
 
 export type NativeVerdict = 'COVERED' | 'REFUSED' | 'SILENT' | 'NO_OP'
 
@@ -39,7 +39,7 @@ export interface NativeComparison {
   /**
    * The diagnostic code behind a REFUSED verdict. The two codes make very
    * different claims -- WEB_ONLY says the platform cannot do this at all,
-   * NOT_WIRED says Dowel hasn't built it yet -- and only the first
+   * NOT_WIRED says Hozo hasn't built it yet -- and only the first
    * is a claim about React Native that can be checked against React Native.
    */
   code?: string
@@ -52,7 +52,7 @@ export interface NativeComparison {
   restrictedTo?: string[]
 }
 
-/// Diagnostic codes that mean "Dowel knows it can't render this, and says
+/// Diagnostic codes that mean "Hozo knows it can't render this, and says
 /// so". Both count as REFUSED, since the distinction this report draws is
 /// named-gap vs. silent-gap, not error vs. warning:
 /// - WEB_ONLY: impossible on the platform (Yoga has no grid).
@@ -80,22 +80,22 @@ const PROBE_CONTEXTS = [
   {
     name: 'View',
     render: (candidate: string) =>
-      `import { View } from '@dowel/core'\n` +
+      `import { View } from '@hozo/core'\n` +
       `export function C() {\n  return <View className="${candidate}">x</View>\n}\n`,
   },
   {
     name: 'Text',
     render: (candidate: string) =>
-      `import { Text } from '@dowel/core'\n` +
+      `import { Text } from '@hozo/core'\n` +
       `export function C() {\n  return <Text className="${candidate}">x</Text>\n}\n`,
   },
   {
     // Named line-height and letter-spacing scales are relative to the
     // current font size. RN stores absolute numbers, so this context proves
-    // Dowel can resolve them when that size is inherited from an ancestor.
+    // Hozo can resolve them when that size is inherited from an ancestor.
     name: 'Text inheriting text-lg',
     render: (candidate: string) =>
-      `import { View, Text } from '@dowel/core'\n` +
+      `import { View, Text } from '@hozo/core'\n` +
       `export function C() {\n` +
       `  return <View className="text-lg"><Text className="${candidate}">x</Text></View>\n}\n`,
   },
@@ -106,16 +106,16 @@ const PROBE_CONTEXTS = [
     // TextInput and first-child probes below.
     name: 'disabled Button',
     render: (candidate: string) =>
-      `import { Button } from '@dowel/core'\n` +
+      `import { Button } from '@hozo/core'\n` +
       `export function C() {\n  return <Button disabled={true} className="${candidate}">x</Button>\n}\n`,
   },
   {
-    // Hover and focus are event-driven on Native. Dowel intentionally
+    // Hover and focus are event-driven on Native. Hozo intentionally
     // wires them only where those events have interactive semantics,
     // rather than adding state and handlers to every View in the app.
     name: 'Pressable',
     render: (candidate: string) =>
-      `import { Pressable } from '@dowel/core'\n` +
+      `import { Pressable } from '@hozo/core'\n` +
       `export function C() {\n` +
       `  return <Pressable accessibilityRole="button" className="${candidate}">x</Pressable>\n}\n`,
   },
@@ -130,14 +130,14 @@ const PROBE_CONTEXTS = [
     // than tripping that.
     name: 'TextInput',
     render: (candidate: string) =>
-      `import { TextInput } from '@dowel/core'\n` +
+      `import { TextInput } from '@hozo/core'\n` +
       `export function C() {\n` +
       `  return <TextInput className="${candidate}" accessibilityLabel="Field" />\n}\n`,
   },
   {
     name: 'first child',
     render: (candidate: string) =>
-      `import { View } from '@dowel/core'\n` +
+      `import { View } from '@hozo/core'\n` +
       `export function C() {\n  return (\n    <View>\n` +
       `      <View className="${candidate}">x</View>\n    </View>\n  )\n}\n`,
   },
@@ -176,9 +176,9 @@ function probe(candidate: string, context: (typeof PROBE_CONTEXTS)[number]): Nat
   // wrong on its own:
   // - checking the StyleSheet alone (until 2026-08-15) scored every
   //   variant-prefixed utility as covered -- `hover:bg-blue-500` does
-  //   produce a `dowel0_hover` entry, it just never reaches the element.
+  //   produce a `hozo0_hover` entry, it just never reaches the element.
   // - checking the reference alone lets `whitespace-normal` through, which
-  //   emits an empty `dowel0: {}` and a `style` prop pointing at it.
+  //   emits an empty `hozo0: {}` and a `style` prop pointing at it.
   const entries = [...result.styles.matchAll(/^ {2}(\w+):\s*\{\n([\s\S]*?)^ {2}\},/gm)]
   const nonEmpty = entries.filter((m) => m[2].trim() !== '').map((m) => m[1])
   const unreferenced = nonEmpty.filter((name) => !result.jsx.includes(`styles.${name}`))
@@ -187,9 +187,9 @@ function probe(candidate: string, context: (typeof PROBE_CONTEXTS)[number]): Nat
   // An inline style object counts too. Not everything can live in the
   // StyleSheet: a viewport-relative size changes when the device rotates,
   // and `StyleSheet.create` is evaluated once -- so `h-screen` compiles to
-  // `style={{ height: __dowelViewport.height }}` with no entry to find.
+  // `style={{ height: __hozoViewport.height }}` with no entry to find.
   // Matches an object literal with at least one key inside a `style` prop,
-  // so a bare `style={styles.dowel0}` doesn't qualify on its own.
+  // so a bare `style={styles.hozo0}` doesn't qualify on its own.
   const inlineStyle = /style=\{\[?[^}]*\{\s*\w+:/.test(result.jsx)
 
   if (rendered.length > 0 || inlineStyle || emitsProp) {

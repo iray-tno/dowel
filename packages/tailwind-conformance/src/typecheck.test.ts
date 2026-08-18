@@ -28,7 +28,7 @@ test('rejects a value of the wrong type for a real key', () => {
 
   // Not the example that first came to mind: React Native 0.87 accepts
   // `fontWeight` as a string *and* as a number, so `700` is valid there.
-  // Worth pinning, since Dowel emits the string form on the strength of a
+  // Worth pinning, since Hozo emits the string form on the strength of a
   // comment that says RN requires it.
   assert.deepEqual(typeCheckStyles([{ candidate: 'font-bold', style: '{ fontWeight: 700 }' }]), [])
 })

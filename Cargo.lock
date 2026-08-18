@@ -76,62 +76,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "914a755b7c2d4af2bdcff7ce1739e2db9a1b81a9b07123d8015786ae03c0980d"
 
 [[package]]
-name = "dowel_cache"
-version = "0.0.0"
-dependencies = [
- "serde",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
-name = "dowel_ir"
-version = "0.0.0"
-
-[[package]]
-name = "dowel_napi"
-version = "0.0.0"
-dependencies = [
- "dowel_cache",
- "dowel_ir",
- "dowel_native",
- "dowel_parser",
- "dowel_web",
- "napi",
- "napi-build",
- "napi-derive",
-]
-
-[[package]]
-name = "dowel_native"
-version = "0.0.0"
-dependencies = [
- "dowel_ir",
- "dowel_parser",
-]
-
-[[package]]
-name = "dowel_parser"
-version = "0.0.0"
-dependencies = [
- "dowel_ir",
- "oxc_allocator",
- "oxc_ast",
- "oxc_ast_visit",
- "oxc_parser",
- "oxc_span",
- "oxc_syntax",
-]
-
-[[package]]
-name = "dowel_web"
-version = "0.0.0"
-dependencies = [
- "dowel_ir",
- "dowel_parser",
-]
-
-[[package]]
 name = "dragonbox_ecma"
 version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -259,6 +203,62 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 dependencies = [
  "allocator-api2",
+]
+
+[[package]]
+name = "hozo_cache"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "hozo_ir"
+version = "0.0.0"
+
+[[package]]
+name = "hozo_napi"
+version = "0.0.0"
+dependencies = [
+ "hozo_cache",
+ "hozo_ir",
+ "hozo_native",
+ "hozo_parser",
+ "hozo_web",
+ "napi",
+ "napi-build",
+ "napi-derive",
+]
+
+[[package]]
+name = "hozo_native"
+version = "0.0.0"
+dependencies = [
+ "hozo_ir",
+ "hozo_parser",
+]
+
+[[package]]
+name = "hozo_parser"
+version = "0.0.0"
+dependencies = [
+ "hozo_ir",
+ "oxc_allocator",
+ "oxc_ast",
+ "oxc_ast_visit",
+ "oxc_parser",
+ "oxc_span",
+ "oxc_syntax",
+]
+
+[[package]]
+name = "hozo_web"
+version = "0.0.0"
+dependencies = [
+ "hozo_ir",
+ "hozo_parser",
 ]
 
 [[package]]

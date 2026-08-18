@@ -38,6 +38,13 @@ export const A11Y_CONTEXTUAL_CASES: A11yContextualCase[] = [
     diagnostics: ['INVALID_SEMANTIC_NESTING'],
   },
   {
+    name: 'ordered static list',
+    purpose: 'ordered list and item semantics survive without virtualizing a small document list',
+    source: '<List ordered><ListItem>First</ListItem><ListItem>Second</ListItem></List>',
+    web: ['<ol>', '<li>First</li>', '<li>Second</li>'],
+    native: ['<View accessibilityRole="list">', '<View role="listitem"><Text>First</Text></View>'],
+  },
+  {
     name: 'described Image',
     purpose: 'one alternative text input reaches native semantics on both platforms',
     source: '<Image src="https://example.com/cover.jpg" alt="Cover art" />',
@@ -113,7 +120,7 @@ export const A11Y_CONTEXTUAL_CASES: A11yContextualCase[] = [
 
 export function compareA11yContextual(testCase: A11yContextualCase): A11yContextualResult {
   const source =
-    `import { Article, Button, Dialog, Heading, Image, Link, Nav, Paragraph, Pressable, Section, TextInput } from '@dowel/core'\n` +
+    `import { Article, Button, Dialog, Heading, Image, Link, List, ListItem, Nav, Paragraph, Pressable, Section, TextInput } from '@dowel/core'\n` +
     `export function C() { return ${testCase.source} }\n`
   const [web] = compile(source)
   const [native] = compileNative(source)

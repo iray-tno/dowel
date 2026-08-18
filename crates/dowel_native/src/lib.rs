@@ -4167,4 +4167,18 @@ export function Login() {
             "<View role=\"article\"><Text accessibilityRole=\"header\">Title</Text><View role=\"navigation\" accessibilityLabel={\"Primary\"}></View></View>"
         );
     }
+
+    #[test]
+    fn static_list_and_items_keep_native_roles() {
+        let source = r#"
+            import { List, ListItem } from '@dowel/core'
+            const el = <List ordered><ListItem>First</ListItem></List>
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+        assert_eq!(
+            output.jsx,
+            "<View accessibilityRole=\"list\"><View role=\"listitem\"><Text>First</Text></View></View>"
+        );
+    }
 }

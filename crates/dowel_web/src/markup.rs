@@ -37,6 +37,13 @@ pub fn element_shape(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'stati
         Primitive::Article => ("article", Vec::new()),
         Primitive::Nav if node.props.on_layout.is_some() => ("Nav", Vec::new()),
         Primitive::Nav => ("nav", Vec::new()),
+        Primitive::List if node.props.on_layout.is_some()
+            || matches!(node.props.list_ordered, Some(dowel_ir::ConditionExpr::Ref(_))) => ("List", Vec::new()),
+        Primitive::List if matches!(node.props.list_ordered, Some(dowel_ir::ConditionExpr::Static(true))) =>
+            ("ol", Vec::new()),
+        Primitive::List => ("ul", Vec::new()),
+        Primitive::ListItem if node.props.on_layout.is_some() => ("ListItem", Vec::new()),
+        Primitive::ListItem => ("li", Vec::new()),
         Primitive::Button => ("button", Vec::new()),
         Primitive::Link => ("a", Vec::new()),
         Primitive::Image if node.props.on_layout.is_some() || node.props.image_default_source.is_some() =>
@@ -206,6 +213,7 @@ mod tests {
                 accessibility_live_region: None,
                 on_layout: None,
                 heading_level: None,
+                list_ordered: None,
                 on_scroll: None,
                 scroll_event_throttle: None,
                 disabled: None,
@@ -252,6 +260,7 @@ mod tests {
                 accessibility_live_region: None,
                 on_layout: None,
                 heading_level: None,
+                list_ordered: None,
                 on_scroll: None,
                 scroll_event_throttle: None,
                 disabled: None,

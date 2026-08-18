@@ -20,6 +20,8 @@ export const RNW_FREE_CASES: RnwFreeCase[] = [
   { primitive: 'Section', jsx: '<Section />', webMarker: '<section', nativeMarker: '<View' },
   { primitive: 'Article', jsx: '<Article />', webMarker: '<article', nativeMarker: 'role="article"' },
   { primitive: 'Nav', jsx: '<Nav accessibilityLabel="Primary" />', webMarker: '<nav', nativeMarker: 'role="navigation"' },
+  { primitive: 'List', jsx: '<List><ListItem>One</ListItem></List>', webMarker: '<ul', nativeMarker: 'accessibilityRole="list"' },
+  { primitive: 'ListItem', jsx: '<ListItem>One</ListItem>', webMarker: '<li', nativeMarker: 'role="listitem"' },
   { primitive: 'Button', jsx: '<Button>Save</Button>', webMarker: '<button', nativeMarker: '<Pressable' },
   {
     primitive: 'FlatList',
@@ -67,7 +69,7 @@ export const RNW_FREE_CASES: RnwFreeCase[] = [
 
 export function compareRnwFree(testCase: RnwFreeCase): RnwFreeResult {
   const source =
-    `import { View, Text, Paragraph, Heading, Section, Article, Nav, Button, Pressable, Link, TextInput, Dialog, Image, ScrollView, FlatList } from '@dowel/core'\n` +
+    `import { View, Text, Paragraph, Heading, Section, Article, Nav, List, ListItem, Button, Pressable, Link, TextInput, Dialog, Image, ScrollView, FlatList } from '@dowel/core'\n` +
     `export function C() { return ${testCase.jsx} }\n`
   const [web] = compile(source)
   const [native] = compileNative(source)

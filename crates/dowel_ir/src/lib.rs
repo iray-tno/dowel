@@ -162,6 +162,12 @@ pub enum Primitive {
     /// A navigation landmark: `<nav>` on Web and a role-bearing `View` on
     /// React Native.
     Nav,
+    /// A static semantic list: `<ul>`/`<ol>` on Web and a list-role
+    /// `View` on React Native. Data-heavy lists remain `FlatList`.
+    List,
+    /// One static list entry: `<li>` on Web and a listitem-role `View` on
+    /// React Native.
+    ListItem,
     Pressable,
     Button,
     /// A destination-bearing interaction: `<a>` on Web and Dowel's
@@ -293,6 +299,9 @@ pub struct PropSet {
     /// A Heading's 1...6 level. Static levels compile to a native HTML
     /// heading tag; dynamic expressions use the Web fallback component.
     pub heading_level: Option<HeadingLevel>,
+    /// A List's unordered/ordered choice. Dynamic expressions select the
+    /// lightweight Web fallback because an HTML tag cannot change inline.
+    pub list_ordered: Option<ConditionExpr>,
     pub on_scroll: Option<ExprRef>,
     pub scroll_event_throttle: Option<ExprRef>,
     pub disabled: Option<ConditionExpr>,

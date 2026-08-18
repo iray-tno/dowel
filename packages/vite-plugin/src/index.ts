@@ -37,7 +37,7 @@ const DOWEL_CORE_IMPORT_RE = /import\s*\{[^}]*\}\s*from\s*['"]@dowel\/core['"]\s
 /// (it becomes `div`/`span`/`button`), so one surviving in the output came
 /// through `Child::Verbatim` -- something the compiler carried rather than
 /// understood.
-const DOWEL_PRIMITIVES = ['View', 'Text', 'Paragraph', 'Heading', 'Section', 'Article', 'Nav', 'Pressable', 'Button', 'Link', 'TextInput', 'Dialog', 'Image', 'ScrollView', 'FlatList'] as const
+const DOWEL_PRIMITIVES = ['View', 'Text', 'Paragraph', 'Heading', 'Section', 'Article', 'Nav', 'List', 'ListItem', 'Pressable', 'Button', 'Link', 'TextInput', 'Dialog', 'Image', 'ScrollView', 'FlatList'] as const
 
 /**
  * Whether any Dowel primitive name is still mentioned after lowering.

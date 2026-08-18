@@ -160,6 +160,26 @@ export function Nav({ className, children, onLayout, ...universal }: ViewProps) 
   return <nav ref={ref} className={className} {...universalDomProps(universal)}>{children}</nav>
 }
 
+export interface ListProps extends ViewProps {
+  ordered?: boolean
+}
+
+export function List({ ordered, className, children, onLayout, ...universal }: ListProps) {
+  // Both hooks are unconditional; only the selected element receives its
+  // ref. Keeping the concrete element types avoids weakening the public
+  // fallback just to satisfy a polymorphic ref union.
+  const orderedRef = useLayoutRef<HTMLOListElement>(onLayout)
+  const unorderedRef = useLayoutRef<HTMLUListElement>(onLayout)
+  return ordered
+    ? <ol ref={orderedRef} className={className} {...universalDomProps(universal)}>{children}</ol>
+    : <ul ref={unorderedRef} className={className} {...universalDomProps(universal)}>{children}</ul>
+}
+
+export function ListItem({ className, children, onLayout, ...universal }: ViewProps) {
+  const ref = useLayoutRef<HTMLLIElement>(onLayout)
+  return <li ref={ref} className={className} {...universalDomProps(universal)}>{children}</li>
+}
+
 export interface ImageProps extends UniversalProps {
   className?: string
   /** URL/import on Web; URI metadata or Metro's numeric asset id on Native. */

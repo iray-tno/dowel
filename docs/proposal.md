@@ -71,6 +71,7 @@ import { View, Text, Paragraph, Heading, Section, Button } from '@dowel/core'
 - Section（Webの `section` / Nativeの `View`）
 - Article（Webの `article` / Nativeのarticle role付き`View`）
 - Nav（Webの `nav` / Nativeのnavigation role付き`View`）
+- List / ListItem（Webの `ul`・`ol`・`li` / Nativeのlist semantics）
 - Pressable
 - Button
 - Link

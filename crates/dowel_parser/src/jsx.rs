@@ -159,6 +159,8 @@ fn primitive_name(name: &str) -> Option<&'static str> {
         "Section" => Some("Section"),
         "Article" => Some("Article"),
         "Nav" => Some("Nav"),
+        "List" => Some("List"),
+        "ListItem" => Some("ListItem"),
         "Pressable" => Some("Pressable"),
         "Button" => Some("Button"),
         "Link" => Some("Link"),
@@ -242,6 +244,8 @@ fn primitive_for_name(name: &str) -> Option<Primitive> {
         "Section" => Some(Primitive::Section),
         "Article" => Some(Primitive::Article),
         "Nav" => Some(Primitive::Nav),
+        "List" => Some(Primitive::List),
+        "ListItem" => Some(Primitive::ListItem),
         "Pressable" => Some(Primitive::Pressable),
         "TextInput" => Some(Primitive::TextInput),
         "Dialog" => Some(Primitive::Dialog),
@@ -397,6 +401,13 @@ fn build_node(
                             Some(HeadingLevel::Static(literal.value as u8)),
                         _ => Some(HeadingLevel::Dynamic(to_expr_ref(container.expression.span()))),
                     };
+                }
+                _ => props.passthrough.push(passthrough_prop(attr, module_record, diagnostics, consumed)),
+            },
+            "ordered" if primitive == Primitive::List => match &attr.value {
+                None => props.list_ordered = Some(ConditionExpr::Static(true)),
+                Some(JSXAttributeValue::ExpressionContainer(container)) => {
+                    props.list_ordered = Some(ConditionExpr::Ref(to_expr_ref(container.expression.span())));
                 }
                 _ => props.passthrough.push(passthrough_prop(attr, module_record, diagnostics, consumed)),
             },
@@ -621,24 +632,30 @@ fn validate_semantic_children(
     children: &[Child],
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    if !matches!(parent, Primitive::Paragraph | Primitive::Heading) {
-        return;
-    }
     for child in children {
         let Child::Node(child) = child else { continue };
-        let allowed = matches!(
-            child.primitive,
-            Primitive::Text | Primitive::Link | Primitive::Button | Primitive::TextInput | Primitive::Image
-        );
+        let allowed = match parent {
+            Primitive::Paragraph | Primitive::Heading => matches!(
+                child.primitive,
+                Primitive::Text | Primitive::Link | Primitive::Button | Primitive::TextInput | Primitive::Image
+            ),
+            Primitive::List => child.primitive == Primitive::ListItem,
+            _ => true,
+        };
         if allowed {
             continue;
         }
-        let parent_name = if parent == Primitive::Paragraph { "Paragraph" } else { "Heading" };
+        let parent_name = match parent {
+            Primitive::Paragraph => "Paragraph",
+            Primitive::Heading => "Heading",
+            Primitive::List => "List",
+            _ => continue,
+        };
         diagnostics.push(Diagnostic {
             code: DiagnosticCode::InvalidSemanticNesting,
             severity: Severity::Warning,
             message: format!(
-                "`{parent_name}` lowers to a Web text element that cannot contain `{:?}`. Move that child beside the {parent_name}, or wrap both in a Section/View.",
+                "`{parent_name}` cannot directly contain `{:?}` in semantic HTML. Move or wrap that child so the generated document structure remains valid.",
                 child.primitive
             ),
             span: child.span,
@@ -849,6 +866,20 @@ mod tests {
             .collect();
         assert_eq!(semantic.len(), 1);
         assert!(semantic[0].message.contains("Section"));
+    }
+
+    #[test]
+    fn list_requires_static_direct_children_to_be_list_items() {
+        let source = r#"
+            import { List, ListItem, Paragraph } from '@dowel/core'
+            const el = <List><ListItem>Good</ListItem><Paragraph>Bad</Paragraph>{items.map(render)}</List>
+            "#;
+        let output = crate::parse_tsx(source);
+        let semantic: Vec<_> = output.diagnostics.iter()
+            .filter(|diagnostic| diagnostic.code == DiagnosticCode::InvalidSemanticNesting)
+            .collect();
+        assert_eq!(semantic.len(), 1);
+        assert!(semantic[0].message.contains("Paragraph"));
     }
 
     #[test]

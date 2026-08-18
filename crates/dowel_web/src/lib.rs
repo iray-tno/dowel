@@ -250,7 +250,7 @@ fn render_node(
         }
     }
     let is_dowel_component = tag.starts_with("Dowel")
-        || matches!(tag, "View" | "Text" | "Paragraph" | "Heading" | "Section" | "Article" | "Nav" | "Image" | "ScrollView" | "FlatList");
+        || matches!(tag, "View" | "Text" | "Paragraph" | "Heading" | "Section" | "Article" | "Nav" | "List" | "ListItem" | "Image" | "ScrollView" | "FlatList");
 
     // The generated class is dropped when no rule was written for it. It
     // matched nothing, so it was a class attribute on every unstyled
@@ -365,6 +365,11 @@ fn render_node(
                 dowel_ir::HeadingLevel::Dynamic(expr) => source_text(source, *expr).to_string(),
             };
             attrs.push_str(&format!(" level={{{value}}}"));
+        }
+    }
+    if tag == "List" {
+        if let Some(ordered) = &node.props.list_ordered {
+            attrs.push_str(&format!(" ordered={{{}}}", render_condition_expr(source, ordered)));
         }
     }
 
@@ -1283,5 +1288,24 @@ export function Login() {
         let parsed = dowel_parser::parse_tsx(source);
         let output = lower(&parsed.roots[0].node, source, &Theme::default());
         assert_eq!(output.jsx, "<article><h1>Title</h1><nav aria-label={\"Primary\"}></nav></article>");
+    }
+
+    #[test]
+    fn static_and_dynamic_lists_keep_ordering_semantics() {
+        let source = r#"
+            import { List, ListItem } from '@dowel/core'
+            const el = <List ordered><ListItem>First</ListItem></List>
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+        assert_eq!(output.jsx, "<ol><li>First</li></ol>");
+
+        let dynamic = r#"
+            import { List, ListItem } from '@dowel/core'
+            const el = <List ordered={ranked}><ListItem>First</ListItem></List>
+            "#;
+        let parsed = dowel_parser::parse_tsx(dynamic);
+        let output = lower(&parsed.roots[0].node, dynamic, &Theme::default());
+        assert_eq!(output.jsx, "<List ordered={ranked}><li>First</li></List>");
     }
 }

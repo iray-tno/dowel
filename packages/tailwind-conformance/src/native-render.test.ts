@@ -71,6 +71,22 @@ test('article and navigation landmarks retain Native roles', () => {
   assert.equal(nav.props.accessibilityLabel, 'Primary')
 })
 
+test('a small static list retains Native list roles', () => {
+  const tree = renderNative(
+    `
+    import { List, ListItem } from '@dowel/core'
+    export function Steps() {
+      return <List ordered><ListItem>One</ListItem><ListItem>Two</ListItem></List>
+    }
+    `,
+    'Steps',
+  )
+  assert.equal(tree?.props.accessibilityRole, 'list')
+  const [first, second] = children(tree)
+  assert.equal(first.props.role, 'listitem')
+  assert.equal(second.props.role, 'listitem')
+})
+
 test('DowelSpaced puts the spacing on every child but the last', () => {
   // The component's first execution. Its rule -- `:not(:last-child)`, and
   // the parent's style behind the child's own so the child wins -- was

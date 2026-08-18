@@ -47,6 +47,16 @@ test('article and navigation landmarks survive an actual Web render', () => {
   assert.equal(rendered.html, '<article><nav aria-label="Primary"></nav></article>')
 })
 
+test('a small ordered list renders as native HTML list elements', () => {
+  const { rendered } = round(`
+    import { List, ListItem } from '@dowel/core'
+    export function Steps() {
+      return <List ordered><ListItem>One</ListItem><ListItem>Two</ListItem></List>
+    }
+  `)
+  assert.equal(rendered.html, '<ol><li>One</li><li>Two</li></ol>')
+})
+
 test('every class in the DOM has a rule in the stylesheet', () => {
   // The two halves of the Web output have to agree, and nothing compared
   // them before: a class that reaches the element and matches no rule is a

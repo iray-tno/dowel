@@ -6,6 +6,8 @@ dist/
 dist-ssr/
 .output/
 storybook-static/
+.next/
+next-env.d.ts
 .turbo/
 *.log
 

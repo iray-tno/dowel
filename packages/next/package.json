@@ -1,0 +1,23 @@
+{
+  "name": "@hozo/next",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Next.js integration for the Hozo compiler (Web lowering backend).",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./loader": "./loader.js"
+  },
+  "scripts": {
+    "test": "node --test src/*.test.ts"
+  },
+  "dependencies": {
+    "@hozo/compiler": "workspace:*",
+    "@hozo/tailwind": "workspace:^"
+  },
+  "peerDependencies": {
+    "next": ">=15"
+  }
+}

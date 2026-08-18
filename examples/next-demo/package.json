@@ -1,0 +1,22 @@
+{
+  "name": "@hozo/example-next",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "next build",
+    "test": "node scripts/check-both-bundlers.mjs"
+  },
+  "dependencies": {
+    "@hozo/core": "workspace:*",
+    "next": "^16.3.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@hozo/next": "workspace:*",
+    "@types/node": "26.2.0",
+    "@types/react": "^19.2.18",
+    "typescript": "^7.0.2"
+  }
+}

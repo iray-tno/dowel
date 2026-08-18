@@ -8,7 +8,8 @@
   "main": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./project": "./src/project.ts"
+    "./project": "./src/project.ts",
+    "./lower": "./src/lower.ts"
   },
   "dependencies": {
     "globby": "^14.1.0"

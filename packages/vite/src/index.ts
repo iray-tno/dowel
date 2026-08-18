@@ -20,8 +20,9 @@
 import { statSync } from 'node:fs'
 import path from 'node:path'
 import type { Plugin, ViteDevServer } from 'vite'
-import { compile, type CandidateCache, type Theme } from '@hozo/compiler'
+import type { CandidateCache, Theme } from '@hozo/compiler'
 import { loadProjectTheme } from '@hozo/tailwind'
+import { lowerModule, sideEffectImport } from '@hozo/compiler/lower'
 import {
   discoverSources,
   importSpecifier,
@@ -30,60 +31,6 @@ import {
   writeFileIfChanged,
   type HozoProjectOptions,
 } from '@hozo/compiler/project'
-
-const HOZO_CORE_IMPORT_RE = /import\s*\{[^}]*\}\s*from\s*['"]@hozo\/core['"]\s*\n?/
-
-/// The names `@hozo/core` exports. A lowered element never mentions these
-/// (it becomes `div`/`span`/`button`), so one surviving in the output came
-/// through `Child::Verbatim` -- something the compiler carried rather than
-/// understood.
-const HOZO_PRIMITIVES = ['View', 'Text', 'Paragraph', 'Heading', 'Section', 'Article', 'Nav', 'List', 'ListItem', 'Pressable', 'Button', 'Link', 'TextInput', 'Dialog', 'Image', 'ScrollView', 'FlatList', 'PanResponder'] as const
-
-/**
- * Whether any Hozo primitive name is still mentioned after lowering.
- *
- * This decides whether the `@hozo/core` import may be removed. Stripping
- * it unconditionally -- which this plugin did until 2026-08-15 -- was safe
- * only while unmodeled children were being *deleted*. Now that they're
- * carried, anything the compiler couldn't lower in place survives to the
- * output, and the import is what makes it resolve.
- *
- * Deliberately a word match rather than a `<Tag` match, and deliberately
- * biased toward keeping the import. A primitive can be referenced without
- * ever appearing as a tag (`const Label = Text` then `<Label/>`), and the
- * two failure modes are not symmetric: an unnecessary import is dead weight
- * a bundler drops, while a missing one breaks at runtime. On Web it doesn't
- * even break cleanly -- `Text` is a DOM global (the text-node interface),
- * so React is handed a DOM class where a component belongs and throws
- * something unrelated to the cause. `View` at least gives an honest
- * ReferenceError.
- */
-function referencesHozoPrimitive(code: string): boolean {
-  return HOZO_PRIMITIVES.some((name) => new RegExp(`\\b${name}\\b`).test(code))
-}
-
-/// Renames this component's `hozo-N` class names to be unique across every
-/// component in the file -- `compile()` starts counting from `hozo-0`
-/// independently per root, so two components in the same source file would
-/// otherwise collide once their CSS is merged into one companion file.
-/// `hozo-view` (no digits) is the intentionally-shared base class and
-/// must NOT be touched by this.
-function namespaceHozoClasses(text: string, rootIndex: number): string {
-  return text.replace(/\bhozo-(\d+)\b/g, `hozo-r${rootIndex}-$1`)
-}
-
-function moduleIdHash(id: string): string {
-  let hash = 0x811c9dc5
-  for (let index = 0; index < id.length; index++) {
-    hash = Math.imul(hash ^ id.charCodeAt(index), 0x01000193)
-  }
-  return (hash >>> 0).toString(36)
-}
-
-function sideEffectImport(specifier: string): string {
-  return `import ${JSON.stringify(specifier)}\n`
-}
-
 
 /**
  * A project's design tokens reach the compiler from here.
@@ -196,56 +143,16 @@ export function hozo(options: HozoOptions = {}): Plugin {
         }
       }
 
-      if (!file?.endsWith('.tsx') || !code.includes('@hozo/core')) {
-        return
+      if (!file) return
+      const lowered = lowerModule(code, id, file, theme)
+      if (!lowered) return
+
+      for (const diagnostic of lowered.diagnostics) {
+        this.warn(`[hozo] ${diagnostic.code}: ${diagnostic.message}`)
       }
 
-      const components = compile(code, theme)
-      if (components.length === 0) {
-        return
-      }
-
-      let next = code
-      let css = ''
-      // Splice from the last span to the first so earlier offsets stay
-      // valid as later (in the string, not necessarily in array order)
-      // edits are applied.
-      const bySpanDescending = components
-        .map((component, index) => ({ component, index }))
-        .sort((a, b) => b.component.spanStart - a.component.spanStart)
-      for (const { component, index } of bySpanDescending) {
-        const jsx = namespaceHozoClasses(component.jsx, index)
-        const componentCss = namespaceHozoClasses(component.css, index)
-        next = next.slice(0, component.spanStart) + jsx + next.slice(component.spanEnd)
-        css = componentCss + css
-      }
-
-      for (const component of components) {
-        for (const diagnostic of component.diagnostics) {
-          this.warn(`[hozo] ${diagnostic.code}: ${diagnostic.message}`)
-        }
-      }
-
-      // Only when nothing needs it. A primitive that survived lowering
-      // (carried through `Child::Verbatim`) still has to resolve, and
-      // `@hozo/core` exports real working React components for exactly
-      // this -- proposal §2.3's "fall back gracefully". Such an element
-      // renders with its raw class string instead of a compiled scoped
-      // class, which the project-wide candidate stylesheet may well cover.
-      // Degraded, not broken.
-      if (!referencesHozoPrimitive(next)) {
-        next = next.replace(HOZO_CORE_IMPORT_RE, '')
-      }
-
-      // Route-splitting frameworks can transform several query-qualified
-      // modules from one source file. Each derived module owns different
-      // JSX, so sharing one companion path would make the last transform
-      // overwrite the others' CSS.
-      const cssFileName = isDerivedModule
-        ? `${path.basename(file)}.${moduleIdHash(id)}.hozo.css`
-        : `${path.basename(file)}.hozo.css`
-      const cssPath = path.join(path.dirname(file), cssFileName)
-      writeFileIfChanged(cssPath, css)
+      let next = lowered.code
+      writeFileIfChanged(lowered.cssPath, lowered.css)
       // Imported from every lowered file rather than from one designated
       // entry: the candidate sheet has to be present whichever module the
       // dynamic className lives in, and Vite resolves the repeated import
@@ -253,7 +160,10 @@ export function hozo(options: HozoOptions = {}): Plugin {
       // Generate the declarations through JSON.stringify: Storybook's
       // extensionless-import checker inspects preset dependency source and
       // otherwise mistakes our code-generating string for a real import.
-      next = sideEffectImport(`./${cssFileName}`) + sideEffectImport(importSpecifier(file, candidateCssPath)) + next
+      next =
+        sideEffectImport(`./${lowered.cssFileName}`) +
+        sideEffectImport(importSpecifier(file, candidateCssPath)) +
+        next
 
       return { code: next, map: null }
     },

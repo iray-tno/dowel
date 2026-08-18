@@ -1,0 +1,8 @@
+/* Read by Hozo for its design tokens, and deliberately not imported by the
+   app: Hozo compiles the utilities itself, so nothing here needs to reach
+   the bundler. Tailwind's own PostCSS pipeline is not installed. */
+@import "tailwindcss";
+
+@theme {
+  --color-brand: oklch(62% 0.19 258);
+}

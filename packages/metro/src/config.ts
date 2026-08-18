@@ -6,10 +6,15 @@ import { writeFileIfChanged, type HozoProjectOptions } from '@hozo/compiler/proj
 
 import { generateCandidateModule } from './project.ts'
 
-export interface HozoMetroOptions extends HozoProjectOptions {
-  /** Metro project root. Defaults to config.projectRoot, then process.cwd(). */
-  projectRoot?: string
-}
+/**
+ * The same options every Hozo integration takes, under this one's name.
+ *
+ * `root` was spelled `projectRoot` here until the four integrations were
+ * lined up against each other. Metro's own config key keeps that name and
+ * is still the default; the Hozo option that overrides it is `root`, the
+ * same word Vite and Next use.
+ */
+export type HozoMetroOptions = HozoProjectOptions
 
 interface MetroConfigShape {
   projectRoot?: string
@@ -52,7 +57,7 @@ export async function withHozo<T extends MetroConfigShape>(
   options: HozoMetroOptions = {},
 ): Promise<T> {
   const config = await configOrPromise
-  const projectRoot = path.resolve(options.projectRoot ?? config.projectRoot ?? process.cwd())
+  const projectRoot = path.resolve(options.root ?? config.projectRoot ?? process.cwd())
   const transformerPath = currentTransformerPath()
   const configuredUpstream = config.transformer?.babelTransformerPath
   const upstreamTransformer =

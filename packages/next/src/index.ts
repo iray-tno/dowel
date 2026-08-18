@@ -17,17 +17,20 @@
 import { createRequire } from 'node:module'
 import path from 'node:path'
 
-import { scanProject, writeFileIfChanged, type HozoProjectOptions } from '@hozo/compiler/project'
+import {
+  scanProject,
+  scanSummary,
+  writeFileIfChanged,
+  type HozoProjectOptions,
+} from '@hozo/compiler/project'
 
-export interface HozoNextOptions extends HozoProjectOptions {
-  /**
-   * The project root. Defaults to the working directory, which is what
-   * Next.js sets it to when it evaluates the config.
-   */
-  root?: string
-  /** Report project-scan work and timing to the console. */
-  debug?: boolean
-}
+/**
+ * The same options every Hozo integration takes, under this one's name.
+ *
+ * `root` defaults to the working directory, which is what Next.js sets it
+ * to while it evaluates the config.
+ */
+export type HozoNextOptions = HozoProjectOptions
 
 /** What the loader needs, resolved once so every worker gets the same answer. */
 export interface HozoLoaderOptions extends HozoNextOptions {
@@ -117,11 +120,7 @@ function prepareProject(root: string, options: HozoNextOptions): HozoLoaderOptio
   writeFileIfChanged(candidateCssPath, project.cache.renderCss(undefined))
   project.cache.persist()
   if (options.debug) {
-    const s = project.stats
-    console.info(
-      `[hozo] discovered ${s.discoveredFiles} files; scanned ${s.scannedFiles}, ` +
-        `skipped ${s.skippedFiles}, removed ${s.deletedFiles} in ${s.durationMs.toFixed(1)}ms`,
-    )
+    console.info(scanSummary(project.stats))
   }
   return { ...options, root, candidateCssPath }
 }

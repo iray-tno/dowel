@@ -18,6 +18,7 @@ import path from 'node:path'
 
 import {
   scanProject,
+  scanSummary,
   writeFileIfChanged,
   type HozoProjectOptions,
 } from '@hozo/compiler/project'
@@ -63,7 +64,11 @@ export async function generateCandidateModule(
     css: options.css,
     warn: (message) => console.warn(message),
   })
-  const { cache } = scanProject(projectRoot, options.content)
+  const { cache, stats } = scanProject(projectRoot, options.content)
+  if (options.debug) {
+    // eslint-disable-next-line no-console
+    console.info(scanSummary(stats))
+  }
   const modulePath = candidateModulePath(projectRoot)
   writeFileIfChanged(modulePath, cache.renderNativeModule(theme))
   return modulePath

@@ -45,7 +45,7 @@ test('withHozo accepts a promised config and an explicit project root', async ()
     mkdirSync(path.join(root, 'styles'))
     writeFileSync(path.join(root, 'styles', 'tailwind.css'), '@import "tailwindcss";\n')
     const result = await withHozo(Promise.resolve({ transformer: {} }), {
-      projectRoot: root,
+      root,
       css: 'styles/tailwind.css',
       content: { include: [] },
     })

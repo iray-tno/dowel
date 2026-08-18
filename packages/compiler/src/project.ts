@@ -39,12 +39,36 @@ export interface ContentOptions {
   respectGitignore?: boolean
 }
 
-/** Options whose meaning is shared by every Hozo bundler integration. */
+/**
+ * Options whose meaning is shared by every Hozo bundler integration.
+ *
+ * All four accept exactly these and add nothing, which is the point: a
+ * project moving between Vite, Next, Metro and Storybook should not have
+ * to learn a second spelling of the same question. `root` in particular
+ * was `projectRoot` in one of them and absent from two others.
+ */
 export interface HozoProjectOptions {
-  /** Tailwind entry stylesheet, relative to the project root. */
+  /**
+   * The stylesheet carrying `@import "tailwindcss"` and the project's
+   * `@theme`, relative to the project root.
+   *
+   * Left out, Hozo looks for the usual names and falls back to Tailwind's
+   * default theme if it finds none -- reporting what it looked for rather
+   * than silently compiling against the wrong palette. The file is read
+   * for its tokens and never bundled: Hozo compiles the utilities itself,
+   * so a project needs no Tailwind pipeline of its own.
+   */
   css?: string
   /** Source globs and ignores used by the project-wide candidate scan. */
   content?: ContentOptions
+  /**
+   * The project root. Each integration defaults this to whatever its
+   * bundler already knows -- Vite's resolved root, Metro's `projectRoot`,
+   * the working directory Next evaluates its config in.
+   */
+  root?: string
+  /** Report project-scan work and timing through the bundler's logger. */
+  debug?: boolean
 }
 
 export interface ScanStats {
@@ -140,6 +164,22 @@ export function scanProject(root: string, options: ContentOptions = {}): Project
       durationMs: performance.now() - started,
     },
   }
+}
+
+/**
+ * What `debug` prints, in one wording.
+ *
+ * Three integrations had three near-identical template literals and a
+ * fourth had none at all, so `debug` was a documented option that did
+ * nothing under Metro -- the same "accepted, then dropped" shape the
+ * Storybook preset had.
+ */
+export function scanSummary(stats: ScanStats): string {
+  return (
+    `[hozo] discovered ${stats.discoveredFiles} files; scanned ${stats.scannedFiles}, ` +
+    `skipped ${stats.skippedFiles}, removed ${stats.deletedFiles} in ` +
+    `${stats.durationMs.toFixed(1)}ms`
+  )
 }
 
 /** Writes a generated artifact only when its bytes actually changed. */

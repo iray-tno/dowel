@@ -22,38 +22,30 @@ import path from 'node:path'
 import type { Plugin, ViteDevServer } from 'vite'
 import type { CandidateCache, Theme } from '@hozo/compiler'
 import { loadProjectTheme } from '@hozo/tailwind'
+import { reportDiagnostics } from '@hozo/compiler/diagnostics'
 import { lowerModule, sideEffectImport } from '@hozo/compiler/lower'
 import {
   discoverSources,
   importSpecifier,
   scanProject,
+  scanSummary,
   scannableFile,
   writeFileIfChanged,
   type HozoProjectOptions,
 } from '@hozo/compiler/project'
 
 /**
- * A project's design tokens reach the compiler from here.
+ * The same options every Hozo integration takes, under this one's name.
  *
- * Without them Hozo resolves against Tailwind's defaults, which is right
- * until a project defines its own -- and then `bg-brand` compiles to a CSS
- * variable nothing defines and `p-4` to the wrong number of pixels. The
- * theme is read once at `buildStart` rather than per file: it is a
- * project-wide fact, and re-reading it for every module would run
- * Tailwind's resolver hundreds of times for one answer.
+ * Nothing is added, deliberately. The design tokens a project defines
+ * reach the compiler through `css`, and without them Hozo resolves against
+ * Tailwind's defaults -- right until a project defines its own, and then
+ * `bg-brand` compiles to a CSS variable nothing defines and `p-4` to the
+ * wrong number of pixels. The theme is read once at `buildStart` rather
+ * than per file: it is a project-wide fact, and re-reading it for every
+ * module would run Tailwind's resolver hundreds of times for one answer.
  */
-export interface HozoOptions extends HozoProjectOptions {
-  /**
-   * The stylesheet that carries `@import "tailwindcss"` and the project's
-   * `@theme`. Relative to the Vite root.
-   *
-   * Left out, Hozo looks for the usual names and falls back to the
-   * default theme if it finds none -- reporting what it looked for rather
-   * than silently compiling against the wrong palette.
-   */
-  /** Report project-scan work and timing through Vite's logger. */
-  debug?: boolean
-}
+export type HozoOptions = HozoProjectOptions
 
 export function hozo(options: HozoOptions = {}): Plugin {
   let theme: Theme | undefined
@@ -81,7 +73,7 @@ export function hozo(options: HozoOptions = {}): Plugin {
     enforce: 'pre',
 
     configResolved(config) {
-      root = config.root
+      root = options.root ?? config.root
     },
 
     configureServer(devServer) {
@@ -103,11 +95,7 @@ export function hozo(options: HozoOptions = {}): Plugin {
       candidateCssPath = path.join(project.dir, 'candidates.css')
       writeCandidateCss()
       if (options.debug) {
-        const s = project.stats
-        this.info(
-          `[hozo] discovered ${s.discoveredFiles} files; scanned ${s.scannedFiles}, ` +
-            `skipped ${s.skippedFiles}, removed ${s.deletedFiles} in ${s.durationMs.toFixed(1)}ms`,
-        )
+        this.info(scanSummary(project.stats))
       }
     },
 
@@ -147,9 +135,12 @@ export function hozo(options: HozoOptions = {}): Plugin {
       const lowered = lowerModule(code, id, file, theme)
       if (!lowered) return
 
-      for (const diagnostic of lowered.diagnostics) {
-        this.warn(`[hozo] ${diagnostic.code}: ${diagnostic.message}`)
-      }
+      // Shared with Metro and Next, which is new: this warned on
+      // everything including error-severity diagnostics, and Metro threw.
+      // The difference looked deliberate and wasn't -- every error Hozo
+      // can emit today comes from the Native backend, so this had simply
+      // never been handed one.
+      reportDiagnostics(lowered.diagnostics, file, (message) => this.warn(message))
 
       let next = lowered.code
       writeFileIfChanged(lowered.cssPath, lowered.css)

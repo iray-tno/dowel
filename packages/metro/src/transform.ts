@@ -15,6 +15,7 @@
 //   file, since that's the idiomatic RN pattern.
 
 import { compileNative, type CompiledNativeComponent, type Theme } from '@hozo/compiler'
+import { reportDiagnostics } from '@hozo/compiler/diagnostics'
 import { importSpecifier } from '@hozo/compiler/project'
 import { candidateModulePath } from './project.ts'
 
@@ -70,19 +71,15 @@ export function transformHozoSource(
   // Error-severity diagnostics stop the build. The case this exists for --
   // a Web-only utility like `block`/`grid` reaching the Native backend --
   // has no correct Native output, so continuing would ship a layout that
-  // looks right on Web and is silently wrong on device.
-  const errors = components.flatMap((c) => c.diagnostics.filter((d) => d.severity === 'error'))
-  if (errors.length > 0) {
-    const detail = errors.map((d) => `  ${d.code}: ${d.message}`).join('\n')
-    throw new Error(`[hozo] ${filename} cannot be compiled for React Native:\n${detail}`)
-  }
-
-  for (const component of components) {
-    for (const diagnostic of component.diagnostics) {
-      // eslint-disable-next-line no-console
-      console.warn(`[hozo] ${diagnostic.code}: ${diagnostic.message}`)
-    }
-  }
+  // looks right on Web and is silently wrong on device. The policy itself
+  // is shared with every other integration now; see
+  // `@hozo/compiler/diagnostics` for why it stopped being Metro's alone.
+  reportDiagnostics(
+    components.flatMap((component) => component.diagnostics),
+    filename,
+    // eslint-disable-next-line no-console
+    (message) => console.warn(message),
+  )
 
   const usedTags = new Set<string>()
   const styleBlocks: string[] = []

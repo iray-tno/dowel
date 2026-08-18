@@ -43,3 +43,18 @@ restart.
 Hozo compiles the utilities. The Tailwind entry stylesheet is read for its
 `@theme` tokens and never bundled, so a Hozo project has no
 `@tailwindcss/postcss` in it and nothing to import into the app.
+
+## The same options everywhere
+
+`@hozo/vite`, `@hozo/next`, `@hozo/metro` and `@hozo/storybook` all take
+exactly `HozoProjectOptions` and add nothing:
+
+| option    | meaning                                                    |
+| --------- | ---------------------------------------------------------- |
+| `css`     | Tailwind entry stylesheet, read for `@theme` and not bundled |
+| `content` | source globs and ignores for the project-wide scan          |
+| `root`    | project root; defaults to whatever the bundler already knows |
+| `debug`   | report scan work and timing through the bundler's logger     |
+
+An error-severity diagnostic fails the build in all four, and prints the
+same way.

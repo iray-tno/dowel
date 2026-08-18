@@ -14,7 +14,7 @@ const { withHozo } = require('@hozo/metro/config')
 
 const projectRoot = __dirname
 const config = getDefaultConfig(projectRoot)
-module.exports = withHozo(config, { projectRoot })
+module.exports = withHozo(config, { root: projectRoot })
 ```
 
 Metro accepts a promised config, so `withHozo` can resolve the Tailwind theme and generate the dynamic candidate module before bundling begins. It preserves the supplied config and records an existing Babel transformer as its upstream, including Expo's or another tool's transformer.

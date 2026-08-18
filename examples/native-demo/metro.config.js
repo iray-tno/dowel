@@ -31,4 +31,4 @@ config.resolver.nodeModulesPaths = [
 // candidate module, preserves the rest of this config, and installs its
 // transformer while retaining any transformer already configured by RN,
 // Expo, or another tool as the upstream handoff.
-module.exports = withHozo(config, { projectRoot, css: 'global.css' })
+module.exports = withHozo(config, { root: projectRoot, css: 'global.css' })

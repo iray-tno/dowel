@@ -39,6 +39,14 @@ export interface ContentOptions {
   respectGitignore?: boolean
 }
 
+/** Options whose meaning is shared by every Hozo bundler integration. */
+export interface HozoProjectOptions {
+  /** Tailwind entry stylesheet, relative to the project root. */
+  css?: string
+  /** Source globs and ignores used by the project-wide candidate scan. */
+  content?: ContentOptions
+}
+
 export interface ScanStats {
   discoveredFiles: number
   scannedFiles: number

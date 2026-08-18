@@ -16,8 +16,12 @@
 
 import path from 'node:path'
 
-import { scanProject, writeFileIfChanged, type ContentOptions } from '@hozo/compiler/project'
-import { readProjectTheme } from './theme.ts'
+import {
+  scanProject,
+  writeFileIfChanged,
+  type HozoProjectOptions,
+} from '@hozo/compiler/project'
+import { loadProjectTheme } from '@hozo/tailwind'
 
 /// File name of the generated resolver module. Also read by the
 /// transformer, which imports it into every file it lowers.
@@ -53,9 +57,12 @@ export function candidateModulePath(projectRoot: string): string {
  */
 export async function generateCandidateModule(
   projectRoot: string,
-  options: { css?: string; content?: ContentOptions } = {},
+  options: HozoProjectOptions = {},
 ): Promise<string> {
-  const theme = await readProjectTheme(projectRoot, options.css)
+  const theme = await loadProjectTheme(projectRoot, {
+    css: options.css,
+    warn: (message) => console.warn(message),
+  })
   const { cache } = scanProject(projectRoot, options.content)
   const modulePath = candidateModulePath(projectRoot)
   writeFileIfChanged(modulePath, cache.renderNativeModule(theme))

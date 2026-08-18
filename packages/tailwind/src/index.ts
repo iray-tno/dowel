@@ -5,3 +5,8 @@
 // Tailwind what the project's theme is.
 
 export { loadTheme, toHex, type Theme, type ThemeColor } from './theme.ts'
+export {
+  DEFAULT_CSS_FILES,
+  loadProjectTheme,
+  type ProjectThemeOptions,
+} from './project.ts'

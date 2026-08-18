@@ -2,17 +2,13 @@ import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { writeFileIfChanged, type ContentOptions } from '@hozo/compiler/project'
+import { writeFileIfChanged, type HozoProjectOptions } from '@hozo/compiler/project'
 
 import { generateCandidateModule } from './project.ts'
 
-export interface HozoMetroOptions {
+export interface HozoMetroOptions extends HozoProjectOptions {
   /** Metro project root. Defaults to config.projectRoot, then process.cwd(). */
   projectRoot?: string
-  /** Tailwind entry stylesheet, relative to projectRoot. */
-  css?: string
-  /** Source globs and ignores used by the project-wide candidate scan. */
-  content?: ContentOptions
 }
 
 interface MetroConfigShape {

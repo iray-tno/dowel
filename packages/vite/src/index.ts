@@ -17,18 +17,18 @@
 // owns the project walk and the file-deletion signal, while the cache in
 // Rust owns scanning, staleness, and persistence.
 
-import { existsSync, readFileSync, statSync } from 'node:fs'
+import { statSync } from 'node:fs'
 import path from 'node:path'
 import type { Plugin, ViteDevServer } from 'vite'
 import { compile, type CandidateCache, type Theme } from '@hozo/compiler'
-import { loadTheme } from '@hozo/tailwind'
+import { loadProjectTheme } from '@hozo/tailwind'
 import {
   discoverSources,
   importSpecifier,
   scanProject,
   scannableFile,
   writeFileIfChanged,
-  type ContentOptions,
+  type HozoProjectOptions,
 } from '@hozo/compiler/project'
 
 const HOZO_CORE_IMPORT_RE = /import\s*\{[^}]*\}\s*from\s*['"]@hozo\/core['"]\s*\n?/
@@ -83,7 +83,7 @@ function namespaceHozoClasses(text: string, rootIndex: number): string {
  * project-wide fact, and re-reading it for every module would run
  * Tailwind's resolver hundreds of times for one answer.
  */
-export interface HozoOptions {
+export interface HozoOptions extends HozoProjectOptions {
   /**
    * The stylesheet that carries `@import "tailwindcss"` and the project's
    * `@theme`. Relative to the Vite root.
@@ -92,16 +92,9 @@ export interface HozoOptions {
    * default theme if it finds none -- reporting what it looked for rather
    * than silently compiling against the wrong palette.
    */
-  css?: string
-  /** Source globs and ignores used by the project-wide dynamic-class scan. */
-  content?: ContentOptions
   /** Report project-scan work and timing through Vite's logger. */
   debug?: boolean
 }
-
-/// Where a Tailwind v4 project usually keeps its entry stylesheet. Only
-/// consulted when `css` isn't given.
-const CSS_GUESSES = ['src/index.css', 'src/styles.css', 'src/app.css', 'app/globals.css']
 
 export function hozo(options: HozoOptions = {}): Plugin {
   let theme: Theme | undefined
@@ -137,7 +130,10 @@ export function hozo(options: HozoOptions = {}): Plugin {
     },
 
     async buildStart() {
-      theme = await readProjectTheme(root, options.css, (message) => this.warn(message))
+      theme = await loadProjectTheme(root, {
+        css: options.css,
+        warn: (message) => this.warn(message),
+      })
 
       // The whole project, not just what the bundler happens to reach: a
       // class can be produced by a module the graph never resolves
@@ -244,38 +240,4 @@ export function hozo(options: HozoOptions = {}): Plugin {
       cache?.persist()
     },
   }
-}
-
-/**
- * Loads the project's theme, or nothing if there is none to load.
- *
- * Nothing means Tailwind's defaults, which is exactly what a project
- * without a `@theme` wants -- so a missing stylesheet is reported and then
- * shrugged off rather than being an error. A *named* stylesheet that
- * doesn't exist is different: someone said where it was, and silently
- * compiling against the wrong palette would be worse than a warning.
- */
-async function readProjectTheme(
-  root: string,
-  configured: string | undefined,
-  warn: (message: string) => void,
-): Promise<Theme | undefined> {
-  const candidates = configured ? [configured] : CSS_GUESSES
-  for (const relative of candidates) {
-    const file = path.resolve(root, relative)
-    if (!existsSync(file)) continue
-    try {
-      return await loadTheme(readFileSync(file, 'utf8'), path.dirname(file))
-    } catch (error) {
-      warn(
-        `[hozo] couldn't read the theme from ${relative}, so utilities resolve against ` +
-          `Tailwind's defaults: ${(error as Error).message}`,
-      )
-      return undefined
-    }
-  }
-  if (configured) {
-    warn(`[hozo] no stylesheet at ${configured}, so utilities resolve against Tailwind's defaults`)
-  }
-  return undefined
 }

@@ -42,6 +42,8 @@ test('withHozo preserves Metro settings and records the existing transformer', a
 test('withHozo accepts a promised config and an explicit project root', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'hozo-metro-promise-'))
   try {
+    mkdirSync(path.join(root, 'styles'))
+    writeFileSync(path.join(root, 'styles', 'tailwind.css'), '@import "tailwindcss";\n')
     const result = await withHozo(Promise.resolve({ transformer: {} }), {
       projectRoot: root,
       css: 'styles/tailwind.css',

@@ -6,16 +6,14 @@
 // of labor as @hozo/vite running `enforce: 'pre'` ahead of
 // @vitejs/plugin-react.
 //
-// NOT verified against a running Metro/Expo build -- no device/simulator
-// available in this environment. `transformHozoSource` (the part that
-// actually matters) is covered by unit tests in `transform.test.ts`
-// instead; this file is thin, documented Metro API surface on top of it.
+// The full integration is covered by development and minified production
+// Metro bundles; physical-device validation remains separate.
 
 import { createRequire } from 'node:module'
 import path from 'node:path'
+import { loadProjectTheme } from '@hozo/tailwind'
 import { readMetroState } from './config.ts'
 import { transformHozoSource } from './transform.ts'
-import { readProjectTheme } from './theme.ts'
 
 const require = createRequire(import.meta.url)
 
@@ -94,7 +92,12 @@ function loadUpstream(projectRoot?: string): UpstreamTransformer {
 export async function transform(params: TransformParams): Promise<unknown> {
   const projectRoot = params.options?.projectRoot
   const state = projectRoot ? readMetroState(projectRoot) : undefined
-  const theme = projectRoot ? await readProjectTheme(projectRoot, state?.css) : undefined
+  const theme = projectRoot
+    ? await loadProjectTheme(projectRoot, {
+        css: state?.css,
+        warn: (message) => console.warn(message),
+      })
+    : undefined
   const rewritten = transformHozoSource(params.src, params.filename, projectRoot, theme)
   const nextParams = rewritten === null ? params : { ...params, src: rewritten }
   return loadUpstream(projectRoot).transform(nextParams)

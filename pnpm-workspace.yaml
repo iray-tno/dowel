@@ -1,3 +1,12 @@
 packages:
   - "packages/*"
   - "examples/*"
+allowBuilds:
+  esbuild: true
+minimumReleaseAgeExclude:
+  - '@storybook/builder-vite@10.5.9'
+  - '@storybook/csf-plugin@10.5.9'
+  - '@storybook/react-dom-shim@10.5.9'
+  - '@storybook/react-vite@10.5.9'
+  - '@storybook/react@10.5.9'
+  - storybook@10.5.9

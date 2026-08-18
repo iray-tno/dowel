@@ -1,0 +1,21 @@
+{
+  "name": "@hozo/example-storybook",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "storybook build --output-dir storybook-static --quiet",
+    "test": "storybook build --output-dir storybook-static --quiet && node scripts/check-build.mjs"
+  },
+  "dependencies": {
+    "@hozo/core": "workspace:*",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@hozo/storybook": "workspace:*",
+    "@storybook/react-vite": "^10.5.9",
+    "storybook": "^10.5.9",
+    "vite": "^8.2.1"
+  }
+}

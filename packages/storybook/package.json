@@ -1,0 +1,23 @@
+{
+  "name": "@hozo/storybook",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Zero-config Storybook Vite preset for Hozo.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./preset.js",
+  "exports": {
+    ".": "./preset.js",
+    "./preset": "./preset.js"
+  },
+  "scripts": {
+    "test": "node --test src/*.test.ts"
+  },
+  "dependencies": {
+    "@hozo/vite": "workspace:*"
+  },
+  "peerDependencies": {
+    "storybook": ">=8.5",
+    "vite": ">=5"
+  }
+}

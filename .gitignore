@@ -5,6 +5,7 @@ node_modules/
 dist/
 dist-ssr/
 .output/
+storybook-static/
 .turbo/
 *.log
 

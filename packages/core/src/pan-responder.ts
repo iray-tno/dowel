@@ -1,4 +1,9 @@
-import type { DowelResponderEvent, DowelResponderTouch, ResponderProps } from './responder.ts'
+import type {
+  DowelResponderEvent,
+  DowelTouchHistory,
+  DowelTouchTrack,
+  ResponderProps,
+} from './responder.ts'
 
 export interface PanResponderGestureState {
   stateID: number
@@ -40,13 +45,33 @@ export interface PanResponderInstance {
 
 let nextStateID = 1
 
-function centroid(touches: DowelResponderTouch[], fallback: DowelResponderTouch) {
-  const points = touches.length > 0 ? touches : [fallback]
-  const total = points.reduce(
-    (value, touch) => ({ x: value.x + touch.pageX, y: value.y + touch.pageY }),
-    { x: 0, y: 0 },
-  )
-  return { x: total.x / points.length, y: total.y / points.length }
+function centroidDimension(
+  history: DowelTouchHistory,
+  changedAfter: number,
+  axis: 'x' | 'y',
+  current: boolean,
+) {
+  const single = history.numberActiveTouches === 1
+    ? history.touchBank[history.indexOfSingleActiveTouch]
+    : undefined
+  const tracks = single ? [single] : history.touchBank
+  let total = 0
+  let count = 0
+  for (const track of tracks) {
+    if (!track?.touchActive) continue
+    const changed = single
+      ? track.currentTimeStamp > changedAfter
+      : track.currentTimeStamp >= changedAfter
+    if (!changed) continue
+    total += coordinate(track, axis, current)
+    count++
+  }
+  return count > 0 ? total / count : -1
+}
+
+function coordinate(track: DowelTouchTrack, axis: 'x' | 'y', current: boolean) {
+  if (current) return axis === 'x' ? track.currentPageX : track.currentPageY
+  return axis === 'x' ? track.previousPageX : track.previousPageY
 }
 
 function initialize(state: PanResponderGestureState) {
@@ -77,36 +102,26 @@ export const PanResponder = {
       numberActiveTouches: 0,
       _accountsForMovesUpTo: 0,
     }
-    let previousX = 0
-    let previousY = 0
-    let previousTimestamp = 0
-
-    const resetBaseline = (event: DowelResponderEvent) => {
-      const point = centroid(event.nativeEvent.touches, event.nativeEvent)
-      previousX = point.x
-      previousY = point.y
-      previousTimestamp = event.nativeEvent.timestamp
-      gestureState.numberActiveTouches = event.nativeEvent.touches.length
-    }
-
     const updateMove = (event: DowelResponderEvent) => {
-      const timestamp = event.nativeEvent.timestamp
+      const history = event.touchHistory
+      const timestamp = history.mostRecentTimeStamp
       if (gestureState._accountsForMovesUpTo === timestamp) return false
-      const point = centroid(event.nativeEvent.touches, event.nativeEvent)
-      const deltaX = point.x - previousX
-      const deltaY = point.y - previousY
-      const elapsed = timestamp - previousTimestamp
-      gestureState.numberActiveTouches = event.nativeEvent.touches.length
-      gestureState.moveX = point.x
-      gestureState.moveY = point.y
+      const changedAfter = gestureState._accountsForMovesUpTo
+      const x = centroidDimension(history, changedAfter, 'x', true)
+      const y = centroidDimension(history, changedAfter, 'y', true)
+      const previousX = centroidDimension(history, changedAfter, 'x', false)
+      const previousY = centroidDimension(history, changedAfter, 'y', false)
+      const deltaX = x - previousX
+      const deltaY = y - previousY
+      const elapsed = timestamp - changedAfter
+      gestureState.numberActiveTouches = history.numberActiveTouches
+      gestureState.moveX = x
+      gestureState.moveY = y
       gestureState.dx += deltaX
       gestureState.dy += deltaY
-      gestureState.vx = elapsed > 0 ? deltaX / elapsed : 0
-      gestureState.vy = elapsed > 0 ? deltaY / elapsed : 0
+      gestureState.vx = deltaX / elapsed
+      gestureState.vy = deltaY / elapsed
       gestureState._accountsForMovesUpTo = timestamp
-      previousX = point.x
-      previousY = point.y
-      previousTimestamp = timestamp
       return true
     }
 
@@ -117,7 +132,7 @@ export const PanResponder = {
         config.onMoveShouldSetPanResponder?.(event, gestureState) ?? false,
       onStartShouldSetResponderCapture: (event) => {
         if (event.nativeEvent.touches.length === 1) initialize(gestureState)
-        gestureState.numberActiveTouches = event.nativeEvent.touches.length
+        gestureState.numberActiveTouches = event.touchHistory.numberActiveTouches
         return config.onStartShouldSetPanResponderCapture?.(event, gestureState) ?? false
       },
       onMoveShouldSetResponderCapture: (event) => {
@@ -125,25 +140,23 @@ export const PanResponder = {
         return config.onMoveShouldSetPanResponderCapture?.(event, gestureState) ?? false
       },
       onResponderGrant: (event) => {
-        const point = centroid(event.nativeEvent.touches, event.nativeEvent)
-        gestureState.x0 = point.x
-        gestureState.y0 = point.y
+        gestureState.x0 = centroidDimension(event.touchHistory, 0, 'x', true)
+        gestureState.y0 = centroidDimension(event.touchHistory, 0, 'y', true)
         gestureState.dx = 0
         gestureState.dy = 0
-        resetBaseline(event)
         config.onPanResponderGrant?.(event, gestureState)
         config.onShouldBlockNativeResponder?.(event, gestureState)
       },
       onResponderReject: (event) => config.onPanResponderReject?.(event, gestureState),
       onResponderStart: (event) => {
-        resetBaseline(event)
+        gestureState.numberActiveTouches = event.touchHistory.numberActiveTouches
         config.onPanResponderStart?.(event, gestureState)
       },
       onResponderMove: (event) => {
         if (updateMove(event)) config.onPanResponderMove?.(event, gestureState)
       },
       onResponderEnd: (event) => {
-        resetBaseline(event)
+        gestureState.numberActiveTouches = event.touchHistory.numberActiveTouches
         config.onPanResponderEnd?.(event, gestureState)
       },
       onResponderRelease: (event) => {

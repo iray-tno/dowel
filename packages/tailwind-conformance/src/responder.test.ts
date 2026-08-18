@@ -205,10 +205,49 @@ test('PanResponder.create derives displacement, velocity, and active touch count
   assert.equal(moves[0].moveY, 149)
   assert.equal(moves[0].dx, 10)
   assert.equal(moves[0].dy, 20)
-  assert.equal(moves[0].vx, 1)
-  assert.equal(moves[0].vy, 2)
+  assert.equal(moves[0].vx, 0.5)
+  assert.equal(moves[0].vy, 1)
   assert.equal(moves[0].numberActiveTouches, 1)
   assert.equal(releases.length, 1)
   assert.equal(releases[0].numberActiveTouches, 0)
   assert.equal(pan.getInteractionHandle(), null)
+})
+
+test('PanResponder accumulates the RN touch-history cluster when pointers move alternately', () => {
+  const target = element()
+  const moves: PanResponderGestureState[] = []
+  const pan = PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onPanResponderMove: (_event, state) => moves.push({ ...state }),
+  })
+  const handlers = createResponderDomProps(
+    { current: target as unknown as HTMLElement },
+    { current: pan.panHandlers },
+  )
+
+  handlers.onPointerDown?.(pointer(target, 31, { pageX: 100, timeStamp: 10 }))
+  handlers.onPointerDown?.(pointer(target, 32, {
+    isPrimary: false,
+    pageX: 200,
+    timeStamp: 11,
+  }))
+  // Account for both newly active pointers before measuring alternating moves.
+  handlers.onPointerMove?.(pointer(target, 32, {
+    isPrimary: false,
+    pageX: 200,
+    timeStamp: 12,
+  }))
+  handlers.onPointerMove?.(pointer(target, 31, { pageX: 110, timeStamp: 22 }))
+  handlers.onPointerMove?.(pointer(target, 32, {
+    isPrimary: false,
+    pageX: 210,
+    timeStamp: 32,
+  }))
+
+  assert.equal(moves.at(-1)?.moveX, 160)
+  // RN includes tracks exactly on the previous accounting boundary (`>=`),
+  // so the first 10px move contributes 5px and is completed on the next move.
+  assert.equal(moves.at(-1)?.dx, 15)
+  assert.equal(moves.at(-1)?.vx, 1)
+  assert.equal(moves.at(-1)?.numberActiveTouches, 2)
 })

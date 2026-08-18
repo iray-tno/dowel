@@ -8,7 +8,13 @@
 import { useEffect, useRef, useState, type MouseEventHandler, type ReactNode, type UIEventHandler } from 'react'
 import { useResponderDomProps, type ResponderProps } from './responder.ts'
 
-export type { DowelResponderEvent, DowelResponderTouch, ResponderProps } from './responder.ts'
+export type {
+  DowelResponderEvent,
+  DowelResponderTouch,
+  DowelTouchHistory,
+  DowelTouchTrack,
+  ResponderProps,
+} from './responder.ts'
 export { PanResponder } from './pan-responder.ts'
 export type { PanResponderCallbacks, PanResponderGestureState, PanResponderInstance } from './pan-responder.ts'
 

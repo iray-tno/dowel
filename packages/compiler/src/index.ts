@@ -5,6 +5,9 @@
 // why this isn't @napi-rs/cli-packaged yet.
 
 import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
+
+import { loadNativeBinding } from './native-loader.ts'
 
 const require = createRequire(import.meta.url)
 
@@ -82,14 +85,10 @@ let native: NativeBinding | undefined
 
 function loadNative(): NativeBinding {
   if (!native) {
-    try {
-      native = require('../hozo_napi.node') as NativeBinding
-    } catch (cause) {
-      throw new Error(
-        '@hozo/compiler: native addon not found. Run `pnpm --filter @hozo/compiler build:native` first.',
-        { cause },
-      )
-    }
+    native = loadNativeBinding<NativeBinding>({
+      require,
+      localPath: fileURLToPath(new URL('../hozo_napi.node', import.meta.url)),
+    })
   }
   return native
 }

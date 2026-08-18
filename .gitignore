@@ -3,6 +3,7 @@ temp/
 # JS / pnpm
 node_modules/
 dist/
+dist-ssr/
 .turbo/
 *.log
 

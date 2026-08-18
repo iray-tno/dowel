@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build"
+    "build": "vite build",
+    "test": "vite build && node scripts/check-production.mjs && vite build --ssr src/ssr.tsx --outDir dist-ssr && node scripts/check-ssr.mjs"
   },
   "dependencies": {
     "@dowel/core": "workspace:*",

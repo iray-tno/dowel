@@ -80,6 +80,10 @@ function moduleIdHash(id: string): string {
   return (hash >>> 0).toString(36)
 }
 
+function sideEffectImport(specifier: string): string {
+  return `import ${JSON.stringify(specifier)}\n`
+}
+
 
 /**
  * A project's design tokens reach the compiler from here.
@@ -246,7 +250,10 @@ export function hozo(options: HozoOptions = {}): Plugin {
       // entry: the candidate sheet has to be present whichever module the
       // dynamic className lives in, and Vite resolves the repeated import
       // to a single module in the graph.
-      next = `import './${cssFileName}'\nimport '${importSpecifier(file, candidateCssPath)}'\n${next}`
+      // Generate the declarations through JSON.stringify: Storybook's
+      // extensionless-import checker inspects preset dependency source and
+      // otherwise mistakes our code-generating string for a real import.
+      next = sideEffectImport(`./${cssFileName}`) + sideEffectImport(importSpecifier(file, candidateCssPath)) + next
 
       return { code: next, map: null }
     },

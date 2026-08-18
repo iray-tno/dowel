@@ -53,6 +53,28 @@ fn is_class_byte(b: u8) -> bool {
 
 /// Resolves one class name, or `None` if it isn't a utility Hozo knows.
 pub fn resolve_class_name(class_name: &str) -> Option<ScannedUtility> {
+    // A top-level colon separates variants from their utility. Source scans
+    // also see CSS declarations such as `border-bottom:12px`; once all
+    // recognized variants are stripped, any colon left outside an arbitrary
+    // value is not a Tailwind utility. Accepting it would invent a theme
+    // color and can emit an invalid custom-property reference.
+    let (_, base) = tailwind::parse_variant_prefix(class_name);
+    let mut bracket_depth = 0usize;
+    let has_unparsed_colon = base.bytes().any(|byte| match byte {
+        b'[' => {
+            bracket_depth += 1;
+            false
+        }
+        b']' => {
+            bracket_depth = bracket_depth.saturating_sub(1);
+            false
+        }
+        b':' => bracket_depth == 0,
+        _ => false,
+    });
+    if has_unparsed_colon {
+        return None;
+    }
     let groups: Vec<_> = tailwind::expand_class(class_name)
         .into_iter()
         .filter(|(_, properties)| !properties.is_empty())
@@ -138,6 +160,15 @@ mod tests {
         // Ordinary identifiers and paths shouldn't produce rules.
         let found = scan_class_candidates("import { useState } from 'react'");
         assert!(found.is_empty(), "unexpected: {found:?}");
+    }
+
+    #[test]
+    fn ignores_css_property_names_ending_in_a_colon() {
+        let found = scan_class_candidates(".card{border-bottom:12px solid;background:red}");
+        assert!(found.is_empty(), "unexpected: {found:?}");
+        assert!(resolve_class_name("border-bottom:").is_none());
+        assert!(resolve_class_name("border-bottom:12px").is_none());
+        assert!(resolve_class_name("hover:bg-[color:red]").is_some());
     }
 
     #[test]

@@ -487,6 +487,9 @@ fn build_node(
                     .passthrough
                     .push(passthrough_prop(attr, module_record, diagnostics, consumed)),
             },
+            "defaultSource" if primitive == Primitive::Image => {
+                capture_prop_expr(attr, &mut props.image_default_source, &mut props.passthrough, module_record, diagnostics, consumed)
+            }
             "alt" if primitive == Primitive::Image => match &attr.value {
                 Some(JSXAttributeValue::ExpressionContainer(container)) => {
                     props.accessibility_label = Some(to_expr_ref(container.expression.span()));

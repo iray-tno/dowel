@@ -292,6 +292,9 @@ pub struct PropSet {
     /// The universal `Image` source expression. Its spelling changes by
     /// platform, so it cannot be an opaque passthrough prop.
     pub image_src: Option<ExprRef>,
+    /// Optional placeholder/fallback source. Like `image_src`, each
+    /// backend normalizes this to its platform's Image contract.
+    pub image_default_source: Option<ExprRef>,
     /// A ScrollView's axis switch, retained as an expression so Web can
     /// drive a scoped selector and Native can receive its boolean prop.
     pub scroll_horizontal: Option<ConditionExpr>,

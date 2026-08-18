@@ -5,7 +5,7 @@
 // job is to make invoking these at runtime unnecessary where it can, not
 // to make them required.
 
-import { useEffect, useRef, type MouseEventHandler, type ReactNode, type UIEventHandler } from 'react'
+import { useEffect, useRef, useState, type MouseEventHandler, type ReactNode, type UIEventHandler } from 'react'
 
 export interface DowelLayoutRectangle {
   x: number
@@ -126,8 +126,10 @@ export function Text({ className, children, onLayout, ...universal }: TextProps)
 
 export interface ImageProps extends UniversalProps {
   className?: string
-  /** URL on Web; URL or Metro's numeric local-asset id on Native. */
-  src: string | number
+  /** URL/import on Web; URI metadata or Metro's numeric asset id on Native. */
+  src: DowelImageSource
+  /** Native loading placeholder; Web uses it when the primary source fails or cannot be resolved. */
+  defaultSource?: DowelImageSource
   /** Empty string marks a decorative image. */
   alt?: string
   accessibilityLabel?: string
@@ -135,12 +137,47 @@ export interface ImageProps extends UniversalProps {
   onError?: (event: unknown) => void
 }
 
-export function Image({ className, src, alt, accessibilityLabel, onLoad, onError, onLayout, ...universal }: ImageProps) {
+export interface DowelImageSourceObject {
+  uri?: string
+  /** ESM namespace shape returned by some asset bundlers. */
+  default?: string
+}
+
+export type DowelImageSource = string | number | DowelImageSourceObject | readonly DowelImageSourceObject[]
+
+function webImageSource(source?: DowelImageSource): string | undefined {
+  if (typeof source === 'string') return source
+  if (!source || typeof source !== 'object') return undefined
+  if (Array.isArray(source)) {
+    for (const candidate of source) {
+      const resolved = webImageSource(candidate)
+      if (resolved) return resolved
+    }
+    return undefined
+  }
+  const object = source as DowelImageSourceObject
+  return typeof object.uri === 'string' ? object.uri : typeof object.default === 'string' ? object.default : undefined
+}
+
+export function Image({ className, src, defaultSource, alt, accessibilityLabel, onLoad, onError, onLayout, ...universal }: ImageProps) {
   const ref = useLayoutRef<HTMLImageElement>(onLayout)
-  // A numeric id is meaningful only after Native compilation. Keeping it
-  // out of the DOM fallback avoids React serializing a bogus URL.
-  const webSrc = typeof src === 'string' ? src : undefined
-  return <img ref={ref} className={className} src={webSrc} alt={alt ?? accessibilityLabel ?? ''} onLoad={onLoad} onError={onError} {...universalDomProps(universal)} />
+  const [failed, setFailed] = useState(false)
+  useEffect(() => setFailed(false), [src])
+  const webSrc = (failed ? undefined : webImageSource(src)) ?? webImageSource(defaultSource)
+  return (
+    <img
+      ref={ref}
+      className={className}
+      src={webSrc}
+      alt={alt ?? accessibilityLabel ?? ''}
+      onLoad={onLoad}
+      onError={(event) => {
+        setFailed(true)
+        onError?.(event)
+      }}
+      {...universalDomProps(universal)}
+    />
+  )
 }
 
 export interface ScrollViewProps extends UniversalProps {

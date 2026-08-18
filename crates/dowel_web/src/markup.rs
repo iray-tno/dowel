@@ -21,7 +21,8 @@ pub fn element_shape(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'stati
         Primitive::Text => ("span", Vec::new()),
         Primitive::Button => ("button", Vec::new()),
         Primitive::Link => ("a", Vec::new()),
-        Primitive::Image if node.props.on_layout.is_some() => ("Image", image_attrs(node, diagnostics)),
+        Primitive::Image if node.props.on_layout.is_some() || node.props.image_default_source.is_some() =>
+            ("Image", image_attrs(node, diagnostics)),
         Primitive::Image => ("img", image_attrs(node, diagnostics)),
         Primitive::ScrollView if node.props.on_refresh.is_some()
             || node.props.refreshing.is_some()
@@ -193,6 +194,7 @@ mod tests {
                 accessibility_label: None,
                 accessibility_hint: None,
                 image_src: None,
+                image_default_source: None,
                 scroll_horizontal: None,
                 refreshing: None,
                 on_refresh: None,
@@ -237,6 +239,7 @@ mod tests {
                 accessibility_label: None,
                 accessibility_hint: None,
                 image_src: None,
+                image_default_source: None,
                 scroll_horizontal: None,
                 refreshing: None,
                 on_refresh: None,

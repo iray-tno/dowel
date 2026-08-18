@@ -240,7 +240,15 @@ fn render_node(
         rules.push_str("\n\n");
     }
 
-    let (tag, extra_attrs) = markup::element_shape(node, diagnostics);
+    let (mut tag, extra_attrs) = markup::element_shape(node, diagnostics);
+    if node.primitive == Primitive::Image {
+        if let Some(src) = node.props.image_src {
+            let value = source_text(source, src);
+            if !value.starts_with(['\"', '\'']) {
+                tag = "Image";
+            }
+        }
+    }
     let is_dowel_component = tag.starts_with("Dowel")
         || matches!(tag, "View" | "Text" | "Image" | "ScrollView" | "FlatList");
 
@@ -378,6 +386,9 @@ fn render_node(
     }
     if let Some(src) = node.props.image_src {
         attrs.push_str(&format!(" src={{{}}}", source_text(source, src)));
+    }
+    if let Some(src) = node.props.image_default_source {
+        attrs.push_str(&format!(" defaultSource={{{}}}", source_text(source, src)));
     }
     if let Some(horizontal) = &node.props.scroll_horizontal {
         let horizontal = render_condition_expr(source, horizontal);
@@ -862,6 +873,20 @@ export function Login() {
         assert!(output.jsx.starts_with("<View className=\"dowel-view\""), "{}", output.jsx);
         assert!(output.jsx.contains("testID={\"measured\"} onLayout={measure}"), "{}", output.jsx);
         assert!(output.jsx.contains("<span>child</span>"), "{}", output.jsx);
+    }
+
+    #[test]
+    fn structured_and_fallback_image_sources_select_the_web_normalizer() {
+        let source = r#"
+            import { Image } from '@dowel/core'
+            const el = <Image src={{ uri: remote }} defaultSource={assetModule} alt="Cover" />
+        "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+        assert!(output.jsx.starts_with("<Image "), "{}", output.jsx);
+        assert!(output.jsx.contains("src={{ uri: remote }}"), "{}", output.jsx);
+        assert!(output.jsx.contains("defaultSource={assetModule}"), "{}", output.jsx);
+        assert!(output.jsx.contains("alt={\"Cover\"}"), "{}", output.jsx);
     }
 
     #[test]

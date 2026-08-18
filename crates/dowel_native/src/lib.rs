@@ -751,6 +751,16 @@ fn render_node(
             props_text.push_str(&format!(" source={{dowelImageSource({value})}}"));
         }
     }
+    if let Some(src) = node.props.image_default_source {
+        let value = source_text(source, src);
+        let static_uri = value.starts_with(['\"', '\'']);
+        if static_uri {
+            props_text.push_str(&format!(" defaultSource={{{{ uri: {value} }}}}"));
+        } else {
+            runtime.need_component("dowelImageSource");
+            props_text.push_str(&format!(" defaultSource={{dowelImageSource({value})}}"));
+        }
+    }
     if let Some(horizontal) = &node.props.scroll_horizontal {
         props_text.push_str(&format!(" horizontal={{{}}}", render_condition_expr(source, horizontal)));
     }
@@ -2615,6 +2625,19 @@ export function Login() {
         ] {
             assert!(output.jsx.contains(expected), "missing {expected}: {}", output.jsx);
         }
+    }
+
+    #[test]
+    fn image_default_source_uses_the_same_native_normalizer() {
+        let source = r#"
+            import { Image } from '@dowel/core'
+            const el = <Image src={remote} defaultSource={require('./fallback.png')} alt="Cover" />
+        "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+        assert!(output.jsx.contains("source={dowelImageSource(remote)}"), "{}", output.jsx);
+        assert!(output.jsx.contains("defaultSource={dowelImageSource(require('./fallback.png'))}"), "{}", output.jsx);
+        assert!(output.runtime_imports.contains(&"dowelImageSource"));
     }
 
     #[test]

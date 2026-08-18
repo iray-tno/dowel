@@ -166,6 +166,7 @@ mod tests {
                 accessibility_label: None,
                 accessibility_hint: None,
                 image_src: None,
+                image_default_source: None,
                 scroll_horizontal: None,
                 refreshing: None,
                 on_refresh: None,

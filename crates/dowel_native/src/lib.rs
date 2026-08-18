@@ -4153,4 +4153,18 @@ export function Login() {
             "<View><Text accessibilityRole=\"header\">Title</Text><Text>Body</Text></View>"
         );
     }
+
+    #[test]
+    fn article_and_navigation_keep_roles_on_native() {
+        let source = r#"
+            import { Article, Nav, Heading } from '@dowel/core'
+            const el = <Article><Heading>Title</Heading><Nav accessibilityLabel="Primary" /></Article>
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+        assert_eq!(
+            output.jsx,
+            "<View role=\"article\"><Text accessibilityRole=\"header\">Title</Text><View role=\"navigation\" accessibilityLabel={\"Primary\"}></View></View>"
+        );
+    }
 }

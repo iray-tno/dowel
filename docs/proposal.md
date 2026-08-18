@@ -69,6 +69,8 @@ import { View, Text, Paragraph, Heading, Section, Button } from '@dowel/core'
 - Paragraph（Webの `p` / Nativeの `Text`）
 - Heading（Webの `h1`〜`h6` / Nativeのheader role付き`Text`）
 - Section（Webの `section` / Nativeの `View`）
+- Article（Webの `article` / Nativeのarticle role付き`View`）
+- Nav（Webの `nav` / Nativeのnavigation role付き`View`）
 - Pressable
 - Button
 - Link

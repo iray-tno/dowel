@@ -37,6 +37,16 @@ test('semantic primitives render native document elements', () => {
   assert.equal(rendered.html, '<section><h3>Title</h3><p>Body</p></section>')
 })
 
+test('article and navigation landmarks survive an actual Web render', () => {
+  const { rendered } = round(`
+    import { Article, Nav } from '@dowel/core'
+    export function Shell() {
+      return <Article><Nav accessibilityLabel="Primary" /></Article>
+    }
+  `)
+  assert.equal(rendered.html, '<article><nav aria-label="Primary"></nav></article>')
+})
+
 test('every class in the DOM has a rule in the stylesheet', () => {
   // The two halves of the Web output have to agree, and nothing compared
   // them before: a class that reaches the element and matches no rule is a

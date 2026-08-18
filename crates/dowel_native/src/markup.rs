@@ -21,6 +21,8 @@ pub fn native_component(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'st
         Primitive::Paragraph => ("Text", Vec::new()),
         Primitive::Heading => ("Text", vec![("accessibilityRole", "header".to_string())]),
         Primitive::Section => ("View", Vec::new()),
+        Primitive::Article => ("View", vec![("role", "article".to_string())]),
+        Primitive::Nav => ("View", vec![("role", "navigation".to_string())]),
         Primitive::Button => ("Pressable", vec![("accessibilityRole", "button".to_string())]),
         Primitive::Link => ("DowelLink", Vec::new()),
         Primitive::Image => ("Image", image_attrs(node, diagnostics)),

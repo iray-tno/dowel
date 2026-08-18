@@ -53,6 +53,24 @@ test('semantic document primitives retain native accessibility intent', () => {
   assert.equal(paragraph.type, 'Text')
 })
 
+test('article and navigation landmarks retain Native roles', () => {
+  const tree = renderNative(
+    `
+    import { Article, Nav } from '@dowel/core'
+    export function Shell() {
+      return <Article><Nav accessibilityLabel="Primary" /></Article>
+    }
+    `,
+    'Shell',
+  )
+  assert.equal(tree?.type, 'View')
+  assert.equal(tree?.props.role, 'article')
+  const [nav] = children(tree)
+  assert.equal(nav.type, 'View')
+  assert.equal(nav.props.role, 'navigation')
+  assert.equal(nav.props.accessibilityLabel, 'Primary')
+})
+
 test('DowelSpaced puts the spacing on every child but the last', () => {
   // The component's first execution. Its rule -- `:not(:last-child)`, and
   // the parent's style behind the child's own so the child wins -- was

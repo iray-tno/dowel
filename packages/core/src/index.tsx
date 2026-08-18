@@ -150,6 +150,16 @@ export function Section({ className, children, onLayout, ...universal }: ViewPro
   return <section ref={ref} className={className} {...universalDomProps(universal)}>{children}</section>
 }
 
+export function Article({ className, children, onLayout, ...universal }: ViewProps) {
+  const ref = useLayoutRef<HTMLElement>(onLayout)
+  return <article ref={ref} className={className} {...universalDomProps(universal)}>{children}</article>
+}
+
+export function Nav({ className, children, onLayout, ...universal }: ViewProps) {
+  const ref = useLayoutRef<HTMLElement>(onLayout)
+  return <nav ref={ref} className={className} {...universalDomProps(universal)}>{children}</nav>
+}
+
 export interface ImageProps extends UniversalProps {
   className?: string
   /** URL/import on Web; URI metadata or Metro's numeric asset id on Native. */

@@ -157,6 +157,8 @@ fn primitive_name(name: &str) -> Option<&'static str> {
         "Paragraph" => Some("Paragraph"),
         "Heading" => Some("Heading"),
         "Section" => Some("Section"),
+        "Article" => Some("Article"),
+        "Nav" => Some("Nav"),
         "Pressable" => Some("Pressable"),
         "Button" => Some("Button"),
         "Link" => Some("Link"),
@@ -238,6 +240,8 @@ fn primitive_for_name(name: &str) -> Option<Primitive> {
         "Paragraph" => Some(Primitive::Paragraph),
         "Heading" => Some(Primitive::Heading),
         "Section" => Some(Primitive::Section),
+        "Article" => Some(Primitive::Article),
+        "Nav" => Some(Primitive::Nav),
         "Pressable" => Some(Primitive::Pressable),
         "TextInput" => Some(Primitive::TextInput),
         "Dialog" => Some(Primitive::Dialog),
@@ -600,6 +604,8 @@ fn build_node(
         }
     }
 
+    validate_semantic_children(primitive, &children, diagnostics);
+
     Some(Node {
         primitive,
         style,
@@ -608,6 +614,36 @@ fn build_node(
         class_name_fallback,
         span: to_span(el.span()),
     })
+}
+
+fn validate_semantic_children(
+    parent: Primitive,
+    children: &[Child],
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    if !matches!(parent, Primitive::Paragraph | Primitive::Heading) {
+        return;
+    }
+    for child in children {
+        let Child::Node(child) = child else { continue };
+        let allowed = matches!(
+            child.primitive,
+            Primitive::Text | Primitive::Link | Primitive::Button | Primitive::TextInput | Primitive::Image
+        );
+        if allowed {
+            continue;
+        }
+        let parent_name = if parent == Primitive::Paragraph { "Paragraph" } else { "Heading" };
+        diagnostics.push(Diagnostic {
+            code: DiagnosticCode::InvalidSemanticNesting,
+            severity: Severity::Warning,
+            message: format!(
+                "`{parent_name}` lowers to a Web text element that cannot contain `{:?}`. Move that child beside the {parent_name}, or wrap both in a Section/View.",
+                child.primitive
+            ),
+            span: child.span,
+        });
+    }
 }
 
 /// Collects every top-level (i.e. not nested inside another already-visited
@@ -799,6 +835,20 @@ mod tests {
         let root = &output.roots[0].node;
         assert_eq!(root.props.accessibility_role, None);
         assert_eq!(passthrough_texts(source, root), vec!["accessibilityRole={computedRole}"]);
+    }
+
+    #[test]
+    fn invalid_semantic_nesting_is_diagnosed_without_guessing_through_expressions() {
+        let source = r#"
+            import { Paragraph, Section } from '@dowel/core'
+            const el = <Paragraph>Intro<Section>Details</Section>{extra}</Paragraph>
+            "#;
+        let output = crate::parse_tsx(source);
+        let semantic: Vec<_> = output.diagnostics.iter()
+            .filter(|diagnostic| diagnostic.code == DiagnosticCode::InvalidSemanticNesting)
+            .collect();
+        assert_eq!(semantic.len(), 1);
+        assert!(semantic[0].message.contains("Section"));
     }
 
     #[test]

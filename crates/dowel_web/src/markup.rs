@@ -33,6 +33,10 @@ pub fn element_shape(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'stati
         },
         Primitive::Section if node.props.on_layout.is_some() => ("Section", Vec::new()),
         Primitive::Section => ("section", Vec::new()),
+        Primitive::Article if node.props.on_layout.is_some() => ("Article", Vec::new()),
+        Primitive::Article => ("article", Vec::new()),
+        Primitive::Nav if node.props.on_layout.is_some() => ("Nav", Vec::new()),
+        Primitive::Nav => ("nav", Vec::new()),
         Primitive::Button => ("button", Vec::new()),
         Primitive::Link => ("a", Vec::new()),
         Primitive::Image if node.props.on_layout.is_some() || node.props.image_default_source.is_some() =>

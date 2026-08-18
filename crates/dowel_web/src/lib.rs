@@ -250,7 +250,7 @@ fn render_node(
         }
     }
     let is_dowel_component = tag.starts_with("Dowel")
-        || matches!(tag, "View" | "Text" | "Paragraph" | "Heading" | "Section" | "Image" | "ScrollView" | "FlatList");
+        || matches!(tag, "View" | "Text" | "Paragraph" | "Heading" | "Section" | "Article" | "Nav" | "Image" | "ScrollView" | "FlatList");
 
     // The generated class is dropped when no rule was written for it. It
     // matched nothing, so it was a class attribute on every unstyled
@@ -1272,5 +1272,16 @@ export function Login() {
         let parsed = dowel_parser::parse_tsx(source);
         let output = lower(&parsed.roots[0].node, source, &Theme::default());
         assert_eq!(output.jsx, "<Heading level={level}>Title</Heading>");
+    }
+
+    #[test]
+    fn article_and_navigation_lower_to_web_landmarks() {
+        let source = r#"
+            import { Article, Nav, Heading } from '@dowel/core'
+            const el = <Article><Heading>Title</Heading><Nav accessibilityLabel="Primary" /></Article>
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+        assert_eq!(output.jsx, "<article><h1>Title</h1><nav aria-label={\"Primary\"}></nav></article>");
     }
 }

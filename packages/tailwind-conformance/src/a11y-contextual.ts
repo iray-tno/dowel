@@ -23,6 +23,21 @@ export const A11Y_CONTEXTUAL_CASES: A11yContextualCase[] = [
     native: ['<View>', '<Text accessibilityRole="header">Title</Text>', '<Text>Body</Text>'],
   },
   {
+    name: 'document landmarks',
+    purpose: 'article and named navigation landmarks remain explicit on both platforms',
+    source: '<Article><Nav accessibilityLabel="Primary" /></Article>',
+    web: ['<article>', '<nav aria-label={"Primary"}>'],
+    native: ['<View role="article">', '<View role="navigation" accessibilityLabel={"Primary"}>'],
+  },
+  {
+    name: 'invalid document nesting diagnostic',
+    purpose: 'a statically invalid paragraph structure never ships silently',
+    source: '<Paragraph>Intro<Section>Details</Section></Paragraph>',
+    web: ['<p>Intro<section>Details</section></p>'],
+    native: ['<Text>Intro<View><Text>Details</Text></View></Text>'],
+    diagnostics: ['INVALID_SEMANTIC_NESTING'],
+  },
+  {
     name: 'described Image',
     purpose: 'one alternative text input reaches native semantics on both platforms',
     source: '<Image src="https://example.com/cover.jpg" alt="Cover art" />',
@@ -98,7 +113,7 @@ export const A11Y_CONTEXTUAL_CASES: A11yContextualCase[] = [
 
 export function compareA11yContextual(testCase: A11yContextualCase): A11yContextualResult {
   const source =
-    `import { Button, Dialog, Heading, Image, Link, Paragraph, Pressable, Section, TextInput } from '@dowel/core'\n` +
+    `import { Article, Button, Dialog, Heading, Image, Link, Nav, Paragraph, Pressable, Section, TextInput } from '@dowel/core'\n` +
     `export function C() { return ${testCase.source} }\n`
   const [web] = compile(source)
   const [native] = compileNative(source)

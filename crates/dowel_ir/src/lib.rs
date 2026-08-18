@@ -71,6 +71,9 @@ pub enum DiagnosticCode {
     /// vanishes the moment the user types -- which is exactly when they
     /// would want to check what the field was for.
     A11yMissingAccessibleName,
+    /// A semantic text container has a statically-known child that its Web
+    /// element cannot contain (for example a Section inside a Paragraph).
+    InvalidSemanticNesting,
     /// A class carries square brackets or a `(--var)` -- Tailwind's
     /// arbitrary syntax -- and Dowel couldn't read it.
     ///
@@ -153,6 +156,12 @@ pub enum Primitive {
     /// A thematic document region: `<section>` on Web and `View` on
     /// React Native, where there is no corresponding layout primitive.
     Section,
+    /// A self-contained document composition: `<article>` on Web and a
+    /// role-bearing `View` on React Native.
+    Article,
+    /// A navigation landmark: `<nav>` on Web and a role-bearing `View` on
+    /// React Native.
+    Nav,
     Pressable,
     Button,
     /// A destination-bearing interaction: `<a>` on Web and Dowel's

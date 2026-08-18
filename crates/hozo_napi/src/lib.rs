@@ -5,7 +5,7 @@
 //! exposing the same `hozo_parser::parse_tsx` -> `hozo_web::lower`
 //! pipeline already validated in `hozo_web`'s tests/example, as a
 //! synchronous Node-callable function. This is not yet the shape
-//! `@hozo/vite-plugin` will actually want (full rendered HTML rather than
+//! `@hozo/vite` will actually want (full rendered HTML rather than
 //! source-rewrite instructions) -- that comes once the plugin itself is
 //! being wired up and its real requirements are known.
 
@@ -41,7 +41,7 @@ fn to_js_diagnostic(diagnostic: Diagnostic) -> CompileDiagnostic {
         code: diagnostic_code_str(diagnostic.code).to_string(),
         severity: match diagnostic.severity {
             // Build-stopping; callers are expected to fail on this rather
-            // than print it (see @hozo/metro-transformer).
+            // than print it (see @hozo/metro).
             Severity::Error => "error".to_string(),
             Severity::Warning => "warning".to_string(),
             Severity::Info => "info".to_string(),

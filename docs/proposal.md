@@ -1,4 +1,4 @@
-# Dowel — 企画書
+# Hozo — 企画書
 
 «A Rust-powered universal UI compiler and accessibility-first layer for React Native.»
 
@@ -6,13 +6,13 @@
 
 ## 1. 概要
 
-Dowel は、React Native によるクロスプラットフォーム UI 開発を、Rust 製コンパイラによって Web / Native それぞれに適した形へ変換・最適化するための基盤である。
+Hozo は、React Native によるクロスプラットフォーム UI 開発を、Rust 製コンパイラによって Web / Native それぞれに適した形へ変換・最適化するための基盤である。
 
-新規プロジェクトでは `@dowel/core` を使うことで、React Native / Web / Tailwind / accessibility を個別に組み合わせることなく、最初から統合された開発環境を利用できる。
+新規プロジェクトでは `@hozo/core` を使うことで、React Native / Web / Tailwind / accessibility を個別に組み合わせることなく、最初から統合された開発環境を利用できる。
 
-一方、既存の React Native / React Native for Web プロジェクトに対しては、`@dowel/compiler` を追加することで、既存コードを大きく書き換えることなく段階的に Dowel の最適化を導入できる。
+一方、既存の React Native / React Native for Web プロジェクトに対しては、`@hozo/compiler` を追加することで、既存コードを大きく書き換えることなく段階的に Hozo の最適化を導入できる。
 
-Dowel は新しいフルスタック UI フレームワークを作ることを目的としない。
+Hozo は新しいフルスタック UI フレームワークを作ることを目的としない。
 
 目指すのは、
 
@@ -20,19 +20,19 @@ Dowel は新しいフルスタック UI フレームワークを作ることを�
 
 である。
 
-命名の由来: 木工におけるダボ継ぎ（dowel joint）。複数の部材を外から目立たない形で正確に接続する技法。
+命名の由来: 日本の木工における「ほぞ継ぎ」。異なる部材を精密に組み合わせ、一つの構造にする技法。
 
 ---
 
 ## 2. 基本思想
 
-Dowel の設計は、以下の4原則を中心に置く。
+Hozo の設計は、以下の4原則を中心に置く。
 
 ### 2.1 Existing source first
 
-既存プロジェクトに Dowel 専用 API への全面移行を要求しない。
+既存プロジェクトに Hozo 専用 API への全面移行を要求しない。
 
-React Native のコードは、そのまま Dowel compiler の入力として利用できる。
+React Native のコードは、そのまま Hozo compiler の入力として利用できる。
 
 ```tsx
 import { View, Text } from 'react-native'
@@ -48,7 +48,7 @@ export function Card() {
 }
 ```
 
-Dowel compiler はこのコードを解析し、安全に変換できる部分だけを最適化する。
+Hozo compiler はこのコードを解析し、安全に変換できる部分だけを最適化する。
 
 ---
 
@@ -56,13 +56,13 @@ Dowel compiler はこのコードを解析し、安全に変換できる部分�
 
 既存コードを尊重する一方、新規プロジェクトではセットアップの複雑さそのものを減らしたい。
 
-そのため `@dowel/core` を公式の推奨 entry point とする。
+そのため `@hozo/core` を公式の推奨 entry point とする。
 
 ```tsx
-import { View, Text, Paragraph, Heading, Section, Button } from '@dowel/core'
+import { View, Text, Paragraph, Heading, Section, Button } from '@hozo/core'
 ```
 
-`@dowel/core` は巨大な UI framework ではなく、
+`@hozo/core` は巨大な UI framework ではなく、
 
 - View
 - Text
@@ -81,7 +81,7 @@ import { View, Text, Paragraph, Heading, Section, Button } from '@dowel/core'
 新規プロジェクトでは、
 
 ```
-npm create dowel@latest
+npm create hozo@latest
 ```
 
 から、
@@ -94,7 +94,7 @@ npm run android
 
 までを最短距離で成立させることを目標とする。
 
-Dowel Core の役割は、Dowel 利用を必須化することではなく、
+Hozo Core の役割は、Hozo 利用を必須化することではなく、
 
 «最も設定が少なく、最も最適化しやすく、最も accessibility が保証される経路»
 
@@ -104,7 +104,7 @@ Dowel Core の役割は、Dowel 利用を必須化することではなく、
 
 ### 2.3 Compile what you can, fall back gracefully
 
-Dowel は100%の静的変換を前提としない。
+Hozo は100%の静的変換を前提としない。
 
 コンパイラが安全に理解できる部分はビルド時に変換し、理解できない部分は既存 runtime に委譲する。
 
@@ -112,7 +112,7 @@ Dowel は100%の静的変換を前提としない。
                   React Native source
                          │
                          ▼
-                  Dowel analysis
+                  Hozo analysis
                          │
                 ┌────────┴────────┐
                 │                 │
@@ -125,15 +125,15 @@ Dowel は100%の静的変換を前提としない。
                       runtime
 ```
 
-fallback は失敗ではなく、Dowel の正式な設計要素とする。
+fallback は失敗ではなく、Hozo の正式な設計要素とする。
 
-Dowel の成熟に従って、静的に扱える coverage を徐々に増やしていく。
+Hozo の成熟に従って、静的に扱える coverage を徐々に増やしていく。
 
 ---
 
 ### 2.4 Accessibility is not optional
 
-Accessibility は追加機能ではなく、Dowel の基本仕様とする。
+Accessibility は追加機能ではなく、Hozo の基本仕様とする。
 
 v1 から、
 
@@ -145,11 +145,11 @@ v1 から、
 
 を設計対象に含める。
 
-Dowel において accessibility を「後から付ける」状態は作らない。
+Hozo において accessibility を「後から付ける」状態は作らない。
 
 ---
 
-## 3. なぜ Dowel が必要か
+## 3. なぜ Hozo が必要か
 
 ### 3.1 React Native for Web のセットアップは強力だが複数レイヤーに分かれている
 
@@ -177,7 +177,7 @@ accessibility implementation
 
 個々のツールは優れているが、新規プロジェクトを作るたびに統合方法を理解・設定する必要がある。
 
-Dowel Core はこの組み合わせを一つの推奨構成として提供する。
+Hozo Core はこの組み合わせを一つの推奨構成として提供する。
 
 ---
 
@@ -193,7 +193,7 @@ React / React Native のクロスプラットフォーム stack では、
 
 などが runtime で処理される場合がある。
 
-Dowel は source code 全体を compiler から見ることで、
+Hozo は source code 全体を compiler から見ることで、
 
 «本当に runtime で必要な処理だけを runtime に残す»
 
@@ -214,7 +214,7 @@ Web を React Native の単純なエミュレーションとして扱わない�
 同じ source component から、
 
 ```
-                  Dowel IR
+                  Hozo IR
                  /        \
                 /          \
               Web          Native
@@ -238,13 +238,13 @@ Native では React Native / Fabric の ecosystem をそのまま利用する。
                            │
              ┌─────────────┴─────────────┐
              │                           │
-        @dowel/core                Existing RN code
+        @hozo/core                Existing RN code
         recommended                     │
              │                          │
              └─────────────┬────────────┘
                            │
                            ▼
-                    Dowel Compiler
+                    Hozo Compiler
                       Rust core
                            │
              ┌─────────────┼─────────────┐
@@ -253,7 +253,7 @@ Native では React Native / Fabric の ecosystem をそのまま利用する。
              │             │             │
              └─────────────┼─────────────┘
                            │
-                       Dowel IR
+                       Hozo IR
                            │
              ┌─────────────┴─────────────┐
              │                           │
@@ -271,9 +271,9 @@ Native では React Native / Fabric の ecosystem をそのまま利用する。
 
 ---
 
-## 5. Dowel Core
+## 5. Hozo Core
 
-`@dowel/core` は、新規 Dowel project の canonical API を提供する。
+`@hozo/core` は、新規 Hozo project の canonical API を提供する。
 
 初期 primitive は、
 
@@ -291,7 +291,7 @@ Link
 例えば、
 
 ```tsx
-import { View, Text, Button } from '@dowel/core'
+import { View, Text, Button } from '@hozo/core'
 
 export function Login() {
   return (
@@ -329,7 +329,7 @@ Pressable
 
 等へ lowering する。
 
-Dowel Core は runtime abstraction を増やすためではなく、
+Hozo Core は runtime abstraction を増やすためではなく、
 
 «compiler が意味を最も正確に理解できる canonical source»
 
@@ -341,7 +341,7 @@ Dowel Core は runtime abstraction を増やすためではなく、
 
 ### 6.1 Tailwind first
 
-Dowel v1 における公式 styling API は Tailwind とする。
+Hozo v1 における公式 styling API は Tailwind とする。
 
 独自 CSS DSL は作らない。
 
@@ -353,9 +353,9 @@ Dowel v1 における公式 styling API は Tailwind とする。
 
 ---
 
-### 6.2 Tailwind は frontend、Dowel IR は内部表現
+### 6.2 Tailwind は frontend、Hozo IR は内部表現
 
-Dowel 内部を Tailwind 固有構造に固定しない。
+Hozo 内部を Tailwind 固有構造に固定しない。
 
 ```
 Tailwind
@@ -364,13 +364,13 @@ Tailwind
 CSS / utility semantics
    │
    ▼
-Dowel Style IR
+Hozo Style IR
    │
    ▼
 platform lowering
 ```
 
-Dowel Style IR は例えば、
+Hozo Style IR は例えば、
 
 ```
 Display(Flex)
@@ -437,7 +437,7 @@ Tailwind class を platform capabilities に変換するための内部モデル
 
 ## 7. 動的 className
 
-Dowel は dynamic className を一律 runtime 扱いにはしない。
+Hozo は dynamic className を一律 runtime 扱いにはしない。
 
 例えば、
 
@@ -494,7 +494,7 @@ Truly dynamic styles
 
 ## 8. Web lowering
 
-Dowel は Web において、React Native primitive を可能な範囲で直接 DOM へ lowering する。
+Hozo は Web において、React Native primitive を可能な範囲で直接 DOM へ lowering する。
 
 例えば、
 
@@ -520,7 +520,7 @@ Dowel は Web において、React Native primitive を可能な範囲で直接 
 
 React Native View には Web の `div` とは異なる default behavior がある。
 
-Dowel は例えば、
+Hozo は例えば、
 
 ```
 display: flex
@@ -531,12 +531,12 @@ min-width: 0
 box-sizing: border-box
 ```
 
-といった View semantics を Dowel IR 内で定義する。
+といった View semantics を Hozo IR 内で定義する。
 
 Web lowering 時には shared base style として適用する。
 
 ```html
-<div class="dowel-view p-4">
+<div class="hozo-view p-4">
 ```
 
 のように共通ルールとして出力し、重複を避ける。
@@ -547,10 +547,10 @@ Web lowering 時には shared base style として適用する。
 
 Native target では React Native ecosystem をそのまま利用する。
 
-Dowel は、
+Hozo は、
 
 ```
-Dowel IR
+Hozo IR
    ↓
 React Native primitive
    ↓
@@ -574,7 +574,7 @@ Fabric
 
 ## 10. Accessibility
 
-Accessibility は v1 から Dowel Core / Compiler / Runtime のすべてに関係する。
+Accessibility は v1 から Hozo Core / Compiler / Runtime のすべてに関係する。
 
 ### 10.1 Semantic lowering
 
@@ -618,7 +618,7 @@ Native では、
 
 ### 10.2 Compile-time diagnostics
 
-Dowel compiler は accessibility の問題を build 時に検出する。
+Hozo compiler は accessibility の問題を build 時に検出する。
 
 例えば、
 
@@ -631,7 +631,7 @@ Dowel compiler は accessibility の問題を build 時に検出する。
 に対して、
 
 ```
-warning[DOWEL_A11Y_001]
+warning[HOZO_A11Y_001]
 
 Interactive Pressable has no accessible role.
 
@@ -685,26 +685,26 @@ Dialog は、
 ## 11. パッケージ構成
 
 ```
-@dowel/core
+@hozo/core
     recommended primitives
     semantic components
 
-@dowel/compiler
+@hozo/compiler
     Rust compiler
     TSX analysis
-    Dowel IR
+    Hozo IR
     Web / Native lowering
     diagnostics
 
-@dowel/runtime
+@hozo/runtime
     truly dynamic styles
     interactive behavior
     accessibility behavior
 
-@dowel/tailwind
+@hozo/tailwind
     Tailwind integration
 
-@dowel/a11y
+@hozo/a11y
     complex accessibility primitives
     Dialog etc.
 ```
@@ -712,8 +712,8 @@ Dialog は、
 将来的に、
 
 ```
-@dowel/nativewind-compat
-@dowel/tamagui-compat
+@hozo/nativewind-compat
+@hozo/tamagui-compat
 ```
 
 のような compatibility layer を追加できる構造にする。
@@ -726,7 +726,7 @@ Dialog は、
 
 Native target の基盤として利用する。
 
-既存 React Native project は Dowel Core へ移行せずとも compiler の恩恵を受けられることを目標とする。
+既存 React Native project は Hozo Core へ移行せずとも compiler の恩恵を受けられることを目標とする。
 
 ---
 
@@ -734,7 +734,7 @@ Native target の基盤として利用する。
 
 Web backend における fallback implementation として利用できる。
 
-Dowel が安全に直接 lowering できる領域が増えるほど、application-owned component tree における RNW dependency を減らしていく。
+Hozo が安全に直接 lowering できる領域が増えるほど、application-owned component tree における RNW dependency を減らしていく。
 
 v1 では RNW 完全排除を成功条件にはしない。
 
@@ -744,9 +744,9 @@ v1 では RNW 完全排除を成功条件にはしない。
 
 Tailwind を React Native で利用するという developer experience を共有する。
 
-既存 NativeWind project から段階的に Dowel を利用できる compatibility path を検討する。
+既存 NativeWind project から段階的に Hozo を利用できる compatibility path を検討する。
 
-ただし Dowel Core 自体は NativeWind の bug-for-bug compatibility を仕様とはしない。
+ただし Hozo Core 自体は NativeWind の bug-for-bug compatibility を仕様とはしない。
 
 ---
 
@@ -754,7 +754,7 @@ Tailwind を React Native で利用するという developer experience を共�
 
 Tamagui ecosystem には豊富な component / styling assets が存在する。
 
-長期的には Tamagui-compatible source を Dowel IR へ変換できる compatibility layer を研究する。
+長期的には Tamagui-compatible source を Hozo IR へ変換できる compatibility layer を研究する。
 
 ```
 Tamagui-compatible source
@@ -763,7 +763,7 @@ Tamagui-compatible source
         /       \
       yes        no
        │          │
- Dowel lowering  Tamagui fallback
+ Hozo lowering  Tamagui fallback
 ```
 
 完全互換を最初から要求するのではなく、compiler coverage を段階的に増やす。
@@ -813,23 +813,23 @@ Button semantics
 
 ---
 
-### Phase 1 — Dowel v1
+### Phase 1 — Hozo v1
 
 **New project path**
 
 ```
-npm create dowel@latest
+npm create hozo@latest
 ```
 
 から Web / iOS / Android をすぐ起動できる。
 
-`@dowel/core` を利用する。
+`@hozo/core` を利用する。
 
 ---
 
 **Existing project path**
 
-`@dowel/compiler` を既存 React Native project に追加できる。
+`@hozo/compiler` を既存 React Native project に追加できる。
 
 source API は変更しなくてよい。
 
@@ -892,7 +892,7 @@ v1 から必須。
 
 ## 16. Phase 4 — Advanced optimization
 
-Dowel IR を利用して、
+Hozo IR を利用して、
 
 - static style extraction
 - dead style elimination
@@ -909,12 +909,12 @@ Dowel IR を利用して、
 
 ## 17. 成功指標
 
-Dowel の成功を「RNW を完全に消せたか」だけで評価しない。
+Hozo の成功を「RNW を完全に消せたか」だけで評価しない。
 
 **Adoption**
 
 - 外部 production project 数
-- 新規 Dowel project 数
+- 新規 Hozo project 数
 - 既存 RN project への導入数
 - compatibility request 数
 
@@ -957,7 +957,7 @@ Dowel の成功を「RNW を完全に消せたか」だけで評価しない。
 |---|---|
 | compiler scope が膨張する | partial lowering + fallback を正式仕様とする |
 | RNW compatibility の再実装が巨大化する | v1 で完全互換を目指さず、安全な subset から始める |
-| Tailwind semantics が複雑 | Style IR を境界に置き、Dowel 内部表現を分離する |
+| Tailwind semantics が複雑 | Style IR を境界に置き、Hozo 内部表現を分離する |
 | NativeWind compatibility が重い | core 仕様と compatibility layer を分離する |
 | dynamic styling が runtime を必要とする | genuinely dynamic なケースに runtime cost を限定する |
 | accessibility の保守コストが大きい | primitive を狭くし、品質を coverage より優先する |
@@ -966,9 +966,9 @@ Dowel の成功を「RNW を完全に消せたか」だけで評価しない。
 
 ---
 
-## 19. Dowel が目指す位置
+## 19. Hozo が目指す位置
 
-Dowel は単なる、
+Hozo は単なる、
 
 - styling library
 - UI kit
@@ -984,13 +984,13 @@ Dowel は単なる、
                             │
              ┌──────────────┴──────────────┐
              │                             │
-        @dowel/core                 existing ecosystem
+        @hozo/core                 existing ecosystem
              │                             │
              └──────────────┬──────────────┘
                             │
-                      Dowel Compiler
+                      Hozo Compiler
                             │
-                         Dowel IR
+                         Hozo IR
                             │
              ┌──────────────┴──────────────┐
              │                             │
@@ -1001,29 +1001,29 @@ Dowel は単なる、
       minimal runtime                 minimal runtime
 ```
 
-新規 project では Dowel Core を使えばよい。
+新規 project では Hozo Core を使えばよい。
 
-既存 project では Dowel Compiler を一つ足せばよい。
+既存 project では Hozo Compiler を一つ足せばよい。
 
-複雑な部分は Dowel が下で処理する。
+複雑な部分は Hozo が下で処理する。
 
 ---
 
 ## 20. 長期ビジョン
 
-Dowel の理想形は、Dowel 固有 API の利用率が高いことではない。
+Hozo の理想形は、Hozo 固有 API の利用率が高いことではない。
 
 むしろ、
 
-> **Dowel を意識しなくても、既存 React Native ecosystem がより効率よく Web / Native に接続される状態**
+> **Hozo を意識しなくても、既存 React Native ecosystem がより効率よく Web / Native に接続される状態**
 
 を作ることである。
 
-Dowel Core は最も簡単な入口。
+Hozo Core は最も簡単な入口。
 
-Dowel Compiler は既存 ecosystem への入口。
+Hozo Compiler は既存 ecosystem への入口。
 
-Dowel IR はその両者を接続する内部基盤。
+Hozo IR はその両者を接続する内部基盤。
 
 Accessibility はその全経路に共通する基本要件。
 
@@ -1033,7 +1033,7 @@ Accessibility はその全経路に共通する基本要件。
 React Native ecosystem
           │
           ▼
-       Dowel IR
+       Hozo IR
           │
       ┌───┴───┐
       │       │
@@ -1042,8 +1042,8 @@ React Native ecosystem
 
 という共通 compilation substrate を目指す。
 
-Dowel が目立つ必要はない。
+Hozo が目立つ必要はない。
 
 複数の部材を外から目立たない形で正確につなぐ。
 
-その役割そのものが **Dowel** という名前の意味である。
+その役割そのものが **Hozo** という名前の意味である。

@@ -1,19 +1,19 @@
-# Dowel
+# Hozo
 
 > A Rust-powered universal UI compiler and accessibility-first layer for React Native.
 
-**Status: early-stage / design phase.** Nothing here runs yet — this repository is scaffolding. See [docs/proposal.md](docs/proposal.md) for the full design document.
+**Status: working prototype.** The Rust compiler, Vite and Metro integrations, Web and Native lowerers, runtime adapters, conformance suite, and example applications are implemented and tested. It is not published or production-stable yet. See [docs/proposal.md](docs/proposal.md) for the design document.
 
-## What is Dowel
+## What is Hozo
 
-Dowel compiles React Native source toward the platform it actually runs on:
+Hozo compiles React Native source toward the platform it actually runs on:
 
 - **Web** — semantic DOM, CSS, ARIA, minimal runtime
 - **Native** — React Native / Fabric, minimal runtime
 
-New projects use `@dowel/core` (a thin set of canonical primitives) as the recommended entry point. Existing React Native / React Native for Web projects can adopt `@dowel/compiler` incrementally, without rewriting existing code.
+Applications import canonical primitives from `@hozo/core`. Hozo then compiles those primitives to semantic DOM and CSS on Web, or React Native components and `StyleSheet` values on Native. Existing React Native applications can adopt it incrementally, but currently need explicit import changes at the migration boundary.
 
-Dowel is not a new UI framework, a styling library, or a replacement for React Native for Web. It's a compilation layer that sits underneath the existing React Native ecosystem — respecting it, not replacing it.
+Hozo is a compilation layer rather than a new component framework. Its Web output is designed to remove React Native for Web from compiled paths while preserving React Native-style component and event contracts where practical.
 
 Accessibility is a first-class requirement from v1, not an add-on.
 
@@ -24,12 +24,12 @@ Accessibility is a first-class requirement from v1, not an add-on.
                            │
              ┌─────────────┴─────────────┐
              │                           │
-        @dowel/core                Existing RN code
+        @hozo/core                Existing RN code
              │                           │
              └─────────────┬─────────────┘
                            │
                            ▼
-                    Dowel Compiler
+                    Hozo Compiler
                       (Rust core)
                            │
              ┌─────────────┼─────────────┐
@@ -38,7 +38,7 @@ Accessibility is a first-class requirement from v1, not an add-on.
              │             │             │
              └─────────────┼─────────────┘
                            │
-                       Dowel IR
+                       Hozo IR
                            │
              ┌─────────────┴─────────────┐
              │                           │
@@ -47,41 +47,42 @@ Accessibility is a first-class requirement from v1, not an add-on.
         DOM + CSS + ARIA           React Native
         semantic HTML              View / Text
                                      StyleSheet
-             │
-         fallback
-             │
-             RNW
 ```
 
 ## Repository layout
 
 ```
 packages/
-  core/            @dowel/core        — canonical primitives for new projects
-  compiler/        @dowel/compiler    — JS entry point over the Rust compiler
-  runtime/         @dowel/runtime     — genuinely dynamic styles, interaction, a11y behavior
-  tailwind/        @dowel/tailwind    — Tailwind → Style IR
-  a11y/            @dowel/a11y        — complex accessibility primitives (Dialog, ...)
-  vite-plugin/     @dowel/vite-plugin — Web bundler integration
+  core/            @hozo/core        — canonical primitives for new projects
+  compiler/        @hozo/compiler    — JS entry point over the Rust compiler
+  runtime/         @hozo/runtime     — genuinely dynamic styles, interaction, a11y behavior
+  tailwind/        @hozo/tailwind    — Tailwind → Style IR
+  a11y/            @hozo/a11y        — complex accessibility primitives (Dialog, ...)
+  vite/            @hozo/vite        — Web bundler integration
+  metro/           @hozo/metro       — Native bundler integration
+  tailwind-conformance/              — Tailwind/Web/Native comparison and render tests
 
 crates/
-  dowel_ir/        platform-independent IR shared across the pipeline
-  dowel_parser/    TSX analysis + Style IR construction (oxc)
-  dowel_web/       Dowel IR -> DOM/CSS/ARIA lowering
-  dowel_napi/      Node native binding (napi-rs)
+  hozo_ir/         platform-independent IR shared across the pipeline
+  hozo_parser/     TSX analysis + Style IR construction (oxc)
+  hozo_web/        Hozo IR -> DOM/CSS/ARIA lowering
+  hozo_native/     Hozo IR -> React Native lowering
+  hozo_cache/      project-wide candidate scan cache
+  hozo_napi/       Node native binding (napi-rs)
 
 examples/
-  login-demo/      Phase 0 benchmark app
+  login-demo/      Vite Web/SSR validation app
+  native-demo/     Metro bundle and Native runtime validation app
 
 docs/
   proposal.md      full design document
 ```
 
-A `dowel_native` crate and a Metro-based native bundler integration will follow once the Web path (Vite) is validated. See [docs/proposal.md](docs/proposal.md) §13 for the phased roadmap.
-
 ## Status
 
-Phase 0 (vertical prototype) has not started. Nothing in `packages/` or `crates/` is implemented yet — this is scaffolding only.
+The repository currently exercises both lowering backends end to end, including production/minified Web and Android Metro bundles. The automated suite covers compiler transforms, Tailwind conformance, accessibility contracts, semantic Web output, Native render behavior, responder/PanResponder compatibility, contextual variants, transitions, and the current Grid subset.
+
+The main work before a release is packaging and developer experience, broader bundler/framework integrations, migration tooling, and physical-device validation. Public APIs and package boundaries may still change.
 
 ## License
 

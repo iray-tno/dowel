@@ -6,6 +6,9 @@
 // to make them required.
 
 import { useEffect, useRef, useState, type MouseEventHandler, type ReactNode, type UIEventHandler } from 'react'
+import { useResponderDomProps, type ResponderProps } from './responder.ts'
+
+export type { DowelResponderEvent, DowelResponderTouch, ResponderProps } from './responder.ts'
 
 export interface DowelLayoutRectangle {
   x: number
@@ -108,14 +111,15 @@ function useScrollHandler<T extends HTMLElement>(
   }
 }
 
-export interface ViewProps extends UniversalProps {
+export interface ViewProps extends UniversalProps, ResponderProps {
   className?: string
   children?: ReactNode
 }
 
 export function View({ className, children, onLayout, ...universal }: ViewProps) {
   const ref = useLayoutRef<HTMLDivElement>(onLayout)
-  return <div ref={ref} className={className} {...universalDomProps(universal)}>{children}</div>
+  const responder = useResponderDomProps(ref, universal)
+  return <div ref={ref} className={className} {...universalDomProps(universal)} {...responder}>{children}</div>
 }
 
 export interface TextProps extends UniversalProps {
@@ -418,7 +422,7 @@ export function FlatList<T>({
   )
 }
 
-export interface PressableProps {
+export interface PressableProps extends ResponderProps {
   className?: string
   children?: ReactNode
   onPress?: MouseEventHandler<HTMLDivElement>
@@ -439,9 +443,13 @@ export function Pressable({
   accessibilityLabel,
   accessibilityHint,
   disabled,
+  ...responderProps
 }: PressableProps) {
+  const ref = useRef<HTMLDivElement>(null)
+  const responder = useResponderDomProps(ref, responderProps, !disabled)
   return (
     <div
+      ref={ref}
       className={className}
       role={accessibilityRole}
       aria-label={accessibilityLabel}
@@ -449,6 +457,7 @@ export function Pressable({
       aria-disabled={disabled || undefined}
       tabIndex={onPress && !disabled ? 0 : undefined}
       onClick={disabled ? undefined : onPress}
+      {...responder}
     >
       {children}
     </div>

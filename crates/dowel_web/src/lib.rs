@@ -250,7 +250,7 @@ fn render_node(
         }
     }
     let is_dowel_component = tag.starts_with("Dowel")
-        || matches!(tag, "View" | "Text" | "Paragraph" | "Heading" | "Section" | "Article" | "Nav" | "List" | "ListItem" | "Image" | "ScrollView" | "FlatList");
+        || matches!(tag, "View" | "Text" | "Paragraph" | "Heading" | "Section" | "Article" | "Nav" | "List" | "ListItem" | "Image" | "ScrollView" | "FlatList" | "Pressable");
 
     // The generated class is dropped when no rule was written for it. It
     // matched nothing, so it was a class attribute on every unstyled
@@ -479,7 +479,24 @@ fn render_node(
         attrs.push_str(&format!(" open={{{}}}", render_condition_expr(source, open)));
     }
     if let Some(on_press) = node.props.on_press {
-        attrs.push_str(&format!(" onClick={{{}}}", source_text(source, on_press)));
+        let name = if tag == "Pressable" { "onPress" } else { "onClick" };
+        attrs.push_str(&format!(" {name}={{{}}}", source_text(source, on_press)));
+    }
+    for (name, value) in [
+        ("onStartShouldSetResponder", node.props.on_start_should_set_responder),
+        ("onStartShouldSetResponderCapture", node.props.on_start_should_set_responder_capture),
+        ("onMoveShouldSetResponder", node.props.on_move_should_set_responder),
+        ("onMoveShouldSetResponderCapture", node.props.on_move_should_set_responder_capture),
+        ("onResponderGrant", node.props.on_responder_grant),
+        ("onResponderMove", node.props.on_responder_move),
+        ("onResponderRelease", node.props.on_responder_release),
+        ("onResponderReject", node.props.on_responder_reject),
+        ("onResponderTerminate", node.props.on_responder_terminate),
+        ("onResponderTerminationRequest", node.props.on_responder_termination_request),
+    ] {
+        if let Some(value) = value {
+            attrs.push_str(&format!(" {name}={{{}}}", source_text(source, value)));
+        }
     }
     if let Some(disabled) = &node.props.disabled {
         // `disabled` is a real, React-boolean-aware HTML attribute only on
@@ -487,7 +504,7 @@ fn render_node(
         // when the value is falsy. Everything else Dowel maps to a <div>
         // (Pressable, View, Text), where the native attribute has no
         // effect at all, so ARIA is the honest choice there instead.
-        let attr_name = if node.primitive == Primitive::Button { "disabled" } else { "aria-disabled" };
+        let attr_name = if node.primitive == Primitive::Button || tag == "Pressable" { "disabled" } else { "aria-disabled" };
         attrs.push_str(&format!(" {attr_name}={{{}}}", render_condition_expr(source, disabled)));
     }
 
@@ -887,6 +904,45 @@ export function Login() {
         assert!(output.jsx.starts_with("<View className=\"dowel-view\""), "{}", output.jsx);
         assert!(output.jsx.contains("testID={\"measured\"} onLayout={measure}"), "{}", output.jsx);
         assert!(output.jsx.contains("<span>child</span>"), "{}", output.jsx);
+    }
+
+    #[test]
+    fn responder_callbacks_select_the_pointer_bridge_only_for_interactive_nodes() {
+        let source = r#"
+            import { View, Pressable } from '@dowel/core'
+            const el = <View onStartShouldSetResponder={wantStart}
+              onStartShouldSetResponderCapture={captureStart}
+              onMoveShouldSetResponder={wantMove}
+              onMoveShouldSetResponderCapture={captureMove}
+              onResponderGrant={grant} onResponderMove={move}
+              onResponderRelease={release} onResponderReject={reject}
+              onResponderTerminate={terminate}
+              onResponderTerminationRequest={allowTermination}>
+                <Pressable accessibilityRole="button" disabled={locked}
+                  onPress={save} onResponderGrant={pressGrant} />
+            </View>
+        "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+        assert!(output.jsx.starts_with("<View className=\"dowel-view\""), "{}", output.jsx);
+        for expected in [
+            "onStartShouldSetResponder={wantStart}",
+            "onStartShouldSetResponderCapture={captureStart}",
+            "onMoveShouldSetResponder={wantMove}",
+            "onMoveShouldSetResponderCapture={captureMove}",
+            "onResponderGrant={grant}",
+            "onResponderMove={move}",
+            "onResponderRelease={release}",
+            "onResponderReject={reject}",
+            "onResponderTerminate={terminate}",
+            "onResponderTerminationRequest={allowTermination}",
+        ] {
+            assert!(output.jsx.contains(expected), "missing {expected}: {}", output.jsx);
+        }
+        assert!(output.jsx.contains("<Pressable accessibilityRole=\"button\""), "{}", output.jsx);
+        assert!(output.jsx.contains("onPress={save}"), "{}", output.jsx);
+        assert!(output.jsx.contains("disabled={locked}"), "{}", output.jsx);
+        assert!(!output.jsx.contains("onClick={save}"), "{}", output.jsx);
     }
 
     #[test]

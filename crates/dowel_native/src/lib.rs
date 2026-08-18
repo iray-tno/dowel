@@ -807,6 +807,22 @@ fn render_node(
     if let Some(on_press) = node.props.on_press {
         props_text.push_str(&format!(" onPress={{{}}}", source_text(source, on_press)));
     }
+    for (name, value) in [
+        ("onStartShouldSetResponder", node.props.on_start_should_set_responder),
+        ("onStartShouldSetResponderCapture", node.props.on_start_should_set_responder_capture),
+        ("onMoveShouldSetResponder", node.props.on_move_should_set_responder),
+        ("onMoveShouldSetResponderCapture", node.props.on_move_should_set_responder_capture),
+        ("onResponderGrant", node.props.on_responder_grant),
+        ("onResponderMove", node.props.on_responder_move),
+        ("onResponderRelease", node.props.on_responder_release),
+        ("onResponderReject", node.props.on_responder_reject),
+        ("onResponderTerminate", node.props.on_responder_terminate),
+        ("onResponderTerminationRequest", node.props.on_responder_termination_request),
+    ] {
+        if let Some(value) = value {
+            props_text.push_str(&format!(" {name}={{{}}}", source_text(source, value)));
+        }
+    }
     if let Some(disabled) = &node.props.disabled {
         let disabled = render_condition_expr(source, disabled);
         props_text.push_str(&format!(" disabled={{{disabled}}}"));
@@ -2625,6 +2641,38 @@ export function Login() {
         ] {
             assert!(output.jsx.contains(expected), "missing {expected}: {}", output.jsx);
         }
+    }
+
+    #[test]
+    fn responder_callbacks_keep_the_react_native_contract() {
+        let source = r#"
+            import { View } from '@dowel/core'
+            const el = <View onStartShouldSetResponder={wantStart}
+              onStartShouldSetResponderCapture={captureStart}
+              onMoveShouldSetResponder={wantMove}
+              onMoveShouldSetResponderCapture={captureMove}
+              onResponderGrant={grant} onResponderMove={move}
+              onResponderRelease={release} onResponderReject={reject}
+              onResponderTerminate={terminate}
+              onResponderTerminationRequest={allowTermination} />
+        "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+        for expected in [
+            "onStartShouldSetResponder={wantStart}",
+            "onStartShouldSetResponderCapture={captureStart}",
+            "onMoveShouldSetResponder={wantMove}",
+            "onMoveShouldSetResponderCapture={captureMove}",
+            "onResponderGrant={grant}",
+            "onResponderMove={move}",
+            "onResponderRelease={release}",
+            "onResponderReject={reject}",
+            "onResponderTerminate={terminate}",
+            "onResponderTerminationRequest={allowTermination}",
+        ] {
+            assert!(output.jsx.contains(expected), "missing {expected}: {}", output.jsx);
+        }
+        assert!(output.runtime_imports.is_empty(), "{:?}", output.runtime_imports);
     }
 
     #[test]

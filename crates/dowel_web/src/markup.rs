@@ -15,7 +15,7 @@ use dowel_ir::{AccessibilityRole, Diagnostic, DiagnosticCode, HeadingLevel, Node
 /// shipping an inaccessible interactive `<div>`.
 pub fn element_shape(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'static str, Vec<(&'static str, String)>) {
     match node.primitive {
-        Primitive::View if node.props.on_layout.is_some() => ("View", Vec::new()),
+        Primitive::View if node.props.on_layout.is_some() || node.props.has_responder_handlers() => ("View", Vec::new()),
         Primitive::View => ("div", Vec::new()),
         Primitive::Text if node.props.on_layout.is_some() => ("Text", Vec::new()),
         Primitive::Text => ("span", Vec::new()),
@@ -59,8 +59,8 @@ pub fn element_shape(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'stati
         Primitive::Pressable => {
             let mut attrs = Vec::new();
             match node.props.accessibility_role {
-                Some(AccessibilityRole::Button) => attrs.push(("role", "button".to_string())),
-                Some(AccessibilityRole::Link) => attrs.push(("role", "link".to_string())),
+                Some(AccessibilityRole::Button) => attrs.push((if node.props.has_responder_handlers() { "accessibilityRole" } else { "role" }, "button".to_string())),
+                Some(AccessibilityRole::Link) => attrs.push((if node.props.has_responder_handlers() { "accessibilityRole" } else { "role" }, "link".to_string())),
                 None => {
                     if node.props.on_press.is_some() {
                         diagnostics.push(Diagnostic {
@@ -74,14 +74,14 @@ pub fn element_shape(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'stati
                     }
                 }
             }
-            if node.props.on_press.is_some() {
+            if node.props.on_press.is_some() && !node.props.has_responder_handlers() {
                 // `tabIndex`, not `tabindex` -- this output is JSX, so DOM
                 // props take React's camelCase spellings (same reason the
                 // class attribute is emitted as `className`). React warns
                 // on the all-lowercase form and drops it.
                 attrs.push(("tabIndex", "0".to_string()));
             }
-            ("div", attrs)
+            (if node.props.has_responder_handlers() { "Pressable" } else { "div" }, attrs)
         }
         Primitive::TextInput => ("input", missing_label(node, diagnostics)),
         // Lowered to `@dowel/a11y`'s component, not to a bare `<dialog>`:
@@ -232,6 +232,7 @@ mod tests {
                 open: None,
                 has_on_close: false,
                 passthrough: Vec::new(),
+                ..PropSet::default()
             },
             children: Vec::new(),
             class_name_fallback: Vec::new(),
@@ -279,6 +280,7 @@ mod tests {
                 open: None,
                 has_on_close: false,
                 passthrough: Vec::new(),
+                ..PropSet::default()
             },
             children: Vec::new(),
             class_name_fallback: Vec::new(),

@@ -14,6 +14,12 @@ export interface RnwFreeResult extends RnwFreeCase {
 
 export const RNW_FREE_CASES: RnwFreeCase[] = [
   { primitive: 'View', jsx: '<View />', webMarker: '<div', nativeMarker: '<View' },
+  {
+    primitive: 'View responder',
+    jsx: '<View onStartShouldSetResponder={want} onResponderMove={move} onResponderRelease={release} />',
+    webMarker: '<View',
+    nativeMarker: '<View',
+  },
   { primitive: 'Text', jsx: '<Text>Hello</Text>', webMarker: '<span', nativeMarker: '<Text' },
   { primitive: 'Paragraph', jsx: '<Paragraph>Body</Paragraph>', webMarker: '<p', nativeMarker: '<Text' },
   { primitive: 'Heading', jsx: '<Heading level={2}>Title</Heading>', webMarker: '<h2', nativeMarker: '<Text' },
@@ -45,6 +51,12 @@ export const RNW_FREE_CASES: RnwFreeCase[] = [
     primitive: 'Pressable',
     jsx: '<Pressable accessibilityRole="button">Open</Pressable>',
     webMarker: '<div',
+    nativeMarker: '<Pressable',
+  },
+  {
+    primitive: 'Pressable responder',
+    jsx: '<Pressable accessibilityRole="button" onStartShouldSetResponder={want} onResponderGrant={grant} />',
+    webMarker: '<Pressable',
     nativeMarker: '<Pressable',
   },
   {

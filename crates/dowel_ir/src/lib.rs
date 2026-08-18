@@ -287,6 +287,18 @@ pub struct PassthroughProp {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PropSet {
     pub on_press: Option<ExprRef>,
+    /// Gesture Responder System callbacks. Web lowers these through a
+    /// lightweight fallback only when present; Native keeps RN's contract.
+    pub on_start_should_set_responder: Option<ExprRef>,
+    pub on_start_should_set_responder_capture: Option<ExprRef>,
+    pub on_move_should_set_responder: Option<ExprRef>,
+    pub on_move_should_set_responder_capture: Option<ExprRef>,
+    pub on_responder_grant: Option<ExprRef>,
+    pub on_responder_move: Option<ExprRef>,
+    pub on_responder_release: Option<ExprRef>,
+    pub on_responder_reject: Option<ExprRef>,
+    pub on_responder_terminate: Option<ExprRef>,
+    pub on_responder_termination_request: Option<ExprRef>,
     /// Cross-platform identity and interaction props whose spellings or
     /// event shapes differ between React Native and the DOM.
     pub test_id: Option<ExprRef>,
@@ -346,6 +358,21 @@ pub struct PropSet {
     /// Props Dowel doesn't model explicitly -- re-emitted unchanged, in
     /// source order (which JSX's last-wins duplicate resolution depends on).
     pub passthrough: Vec<PassthroughProp>,
+}
+
+impl PropSet {
+    pub fn has_responder_handlers(&self) -> bool {
+        self.on_start_should_set_responder.is_some()
+            || self.on_start_should_set_responder_capture.is_some()
+            || self.on_move_should_set_responder.is_some()
+            || self.on_move_should_set_responder_capture.is_some()
+            || self.on_responder_grant.is_some()
+            || self.on_responder_move.is_some()
+            || self.on_responder_release.is_some()
+            || self.on_responder_reject.is_some()
+            || self.on_responder_terminate.is_some()
+            || self.on_responder_termination_request.is_some()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -186,6 +186,7 @@ mod tests {
                 open: None,
                 has_on_close: false,
                 passthrough: Vec::new(),
+                ..PropSet::default()
             },
             children: Vec::new(),
             class_name_fallback: Vec::new(),

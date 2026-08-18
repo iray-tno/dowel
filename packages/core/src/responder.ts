@@ -25,7 +25,9 @@ export interface ResponderProps {
   onMoveShouldSetResponder?: (event: DowelResponderEvent) => boolean
   onMoveShouldSetResponderCapture?: (event: DowelResponderEvent) => boolean
   onResponderGrant?: (event: DowelResponderEvent) => void
+  onResponderStart?: (event: DowelResponderEvent) => void
   onResponderMove?: (event: DowelResponderEvent) => void
+  onResponderEnd?: (event: DowelResponderEvent) => void
   onResponderRelease?: (event: DowelResponderEvent) => void
   onResponderReject?: (event: DowelResponderEvent) => void
   onResponderTerminate?: (event: DowelResponderEvent) => void
@@ -34,34 +36,99 @@ export interface ResponderProps {
 
 interface Registration {
   element: HTMLElement
-  pointerId: number
+  pointerIds: Set<number>
   props: RefObject<ResponderProps>
 }
 
 let activeResponder: Registration | undefined
 
+interface PointerSnapshot {
+  identifier: number
+  clientX: number
+  clientY: number
+  pageX: number
+  pageY: number
+  target: EventTarget | null
+  timestamp: number
+}
+
+const activePointers = new Map<number, PointerSnapshot>()
+const trackedEvents = new WeakSet<object>()
+let globalCleanupInstalled = false
+
+function ensureGlobalPointerCleanup() {
+  if (globalCleanupInstalled || typeof window === 'undefined') return
+  globalCleanupInstalled = true
+  const remove = (event: PointerEvent) => activePointers.delete(event.pointerId)
+  window.addEventListener('pointerup', remove)
+  window.addEventListener('pointercancel', remove)
+}
+
+function eventKey(event: ReactPointerEvent<HTMLElement>): object {
+  return typeof event.nativeEvent === 'object' && event.nativeEvent !== null
+    ? event.nativeEvent
+    : event
+}
+
+function trackPointer(event: ReactPointerEvent<HTMLElement>, ended = false): boolean {
+  const key = eventKey(event)
+  if (trackedEvents.has(key)) return false
+  trackedEvents.add(key)
+  if (ended) {
+    activePointers.delete(event.pointerId)
+  } else {
+    ensureGlobalPointerCleanup()
+    activePointers.set(event.pointerId, {
+      identifier: event.pointerId,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      pageX: event.pageX,
+      pageY: event.pageY,
+      target: event.target,
+      timestamp: event.timeStamp,
+    })
+  }
+  return true
+}
+
 function releaseRegistration(props: RefObject<ResponderProps>) {
   const incumbent = activeResponder
   if (!incumbent || incumbent.props !== props) return
   activeResponder = undefined
-  if (incumbent.element.hasPointerCapture?.(incumbent.pointerId)) {
-    incumbent.element.releasePointerCapture?.(incumbent.pointerId)
+  for (const pointerId of incumbent.pointerIds) {
+    if (incumbent.element.hasPointerCapture?.(pointerId)) {
+      incumbent.element.releasePointerCapture?.(pointerId)
+    }
   }
 }
 
 function responderEvent(event: ReactPointerEvent<HTMLElement>, ended = false): DowelResponderEvent {
   const rect = event.currentTarget.getBoundingClientRect()
-  const touch: DowelResponderTouch = {
+  const toTouch = (pointer: PointerSnapshot): DowelResponderTouch => ({
+    identifier: pointer.identifier,
+    locationX: pointer.clientX - rect.left,
+    locationY: pointer.clientY - rect.top,
+    pageX: pointer.pageX,
+    pageY: pointer.pageY,
+    target: pointer.target,
+    timestamp: pointer.timestamp,
+  })
+  const changed = toTouch({
     identifier: event.pointerId,
-    locationX: event.clientX - rect.left,
-    locationY: event.clientY - rect.top,
+    clientX: event.clientX,
+    clientY: event.clientY,
     pageX: event.pageX,
     pageY: event.pageY,
     target: event.target,
     timestamp: event.timeStamp,
-  }
+  })
+  const touches = [...activePointers.values()].map(toTouch)
   return {
-    nativeEvent: { ...touch, changedTouches: [touch], touches: ended ? [] : [touch] },
+    nativeEvent: {
+      ...changed,
+      changedTouches: [changed],
+      touches: ended ? touches.filter((touch) => touch.identifier !== event.pointerId) : touches,
+    },
     preventDefault: () => event.preventDefault(),
     stopPropagation: () => event.stopPropagation(),
   }
@@ -84,25 +151,31 @@ function claim(
     }
     activeResponder = undefined
     incumbent.props.current.onResponderTerminate?.(value)
-    if (incumbent.element.hasPointerCapture?.(incumbent.pointerId)) {
-      incumbent.element.releasePointerCapture?.(incumbent.pointerId)
+    for (const pointerId of incumbent.pointerIds) {
+      if (incumbent.element.hasPointerCapture?.(pointerId)) {
+        incumbent.element.releasePointerCapture?.(pointerId)
+      }
     }
   }
 
-  activeResponder = { element, pointerId: event.pointerId, props }
+  activeResponder = { element, pointerIds: new Set([event.pointerId]), props }
   element.setPointerCapture?.(event.pointerId)
   props.current.onResponderGrant?.(value)
+  props.current.onResponderStart?.(value)
   return true
 }
 
 function finish(element: HTMLElement, event: ReactPointerEvent<HTMLElement>, terminated: boolean) {
   const incumbent = activeResponder
-  if (!incumbent || incumbent.element !== element || incumbent.pointerId !== event.pointerId) return
-  activeResponder = undefined
+  if (!incumbent || incumbent.element !== element || !incumbent.pointerIds.has(event.pointerId)) return
+  incumbent.pointerIds.delete(event.pointerId)
   const value = responderEvent(event, true)
+  incumbent.props.current.onResponderEnd?.(value)
+  if (element.hasPointerCapture?.(event.pointerId)) element.releasePointerCapture?.(event.pointerId)
+  if (!terminated && incumbent.pointerIds.size > 0) return
+  activeResponder = undefined
   if (terminated) incumbent.props.current.onResponderTerminate?.(value)
   else incumbent.props.current.onResponderRelease?.(value)
-  if (element.hasPointerCapture?.(event.pointerId)) element.releasePointerCapture?.(event.pointerId)
 }
 
 export function useResponderDomProps<T extends HTMLElement>(
@@ -133,28 +206,58 @@ export function createResponderDomProps<T extends HTMLElement>(
   }
 
   const onPointerDown: PointerEventHandler<T> = (event) => {
+    const isNewPointer = trackPointer(event)
+    const element = elementRef.current
+    const incumbent = activeResponder
+    if (isNewPointer && element && incumbent?.element === element) {
+      incumbent.pointerIds.add(event.pointerId)
+      element.setPointerCapture?.(event.pointerId)
+      propsRef.current.onResponderStart?.(responderEvent(event))
+      return
+    }
     // The responder negotiation bubbles deepest-first. Once a child wins,
     // ancestors must not make a second claim from the same pointer start.
     if (negotiate(propsRef.current.onStartShouldSetResponder, event)) event.stopPropagation()
   }
   const onPointerDownCapture: PointerEventHandler<T> = (event) => {
+    const isNewPointer = trackPointer(event)
+    const element = elementRef.current
+    const incumbent = activeResponder
+    if (isNewPointer && element && incumbent?.element === element) {
+      incumbent.pointerIds.add(event.pointerId)
+      element.setPointerCapture?.(event.pointerId)
+      propsRef.current.onResponderStart?.(responderEvent(event))
+      event.stopPropagation()
+      return
+    }
     if (negotiate(propsRef.current.onStartShouldSetResponderCapture, event)) event.stopPropagation()
   }
   const onPointerMove: PointerEventHandler<T> = (event) => {
+    trackPointer(event)
     const element = elementRef.current
     const incumbent = activeResponder
-    if (element && incumbent && incumbent.element === element && incumbent.pointerId === event.pointerId) {
+    if (element && incumbent && incumbent.element === element && incumbent.pointerIds.has(event.pointerId)) {
       propsRef.current.onResponderMove?.(responderEvent(event))
     } else {
       if (negotiate(propsRef.current.onMoveShouldSetResponder, event)) event.stopPropagation()
     }
   }
   const onPointerMoveCapture: PointerEventHandler<T> = (event) => {
+    trackPointer(event)
     if (negotiate(propsRef.current.onMoveShouldSetResponderCapture, event)) event.stopPropagation()
   }
-  const onPointerUp: PointerEventHandler<T> = (event) => finish(event.currentTarget, event, false)
-  const onPointerCancel: PointerEventHandler<T> = (event) => finish(event.currentTarget, event, true)
-  const onLostPointerCapture: PointerEventHandler<T> = (event) => finish(event.currentTarget, event, true)
+  const onPointerUp: PointerEventHandler<T> = (event) => {
+    trackPointer(event, true)
+    finish(event.currentTarget, event, false)
+  }
+  const onPointerCancel: PointerEventHandler<T> = (event) => {
+    trackPointer(event, true)
+    finish(event.currentTarget, event, true)
+  }
+  const onLostPointerCapture: PointerEventHandler<T> = (event) => {
+    trackPointer(event, true)
+    finish(event.currentTarget, event, true)
+  }
 
   return {
     onPointerDown,

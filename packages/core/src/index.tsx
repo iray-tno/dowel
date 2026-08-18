@@ -9,6 +9,8 @@ import { useEffect, useRef, useState, type MouseEventHandler, type ReactNode, ty
 import { useResponderDomProps, type ResponderProps } from './responder.ts'
 
 export type { DowelResponderEvent, DowelResponderTouch, ResponderProps } from './responder.ts'
+export { PanResponder } from './pan-responder.ts'
+export type { PanResponderCallbacks, PanResponderGestureState, PanResponderInstance } from './pan-responder.ts'
 
 export interface DowelLayoutRectangle {
   x: number

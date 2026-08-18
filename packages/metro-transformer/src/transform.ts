@@ -29,6 +29,7 @@ const DOWEL_CORE_IMPORT_RE = /import\s*\{[^}]*\}\s*from\s*['"]@dowel\/core['"]\s
 /// example built cleanly and would have crashed on first render. Reading
 /// the bundle is what found it; building it was not enough.
 const RN_PRIMITIVE_TAGS = ['View', 'Text', 'Pressable', 'TextInput', 'Image', 'ScrollView', 'FlatList', 'RefreshControl'] as const
+const RN_VALUE_EXPORTS = ['PanResponder'] as const
 
 /// Renames this component's `dowelN`/`dowelN_suffix` style/JSX identifiers
 /// to be unique across every component in the file -- each `compileNative`
@@ -91,6 +92,9 @@ export function transformDowelSource(
       if (new RegExp(`<${tag}[\\s/>]`).test(component.jsx)) {
         usedTags.add(tag)
       }
+    }
+    for (const name of RN_VALUE_EXPORTS) {
+      if (new RegExp(`\\b${name}\\b`).test(code)) usedTags.add(name)
     }
     // `View`/`Text`/`Pressable` carried through `Child::Verbatim` are fine:
     // they resolve to the react-native imports above, which are the very

@@ -20,6 +20,12 @@ export const RNW_FREE_CASES: RnwFreeCase[] = [
     webMarker: '<View',
     nativeMarker: '<View',
   },
+  {
+    primitive: 'PanResponder spread',
+    jsx: '<View {...pan.panHandlers} />',
+    webMarker: '<View',
+    nativeMarker: '<View',
+  },
   { primitive: 'Text', jsx: '<Text>Hello</Text>', webMarker: '<span', nativeMarker: '<Text' },
   { primitive: 'Paragraph', jsx: '<Paragraph>Body</Paragraph>', webMarker: '<p', nativeMarker: '<Text' },
   { primitive: 'Heading', jsx: '<Heading level={2}>Title</Heading>', webMarker: '<h2', nativeMarker: '<Text' },

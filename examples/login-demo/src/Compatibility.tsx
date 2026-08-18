@@ -1,13 +1,18 @@
-import { Image, ScrollView, Text, View } from '@dowel/core'
+import { Image, PanResponder, ScrollView, Text, View } from '@dowel/core'
 
 const imageSource = {
   uri: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/%3E',
 }
 
+const pan = PanResponder.create({
+  onMoveShouldSetPanResponder: (_event, state) => Math.abs(state.dx) > 4,
+})
+
 /** Production/SSR fixture for the opt-in Web compatibility adapters. */
 export function Compatibility() {
   return (
     <View
+      {...pan.panHandlers}
       className="hidden"
       testID="compatibility-root"
       nativeID="compatibility"

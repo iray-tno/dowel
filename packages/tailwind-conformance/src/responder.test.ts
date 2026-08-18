@@ -7,6 +7,7 @@ import {
   type DowelResponderEvent,
   type ResponderProps,
 } from '../../core/src/responder.ts'
+import { PanResponder, type PanResponderGestureState } from '../../core/src/pan-responder.ts'
 
 interface FakeElement {
   captured: Set<number>
@@ -105,6 +106,7 @@ test('an incumbent responder can reject a competing responder', () => {
   firstHandlers.onPointerDown?.(pointer(first, 1))
   secondHandlers.onPointerDown?.(pointer(second, 2))
   firstHandlers.onPointerUp?.(pointer(first, 1))
+  secondHandlers.onPointerUp?.(pointer(second, 2))
 
   assert.deepEqual(lifecycle, ['first grant', 'second reject', 'first release'])
 })
@@ -132,6 +134,7 @@ test('an accepted transfer terminates the incumbent and pointer cancellation ter
 
   firstHandlers.onPointerDown?.(pointer(first, 1))
   secondHandlers.onPointerDown?.(pointer(second, 2))
+  firstHandlers.onPointerUp?.(pointer(first, 1))
   secondHandlers.onPointerCancel?.(pointer(second, 2))
 
   assert.deepEqual(lifecycle, [
@@ -140,4 +143,72 @@ test('an accepted transfer terminates the incumbent and pointer cancellation ter
     'second grant',
     'second terminate',
   ])
+})
+
+test('multiple pointers stay in one responder until the last pointer ends', () => {
+  const target = element()
+  const lifecycle: string[] = []
+  const touchCounts: number[] = []
+  const handlers = createResponderDomProps(
+    { current: target as unknown as HTMLElement },
+    { current: {
+      onStartShouldSetResponder: () => true,
+      onResponderStart: (event) => touchCounts.push(event.nativeEvent.touches.length),
+      onResponderEnd: (event) => touchCounts.push(event.nativeEvent.touches.length),
+      onResponderMove: (event) => {
+        assert.deepEqual(event.nativeEvent.touches.map((touch) => touch.identifier), [11, 12])
+        lifecycle.push('move')
+      },
+      onResponderRelease: () => lifecycle.push('release'),
+    } },
+  )
+
+  handlers.onPointerDown?.(pointer(target, 11))
+  handlers.onPointerDown?.(pointer(target, 12, { isPrimary: false }))
+  handlers.onPointerMove?.(pointer(target, 12, { isPrimary: false, pageX: 140 }))
+  handlers.onPointerUp?.(pointer(target, 11))
+  assert.deepEqual(lifecycle, ['move'])
+  handlers.onPointerUp?.(pointer(target, 12, { isPrimary: false }))
+
+  assert.deepEqual(touchCounts, [1, 2, 1, 0])
+  assert.deepEqual(lifecycle, ['move', 'release'])
+})
+
+test('PanResponder.create derives displacement, velocity, and active touch count', () => {
+  const target = element()
+  const moves: PanResponderGestureState[] = []
+  const releases: PanResponderGestureState[] = []
+  const pan = PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onPanResponderMove: (_event, state) => moves.push({ ...state }),
+    onPanResponderRelease: (_event, state) => releases.push({ ...state }),
+  })
+  const handlers = createResponderDomProps(
+    { current: target as unknown as HTMLElement },
+    { current: pan.panHandlers },
+  )
+
+  handlers.onPointerDown?.(pointer(target, 21, { timeStamp: 10 }))
+  handlers.onPointerMove?.(pointer(target, 21, {
+    clientX: 27,
+    clientY: 49,
+    pageX: 127,
+    pageY: 149,
+    timeStamp: 20,
+  }))
+  handlers.onPointerUp?.(pointer(target, 21, { timeStamp: 30 }))
+
+  assert.equal(moves.length, 1)
+  assert.equal(moves[0].x0, 117)
+  assert.equal(moves[0].y0, 129)
+  assert.equal(moves[0].moveX, 127)
+  assert.equal(moves[0].moveY, 149)
+  assert.equal(moves[0].dx, 10)
+  assert.equal(moves[0].dy, 20)
+  assert.equal(moves[0].vx, 1)
+  assert.equal(moves[0].vy, 2)
+  assert.equal(moves[0].numberActiveTouches, 1)
+  assert.equal(releases.length, 1)
+  assert.equal(releases[0].numberActiveTouches, 0)
+  assert.equal(pan.getInteractionHandle(), null)
 })

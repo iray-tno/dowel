@@ -1,8 +1,8 @@
 // A bundle fixture and a device acceptance screen. Stable testIDs make
 // manual VoiceOver/TalkBack and layout results reproducible.
 
-import { Dialog, FlatList, Image, Pressable, ScrollView, Text, TextInput, View } from '@dowel/core'
-import { useState } from 'react'
+import { Dialog, FlatList, Image, PanResponder, Pressable, ScrollView, Text, TextInput, View } from '@dowel/core'
+import { useRef, useState } from 'react'
 
 const rows = [
   { id: 'one', title: 'First virtual row' },
@@ -14,6 +14,13 @@ export default function App() {
   const [email, setEmail] = useState('')
   const [confirming, setConfirming] = useState(false)
   const [gridWidth, setGridWidth] = useState(0)
+  const [gesture, setGesture] = useState({ dx: 0, dy: 0, touches: 0 })
+  const pan = useRef(PanResponder.create({
+    onMoveShouldSetPanResponder: (_event, state) => Math.abs(state.dx) + Math.abs(state.dy) > 4,
+    onPanResponderMove: (_event, state) => {
+      setGesture({ dx: Math.round(state.dx), dy: Math.round(state.dy), touches: state.numberActiveTouches })
+    },
+  })).current
 
   return (
     <View className="flex-1 bg-slate-50 text-slate-900">
@@ -62,6 +69,14 @@ export default function App() {
               <View className="rounded-lg bg-white p-3"><Text>Bottom</Text></View>
             </View>
             <Text accessibilityLabel={`Measured grid width ${gridWidth}`}>Grid width: {gridWidth}px</Text>
+
+            <View
+              {...pan.panHandlers}
+              className="rounded-lg border border-slate-300 bg-white p-3"
+              testID="smoke-pan-responder"
+            >
+              <Text>Gesture: {gesture.dx}, {gesture.dy} ({gesture.touches} touches)</Text>
+            </View>
 
             <Pressable
               className="rounded-lg bg-brand p-3 transition-colors duration-200 hover:bg-blue-700 focus-visible:bg-blue-800"

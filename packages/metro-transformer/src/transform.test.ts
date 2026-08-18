@@ -33,6 +33,21 @@ test('strips the @dowel/core import and adds a react-native one', () => {
   assert.ok(!output!.includes('Button,') && !output!.includes(', Button'))
 })
 
+test('maps the cross-platform PanResponder value to React Native', () => {
+  const output = transformDowelSource(
+    `
+      import { View, PanResponder } from '@dowel/core'
+      const pan = PanResponder.create({ onMoveShouldSetPanResponder: () => true })
+      export function Drag() { return <View {...pan.panHandlers} /> }
+    `,
+    'Drag.tsx',
+  )
+  assert.ok(output)
+  assert.match(output, /import \{[^}]*View[^}]*PanResponder[^}]*StyleSheet[^}]*\} from 'react-native'/)
+  assert.match(output, /<View \{\.\.\.pan\.panHandlers\}/)
+  assert.doesNotMatch(output, /@dowel\/core/)
+})
+
 test('injects a StyleSheet.create declaration and rewrites the JSX span', () => {
   const output = transformDowelSource(LOGIN_SOURCE, 'Login.tsx')
   assert.ok(output)

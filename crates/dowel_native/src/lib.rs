@@ -813,7 +813,9 @@ fn render_node(
         ("onMoveShouldSetResponder", node.props.on_move_should_set_responder),
         ("onMoveShouldSetResponderCapture", node.props.on_move_should_set_responder_capture),
         ("onResponderGrant", node.props.on_responder_grant),
+        ("onResponderStart", node.props.on_responder_start),
         ("onResponderMove", node.props.on_responder_move),
+        ("onResponderEnd", node.props.on_responder_end),
         ("onResponderRelease", node.props.on_responder_release),
         ("onResponderReject", node.props.on_responder_reject),
         ("onResponderTerminate", node.props.on_responder_terminate),
@@ -2651,7 +2653,8 @@ export function Login() {
               onStartShouldSetResponderCapture={captureStart}
               onMoveShouldSetResponder={wantMove}
               onMoveShouldSetResponderCapture={captureMove}
-              onResponderGrant={grant} onResponderMove={move}
+              onResponderGrant={grant} onResponderStart={start}
+              onResponderMove={move} onResponderEnd={end}
               onResponderRelease={release} onResponderReject={reject}
               onResponderTerminate={terminate}
               onResponderTerminationRequest={allowTermination} />
@@ -2664,7 +2667,9 @@ export function Login() {
             "onMoveShouldSetResponder={wantMove}",
             "onMoveShouldSetResponderCapture={captureMove}",
             "onResponderGrant={grant}",
+            "onResponderStart={start}",
             "onResponderMove={move}",
+            "onResponderEnd={end}",
             "onResponderRelease={release}",
             "onResponderReject={reject}",
             "onResponderTerminate={terminate}",

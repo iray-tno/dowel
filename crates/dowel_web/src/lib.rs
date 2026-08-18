@@ -241,6 +241,16 @@ fn render_node(
     }
 
     let (mut tag, extra_attrs) = markup::element_shape(node, diagnostics);
+    let has_pan_handlers_spread = node.props.passthrough.iter().any(|prop| {
+        prop.is_spread && source_text(source, prop.span).contains(".panHandlers")
+    });
+    if has_pan_handlers_spread {
+        tag = match node.primitive {
+            Primitive::View => "View",
+            Primitive::Pressable => "Pressable",
+            _ => tag,
+        };
+    }
     if node.primitive == Primitive::Image {
         if let Some(src) = node.props.image_src {
             let value = source_text(source, src);
@@ -309,6 +319,10 @@ fn render_node(
         format!(" className={{[{}].filter(Boolean).join(' ')}}", parts.join(", "))
     };
     for (key, value) in &extra_attrs {
+        if tag == "Pressable" && *key == "tabIndex" {
+            continue;
+        }
+        let key = if tag == "Pressable" && *key == "role" { "accessibilityRole" } else { key };
         attrs.push_str(&format!(r#" {key}="{value}""#));
     }
 
@@ -488,7 +502,9 @@ fn render_node(
         ("onMoveShouldSetResponder", node.props.on_move_should_set_responder),
         ("onMoveShouldSetResponderCapture", node.props.on_move_should_set_responder_capture),
         ("onResponderGrant", node.props.on_responder_grant),
+        ("onResponderStart", node.props.on_responder_start),
         ("onResponderMove", node.props.on_responder_move),
+        ("onResponderEnd", node.props.on_responder_end),
         ("onResponderRelease", node.props.on_responder_release),
         ("onResponderReject", node.props.on_responder_reject),
         ("onResponderTerminate", node.props.on_responder_terminate),
@@ -914,7 +930,8 @@ export function Login() {
               onStartShouldSetResponderCapture={captureStart}
               onMoveShouldSetResponder={wantMove}
               onMoveShouldSetResponderCapture={captureMove}
-              onResponderGrant={grant} onResponderMove={move}
+              onResponderGrant={grant} onResponderStart={start}
+              onResponderMove={move} onResponderEnd={end}
               onResponderRelease={release} onResponderReject={reject}
               onResponderTerminate={terminate}
               onResponderTerminationRequest={allowTermination}>
@@ -931,7 +948,9 @@ export function Login() {
             "onMoveShouldSetResponder={wantMove}",
             "onMoveShouldSetResponderCapture={captureMove}",
             "onResponderGrant={grant}",
+            "onResponderStart={start}",
             "onResponderMove={move}",
+            "onResponderEnd={end}",
             "onResponderRelease={release}",
             "onResponderReject={reject}",
             "onResponderTerminate={terminate}",
@@ -943,6 +962,19 @@ export function Login() {
         assert!(output.jsx.contains("onPress={save}"), "{}", output.jsx);
         assert!(output.jsx.contains("disabled={locked}"), "{}", output.jsx);
         assert!(!output.jsx.contains("onClick={save}"), "{}", output.jsx);
+    }
+
+    #[test]
+    fn pan_responder_handler_spreads_select_the_web_bridge() {
+        let source = r#"
+            import { View, PanResponder } from '@dowel/core'
+            const pan = PanResponder.create({ onMoveShouldSetPanResponder: () => true })
+            const el = <View className="p-4" {...pan.panHandlers} />
+        "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+        assert!(output.jsx.starts_with("<View className=\"dowel-view dowel-0\""), "{}", output.jsx);
+        assert!(output.jsx.contains("{...pan.panHandlers}"), "{}", output.jsx);
     }
 
     #[test]

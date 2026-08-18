@@ -250,7 +250,7 @@ fn render_node(
         }
     }
     let is_dowel_component = tag.starts_with("Dowel")
-        || matches!(tag, "View" | "Text" | "Image" | "ScrollView" | "FlatList");
+        || matches!(tag, "View" | "Text" | "Paragraph" | "Heading" | "Section" | "Image" | "ScrollView" | "FlatList");
 
     // The generated class is dropped when no rule was written for it. It
     // matched nothing, so it was a class attribute on every unstyled
@@ -357,6 +357,15 @@ fn render_node(
     }
     if let Some(value) = node.props.on_layout {
         attrs.push_str(&format!(" onLayout={{{}}}", source_text(source, value)));
+    }
+    if tag == "Heading" {
+        if let Some(level) = &node.props.heading_level {
+            let value = match level {
+                dowel_ir::HeadingLevel::Static(level) => level.to_string(),
+                dowel_ir::HeadingLevel::Dynamic(expr) => source_text(source, *expr).to_string(),
+            };
+            attrs.push_str(&format!(" level={{{value}}}"));
+        }
     }
 
     // Written under the DOM's name for it. See the parser: the source may
@@ -1240,5 +1249,28 @@ export function Login() {
 
         // And the CSS selector that attribute name feeds is present too.
         assert!(output.css.contains("] {"));
+    }
+
+    #[test]
+    fn semantic_primitives_lower_to_native_html_elements() {
+        let source = r#"
+            import { Section, Heading, Paragraph } from '@dowel/core'
+            const el = <Section><Heading level={2}>Title</Heading><Paragraph>Body</Paragraph></Section>
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert_eq!(output.jsx, "<section><h2>Title</h2><p>Body</p></section>");
+    }
+
+    #[test]
+    fn dynamic_heading_level_uses_the_typed_fallback_component() {
+        let source = r#"
+            import { Heading } from '@dowel/core'
+            const el = <Heading level={level}>Title</Heading>
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+        assert_eq!(output.jsx, "<Heading level={level}>Title</Heading>");
     }
 }

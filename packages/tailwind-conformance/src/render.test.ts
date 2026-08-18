@@ -27,6 +27,16 @@ test('a compiled component mounts and produces the expected markup', () => {
   )
 })
 
+test('semantic primitives render native document elements', () => {
+  const { rendered } = round(`
+    import { Section, Heading, Paragraph } from '@dowel/core'
+    export function Article() {
+      return <Section><Heading level={3}>Title</Heading><Paragraph>Body</Paragraph></Section>
+    }
+  `)
+  assert.equal(rendered.html, '<section><h3>Title</h3><p>Body</p></section>')
+})
+
 test('every class in the DOM has a rule in the stylesheet', () => {
   // The two halves of the Web output have to agree, and nothing compared
   // them before: a class that reaches the element and matches no rule is a

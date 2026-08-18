@@ -31,6 +31,8 @@ export interface UniversalProps {
   }
   accessibilityValue?: { min?: number; max?: number; now?: number; text?: string }
   accessibilityLiveRegion?: 'none' | 'polite' | 'assertive'
+  accessibilityLabel?: string
+  accessibilityHint?: string
   onLayout?: (event: DowelLayoutEvent) => void
 }
 
@@ -51,6 +53,8 @@ function universalDomProps(props: UniversalProps) {
     'aria-valuenow': value?.now,
     'aria-valuetext': value?.text,
     'aria-live': props.accessibilityLiveRegion === 'none' ? undefined : props.accessibilityLiveRegion,
+    'aria-label': props.accessibilityLabel,
+    'aria-description': props.accessibilityHint,
   } as const
 }
 
@@ -122,6 +126,28 @@ export interface TextProps extends UniversalProps {
 export function Text({ className, children, onLayout, ...universal }: TextProps) {
   const ref = useLayoutRef<HTMLSpanElement>(onLayout)
   return <span ref={ref} className={className} {...universalDomProps(universal)}>{children}</span>
+}
+
+export type SemanticTextProps = TextProps
+
+export function Paragraph({ className, children, onLayout, ...universal }: SemanticTextProps) {
+  const ref = useLayoutRef<HTMLParagraphElement>(onLayout)
+  return <p ref={ref} className={className} {...universalDomProps(universal)}>{children}</p>
+}
+
+export interface HeadingProps extends SemanticTextProps {
+  level?: 1 | 2 | 3 | 4 | 5 | 6
+}
+
+export function Heading({ level = 1, className, children, onLayout, ...universal }: HeadingProps) {
+  const ref = useLayoutRef<HTMLHeadingElement>(onLayout)
+  const Tag = `h${level}` as 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6'
+  return <Tag ref={ref} className={className} {...universalDomProps(universal)}>{children}</Tag>
+}
+
+export function Section({ className, children, onLayout, ...universal }: ViewProps) {
+  const ref = useLayoutRef<HTMLElement>(onLayout)
+  return <section ref={ref} className={className} {...universalDomProps(universal)}>{children}</section>
 }
 
 export interface ImageProps extends UniversalProps {

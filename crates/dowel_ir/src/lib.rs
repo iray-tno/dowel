@@ -145,6 +145,14 @@ pub enum DiagnosticCode {
 pub enum Primitive {
     View,
     Text,
+    /// A block of prose: `<p>` on Web and `Text` on React Native.
+    Paragraph,
+    /// A document heading: `<h1>`...`<h6>` on Web and an accessible
+    /// header `Text` on React Native.
+    Heading,
+    /// A thematic document region: `<section>` on Web and `View` on
+    /// React Native, where there is no corresponding layout primitive.
+    Section,
     Pressable,
     Button,
     /// A destination-bearing interaction: `<a>` on Web and Dowel's
@@ -273,6 +281,9 @@ pub struct PropSet {
     pub accessibility_value: Option<ExprRef>,
     pub accessibility_live_region: Option<ExprRef>,
     pub on_layout: Option<ExprRef>,
+    /// A Heading's 1...6 level. Static levels compile to a native HTML
+    /// heading tag; dynamic expressions use the Web fallback component.
+    pub heading_level: Option<HeadingLevel>,
     pub on_scroll: Option<ExprRef>,
     pub scroll_event_throttle: Option<ExprRef>,
     pub disabled: Option<ConditionExpr>,
@@ -317,6 +328,12 @@ pub struct PropSet {
     /// Props Dowel doesn't model explicitly -- re-emitted unchanged, in
     /// source order (which JSX's last-wins duplicate resolution depends on).
     pub passthrough: Vec<PassthroughProp>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum HeadingLevel {
+    Static(u8),
+    Dynamic(ExprRef),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -18,6 +18,9 @@ pub fn native_component(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'st
     match node.primitive {
         Primitive::View => ("View", Vec::new()),
         Primitive::Text => ("Text", Vec::new()),
+        Primitive::Paragraph => ("Text", Vec::new()),
+        Primitive::Heading => ("Text", vec![("accessibilityRole", "header".to_string())]),
+        Primitive::Section => ("View", Vec::new()),
         Primitive::Button => ("Pressable", vec![("accessibilityRole", "button".to_string())]),
         Primitive::Link => ("DowelLink", Vec::new()),
         Primitive::Image => ("Image", image_attrs(node, diagnostics)),
@@ -159,6 +162,7 @@ mod tests {
                 accessibility_value: None,
                 accessibility_live_region: None,
                 on_layout: None,
+                heading_level: None,
                 on_scroll: None,
                 scroll_event_throttle: None,
                 disabled: None,

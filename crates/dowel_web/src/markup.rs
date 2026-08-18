@@ -1,7 +1,7 @@
 //! `Node` -> HTML element tag/attributes, plus the accessibility
 //! diagnostics that fall out of that mapping (proposal §10.1/§10.2).
 
-use dowel_ir::{AccessibilityRole, Diagnostic, DiagnosticCode, Node, Primitive, Severity};
+use dowel_ir::{AccessibilityRole, Diagnostic, DiagnosticCode, HeadingLevel, Node, Primitive, Severity};
 
 /// `(tag, extra attributes beyond class)`.
 ///
@@ -19,6 +19,20 @@ pub fn element_shape(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'stati
         Primitive::View => ("div", Vec::new()),
         Primitive::Text if node.props.on_layout.is_some() => ("Text", Vec::new()),
         Primitive::Text => ("span", Vec::new()),
+        Primitive::Paragraph if node.props.on_layout.is_some() => ("Paragraph", Vec::new()),
+        Primitive::Paragraph => ("p", Vec::new()),
+        Primitive::Heading if node.props.on_layout.is_some()
+            || matches!(node.props.heading_level, Some(HeadingLevel::Dynamic(_))) => ("Heading", Vec::new()),
+        Primitive::Heading => match node.props.heading_level {
+            Some(HeadingLevel::Static(2)) => ("h2", Vec::new()),
+            Some(HeadingLevel::Static(3)) => ("h3", Vec::new()),
+            Some(HeadingLevel::Static(4)) => ("h4", Vec::new()),
+            Some(HeadingLevel::Static(5)) => ("h5", Vec::new()),
+            Some(HeadingLevel::Static(6)) => ("h6", Vec::new()),
+            _ => ("h1", Vec::new()),
+        },
+        Primitive::Section if node.props.on_layout.is_some() => ("Section", Vec::new()),
+        Primitive::Section => ("section", Vec::new()),
         Primitive::Button => ("button", Vec::new()),
         Primitive::Link => ("a", Vec::new()),
         Primitive::Image if node.props.on_layout.is_some() || node.props.image_default_source.is_some() =>
@@ -187,6 +201,7 @@ mod tests {
                 accessibility_value: None,
                 accessibility_live_region: None,
                 on_layout: None,
+                heading_level: None,
                 on_scroll: None,
                 scroll_event_throttle: None,
                 disabled: None,
@@ -232,6 +247,7 @@ mod tests {
                 accessibility_value: None,
                 accessibility_live_region: None,
                 on_layout: None,
+                heading_level: None,
                 on_scroll: None,
                 scroll_event_throttle: None,
                 disabled: None,

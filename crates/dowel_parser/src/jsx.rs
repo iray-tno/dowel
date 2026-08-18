@@ -11,8 +11,8 @@
 //! something is a reason to leave it alone, not a reason to delete it.
 
 use dowel_ir::{
-    AccessibilityRole, Child, ConditionExpr, Diagnostic, DiagnosticCode, ExprRef, NestedNode, Node,
-    PassthroughProp, Primitive, PropSet, Severity, SourceSpan, StyleDeclaration,
+    AccessibilityRole, Child, ConditionExpr, Diagnostic, DiagnosticCode, ExprRef, HeadingLevel,
+    NestedNode, Node, PassthroughProp, Primitive, PropSet, Severity, SourceSpan, StyleDeclaration,
 };
 use oxc_ast::ast::{
     ArrowFunctionExpression, Function, JSXAttribute, JSXAttributeItem, JSXAttributeName, JSXAttributeValue,
@@ -154,6 +154,9 @@ fn primitive_name(name: &str) -> Option<&'static str> {
     match name {
         "View" => Some("View"),
         "Text" => Some("Text"),
+        "Paragraph" => Some("Paragraph"),
+        "Heading" => Some("Heading"),
+        "Section" => Some("Section"),
         "Pressable" => Some("Pressable"),
         "Button" => Some("Button"),
         "Link" => Some("Link"),
@@ -232,6 +235,9 @@ fn primitive_for_name(name: &str) -> Option<Primitive> {
     match name {
         "View" => Some(Primitive::View),
         "Text" => Some(Primitive::Text),
+        "Paragraph" => Some(Primitive::Paragraph),
+        "Heading" => Some(Primitive::Heading),
+        "Section" => Some(Primitive::Section),
         "Pressable" => Some(Primitive::Pressable),
         "TextInput" => Some(Primitive::TextInput),
         "Dialog" => Some(Primitive::Dialog),
@@ -371,6 +377,25 @@ fn build_node(
             "accessibilityValue" => capture_prop_expr(attr, &mut props.accessibility_value, &mut props.passthrough, module_record, diagnostics, consumed),
             "accessibilityLiveRegion" => capture_prop_expr(attr, &mut props.accessibility_live_region, &mut props.passthrough, module_record, diagnostics, consumed),
             "onLayout" => capture_prop_expr(attr, &mut props.on_layout, &mut props.passthrough, module_record, diagnostics, consumed),
+            "level" if primitive == Primitive::Heading => match &attr.value {
+                Some(JSXAttributeValue::StringLiteral(literal)) => {
+                    props.heading_level = literal.value.parse::<u8>().ok()
+                        .filter(|level| (1..=6).contains(level))
+                        .map(HeadingLevel::Static);
+                    if props.heading_level.is_none() {
+                        props.passthrough.push(passthrough_prop(attr, module_record, diagnostics, consumed));
+                    }
+                }
+                Some(JSXAttributeValue::ExpressionContainer(container)) => {
+                    props.heading_level = match &container.expression {
+                        JSXExpression::NumericLiteral(literal)
+                            if literal.value.fract() == 0.0 && (1.0..=6.0).contains(&literal.value) =>
+                            Some(HeadingLevel::Static(literal.value as u8)),
+                        _ => Some(HeadingLevel::Dynamic(to_expr_ref(container.expression.span()))),
+                    };
+                }
+                _ => props.passthrough.push(passthrough_prop(attr, module_record, diagnostics, consumed)),
+            },
             "onScroll" if matches!(primitive, Primitive::ScrollView | Primitive::FlatList) => {
                 capture_prop_expr(attr, &mut props.on_scroll, &mut props.passthrough, module_record, diagnostics, consumed)
             }

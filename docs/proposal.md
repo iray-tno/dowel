@@ -59,13 +59,16 @@ Dowel compiler はこのコードを解析し、安全に変換できる部分�
 そのため `@dowel/core` を公式の推奨 entry point とする。
 
 ```tsx
-import { View, Text, Button } from '@dowel/core'
+import { View, Text, Paragraph, Heading, Section, Button } from '@dowel/core'
 ```
 
 `@dowel/core` は巨大な UI framework ではなく、
 
 - View
 - Text
+- Paragraph（Webの `p` / Nativeの `Text`）
+- Heading（Webの `h1`〜`h6` / Nativeのheader role付き`Text`）
+- Section（Webの `section` / Nativeの `View`）
 - Pressable
 - Button
 - Link

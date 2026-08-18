@@ -1670,7 +1670,7 @@ fn text_reach(node: &Node) -> TextReach {
         match child {
             dowel_ir::Child::Text(_) => return TextReach::Certain,
             dowel_ir::Child::Node(child_node) => {
-                if child_node.primitive == Primitive::Text {
+                if matches!(child_node.primitive, Primitive::Text | Primitive::Paragraph | Primitive::Heading) {
                     return TextReach::Certain;
                 }
                 match text_reach(child_node) {
@@ -1681,7 +1681,7 @@ fn text_reach(node: &Node) -> TextReach {
             }
             dowel_ir::Child::Verbatim { nested, .. } => {
                 if nested.iter().any(|n| {
-                    n.node.primitive == Primitive::Text
+                    matches!(n.node.primitive, Primitive::Text | Primitive::Paragraph | Primitive::Heading)
                         || text_reach(&n.node) == TextReach::Certain
                 }) {
                     return TextReach::Certain;
@@ -2382,7 +2382,7 @@ fn caret_only_reason() -> String {
 fn truncation_props(node: &Node) -> Option<Vec<(&'static str, String)>> {
     // `numberOfLines` exists on Text alone; on a View there's nothing to
     // put it on, so truncation there really is unsupported.
-    if node.primitive != Primitive::Text {
+    if !matches!(node.primitive, Primitive::Text | Primitive::Paragraph | Primitive::Heading) {
         return None;
     }
     let has = |want: &StyleProperty| node.style.iter().any(|d| d.property == *want);
@@ -4137,5 +4137,20 @@ export function Login() {
         let output_with_role = lower(&parsed_with_role.roots[0].node, source_with_role, &Theme::default());
         assert!(output_with_role.diagnostics.is_empty());
         assert!(output_with_role.jsx.contains(r#"accessibilityRole="button""#));
+    }
+
+    #[test]
+    fn semantic_primitives_lower_to_native_text_and_view() {
+        let source = r#"
+            import { Section, Heading, Paragraph } from '@dowel/core'
+            const el = <Section><Heading level={2}>Title</Heading><Paragraph>Body</Paragraph></Section>
+            "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert_eq!(
+            output.jsx,
+            "<View><Text accessibilityRole=\"header\">Title</Text><Text>Body</Text></View>"
+        );
     }
 }

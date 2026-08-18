@@ -36,6 +36,23 @@ test('a compiled component builds the tree it was meant to', () => {
   assert.deepEqual(text.props.style, { fontSize: 20, lineHeight: 28 })
 })
 
+test('semantic document primitives retain native accessibility intent', () => {
+  const tree = renderNative(
+    `
+    import { Section, Heading, Paragraph } from '@dowel/core'
+    export function Article() {
+      return <Section><Heading level={3}>Title</Heading><Paragraph>Body</Paragraph></Section>
+    }
+    `,
+    'Article',
+  )
+  assert.equal(tree?.type, 'View')
+  const [heading, paragraph] = children(tree)
+  assert.equal(heading.type, 'Text')
+  assert.equal(heading.props.accessibilityRole, 'header')
+  assert.equal(paragraph.type, 'Text')
+})
+
 test('DowelSpaced puts the spacing on every child but the last', () => {
   // The component's first execution. Its rule -- `:not(:last-child)`, and
   // the parent's style behind the child's own so the child wins -- was

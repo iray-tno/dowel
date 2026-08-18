@@ -16,6 +16,13 @@ export interface A11yContextualResult extends A11yContextualCase {
 
 export const A11Y_CONTEXTUAL_CASES: A11yContextualCase[] = [
   {
+    name: 'semantic document structure',
+    purpose: 'paragraph, heading level and section intent survive platform lowering',
+    source: '<Section><Heading level={2}>Title</Heading><Paragraph>Body</Paragraph></Section>',
+    web: ['<section>', '<h2>Title</h2>', '<p>Body</p>'],
+    native: ['<View>', '<Text accessibilityRole="header">Title</Text>', '<Text>Body</Text>'],
+  },
+  {
     name: 'described Image',
     purpose: 'one alternative text input reaches native semantics on both platforms',
     source: '<Image src="https://example.com/cover.jpg" alt="Cover art" />',
@@ -91,7 +98,7 @@ export const A11Y_CONTEXTUAL_CASES: A11yContextualCase[] = [
 
 export function compareA11yContextual(testCase: A11yContextualCase): A11yContextualResult {
   const source =
-    `import { Button, Dialog, Image, Link, Pressable, TextInput } from '@dowel/core'\n` +
+    `import { Button, Dialog, Heading, Image, Link, Paragraph, Pressable, Section, TextInput } from '@dowel/core'\n` +
     `export function C() { return ${testCase.source} }\n`
   const [web] = compile(source)
   const [native] = compileNative(source)

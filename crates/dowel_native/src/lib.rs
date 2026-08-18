@@ -705,6 +705,21 @@ fn render_node(
     for (key, value) in &extra_props {
         props_text.push_str(&format!(r#" {key}="{value}""#));
     }
+    for (name, value) in [
+        ("testID", node.props.test_id),
+        ("nativeID", node.props.native_id),
+        ("pointerEvents", node.props.pointer_events),
+        ("accessibilityState", node.props.accessibility_state),
+        ("accessibilityValue", node.props.accessibility_value),
+        ("accessibilityLiveRegion", node.props.accessibility_live_region),
+        ("onLayout", node.props.on_layout),
+        ("onScroll", node.props.on_scroll),
+        ("scrollEventThrottle", node.props.scroll_event_throttle),
+    ] {
+        if let Some(value) = value {
+            props_text.push_str(&format!(" {name}={{{}}}", source_text(source, value)));
+        }
+    }
     // Styles that RN expresses as props (see `truncation_props`).
     // `numberOfLines` takes a number, so it's braced rather than quoted.
     for (key, value) in placeholder.into_iter().flatten() {
@@ -2573,7 +2588,33 @@ export function Login() {
         let output = lower(&parsed.roots[0].node, source, &Theme::default());
         assert!(output.jsx.contains("{...rest}"));
         assert!(output.jsx.contains("onLayout={onLayout}"));
-        assert!(output.jsx.contains(r#"testID="row""#));
+        assert!(output.jsx.contains(r#"testID={"row"}"#));
+    }
+
+    #[test]
+    fn universal_props_keep_their_native_contract() {
+        let source = r#"
+            import { ScrollView } from '@dowel/core'
+            const el = <ScrollView testID="feed" nativeID="feed-view" pointerEvents="auto"
+              accessibilityState={{ busy }} accessibilityValue={{ now: progress }}
+              accessibilityLiveRegion="polite" onLayout={measure}
+              onScroll={remember} scrollEventThrottle={16} />
+        "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+        for expected in [
+            r#"testID={"feed"}"#,
+            r#"nativeID={"feed-view"}"#,
+            r#"pointerEvents={"auto"}"#,
+            "accessibilityState={{ busy }}",
+            "accessibilityValue={{ now: progress }}",
+            r#"accessibilityLiveRegion={"polite"}"#,
+            "onLayout={measure}",
+            "onScroll={remember}",
+            "scrollEventThrottle={16}",
+        ] {
+            assert!(output.jsx.contains(expected), "missing {expected}: {}", output.jsx);
+        }
     }
 
     #[test]

@@ -15,12 +15,18 @@ use dowel_ir::{AccessibilityRole, Diagnostic, DiagnosticCode, Node, Primitive, S
 /// shipping an inaccessible interactive `<div>`.
 pub fn element_shape(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'static str, Vec<(&'static str, String)>) {
     match node.primitive {
+        Primitive::View if node.props.on_layout.is_some() => ("View", Vec::new()),
         Primitive::View => ("div", Vec::new()),
+        Primitive::Text if node.props.on_layout.is_some() => ("Text", Vec::new()),
         Primitive::Text => ("span", Vec::new()),
         Primitive::Button => ("button", Vec::new()),
         Primitive::Link => ("a", Vec::new()),
+        Primitive::Image if node.props.on_layout.is_some() => ("Image", image_attrs(node, diagnostics)),
         Primitive::Image => ("img", image_attrs(node, diagnostics)),
-        Primitive::ScrollView if node.props.on_refresh.is_some() || node.props.refreshing.is_some() =>
+        Primitive::ScrollView if node.props.on_refresh.is_some()
+            || node.props.refreshing.is_some()
+            || node.props.on_layout.is_some()
+            || node.props.on_scroll.is_some() =>
             ("ScrollView", Vec::new()),
         Primitive::ScrollView => ("div", Vec::new()),
         Primitive::FlatList => ("FlatList", Vec::new()),
@@ -173,6 +179,15 @@ mod tests {
             style: Vec::new(),
             props: PropSet {
                 on_press: Some(ExprRef(empty_span())),
+                test_id: None,
+                native_id: None,
+                pointer_events: None,
+                accessibility_state: None,
+                accessibility_value: None,
+                accessibility_live_region: None,
+                on_layout: None,
+                on_scroll: None,
+                scroll_event_throttle: None,
                 disabled: None,
                 accessibility_role: None,
                 accessibility_label: None,
@@ -208,6 +223,15 @@ mod tests {
             style: Vec::new(),
             props: PropSet {
                 on_press: Some(ExprRef(empty_span())),
+                test_id: None,
+                native_id: None,
+                pointer_events: None,
+                accessibility_state: None,
+                accessibility_value: None,
+                accessibility_live_region: None,
+                on_layout: None,
+                on_scroll: None,
+                scroll_event_throttle: None,
                 disabled: None,
                 accessibility_role: Some(AccessibilityRole::Button),
                 accessibility_label: None,

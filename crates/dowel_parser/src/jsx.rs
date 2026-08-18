@@ -208,6 +208,26 @@ fn passthrough_prop(
     }
 }
 
+fn capture_prop_expr(
+    attr: &JSXAttribute,
+    target: &mut Option<ExprRef>,
+    passthrough: &mut Vec<PassthroughProp>,
+    module_record: &ModuleRecord,
+    diagnostics: &mut Vec<Diagnostic>,
+    consumed: &mut Vec<SourceSpan>,
+) {
+    *target = match &attr.value {
+        Some(JSXAttributeValue::ExpressionContainer(container)) => {
+            Some(to_expr_ref(container.expression.span()))
+        }
+        Some(JSXAttributeValue::StringLiteral(literal)) => Some(to_expr_ref(literal.span)),
+        _ => {
+            passthrough.push(passthrough_prop(attr, module_record, diagnostics, consumed));
+            None
+        }
+    };
+}
+
 fn primitive_for_name(name: &str) -> Option<Primitive> {
     match name {
         "View" => Some(Primitive::View),
@@ -344,6 +364,19 @@ fn build_node(
                     .passthrough
                     .push(passthrough_prop(attr, module_record, diagnostics, consumed)),
             },
+            "testID" => capture_prop_expr(attr, &mut props.test_id, &mut props.passthrough, module_record, diagnostics, consumed),
+            "nativeID" => capture_prop_expr(attr, &mut props.native_id, &mut props.passthrough, module_record, diagnostics, consumed),
+            "pointerEvents" => capture_prop_expr(attr, &mut props.pointer_events, &mut props.passthrough, module_record, diagnostics, consumed),
+            "accessibilityState" => capture_prop_expr(attr, &mut props.accessibility_state, &mut props.passthrough, module_record, diagnostics, consumed),
+            "accessibilityValue" => capture_prop_expr(attr, &mut props.accessibility_value, &mut props.passthrough, module_record, diagnostics, consumed),
+            "accessibilityLiveRegion" => capture_prop_expr(attr, &mut props.accessibility_live_region, &mut props.passthrough, module_record, diagnostics, consumed),
+            "onLayout" => capture_prop_expr(attr, &mut props.on_layout, &mut props.passthrough, module_record, diagnostics, consumed),
+            "onScroll" if matches!(primitive, Primitive::ScrollView | Primitive::FlatList) => {
+                capture_prop_expr(attr, &mut props.on_scroll, &mut props.passthrough, module_record, diagnostics, consumed)
+            }
+            "scrollEventThrottle" if matches!(primitive, Primitive::ScrollView | Primitive::FlatList) => {
+                capture_prop_expr(attr, &mut props.scroll_event_throttle, &mut props.passthrough, module_record, diagnostics, consumed)
+            }
             "disabled" => match &attr.value {
                 None => props.disabled = Some(ConditionExpr::Static(true)),
                 Some(JSXAttributeValue::ExpressionContainer(container)) => {
@@ -658,10 +691,11 @@ mod tests {
         let root = &output.roots[0].node;
         assert_eq!(
             passthrough_texts(source, root),
-            vec!["{...rest}", "onLayout={onLayout}", r#"testID="row""#]
+            vec!["{...rest}"]
         );
         assert!(root.props.passthrough[0].is_spread);
-        assert!(!root.props.passthrough[1].is_spread);
+        assert!(root.props.on_layout.is_some());
+        assert!(root.props.test_id.is_some());
     }
 
     #[test]

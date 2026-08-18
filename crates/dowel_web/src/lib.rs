@@ -44,6 +44,13 @@ const SCROLL_VIEW_BASE_CSS: &str = ".dowel-scroll-view {\n  \
     display: none;\n\
 }\n\n";
 
+const POINTER_EVENTS_BASE_CSS: &str = "[data-dowel-pointer-events='none'] { pointer-events: none; }\n\
+[data-dowel-pointer-events='auto'] { pointer-events: auto; }\n\
+[data-dowel-pointer-events='box-none'] { pointer-events: none; }\n\
+[data-dowel-pointer-events='box-none'] > * { pointer-events: auto; }\n\
+[data-dowel-pointer-events='box-only'] { pointer-events: auto; }\n\
+[data-dowel-pointer-events='box-only'] > * { pointer-events: none; }\n\n";
+
 struct ClassAllocator {
     next: u32,
 }
@@ -85,6 +92,9 @@ pub fn lower(root: &Node, source: &str, theme: &Theme) -> LowerOutput {
     }
     if contains_primitive(root, Primitive::ScrollView) {
         css.push_str(SCROLL_VIEW_BASE_CSS);
+    }
+    if contains_prop(root, |node| node.props.pointer_events.is_some()) {
+        css.push_str(POINTER_EVENTS_BASE_CSS);
     }
     // An `animation` declaration is inert without its `@keyframes`, and
     // those are document-level rather than per-node -- so they're collected
@@ -145,6 +155,17 @@ fn contains_primitive(node: &Node, primitive: Primitive) -> bool {
     node.children.iter().any(|child| match child {
         dowel_ir::Child::Node(child) => contains_primitive(child, primitive),
         dowel_ir::Child::Verbatim { nested, .. } => nested.iter().any(|entry| contains_primitive(&entry.node, primitive)),
+        dowel_ir::Child::Text(_) => false,
+    })
+}
+
+fn contains_prop(node: &Node, predicate: fn(&Node) -> bool) -> bool {
+    if predicate(node) {
+        return true;
+    }
+    node.children.iter().any(|child| match child {
+        dowel_ir::Child::Node(child) => contains_prop(child, predicate),
+        dowel_ir::Child::Verbatim { nested, .. } => nested.iter().any(|entry| contains_prop(&entry.node, predicate)),
         dowel_ir::Child::Text(_) => false,
     })
 }
@@ -220,6 +241,8 @@ fn render_node(
     }
 
     let (tag, extra_attrs) = markup::element_shape(node, diagnostics);
+    let is_dowel_component = tag.starts_with("Dowel")
+        || matches!(tag, "View" | "Text" | "Image" | "ScrollView" | "FlatList");
 
     // The generated class is dropped when no rule was written for it. It
     // matched nothing, so it was a class attribute on every unstyled
@@ -281,6 +304,53 @@ fn render_node(
         attrs.push_str(&format!(r#" {key}="{value}""#));
     }
 
+    if let Some(value) = node.props.test_id {
+        let name = if is_dowel_component { "testID" } else { "data-testid" };
+        attrs.push_str(&format!(" {name}={{{}}}", source_text(source, value)));
+    }
+    if let Some(value) = node.props.native_id {
+        let name = if is_dowel_component { "nativeID" } else { "id" };
+        attrs.push_str(&format!(" {name}={{{}}}", source_text(source, value)));
+    }
+    if let Some(value) = node.props.pointer_events {
+        let name = if is_dowel_component { "pointerEvents" } else { "data-dowel-pointer-events" };
+        attrs.push_str(&format!(" {name}={{{}}}", source_text(source, value)));
+    }
+    if let Some(value) = node.props.accessibility_state {
+        let value = source_text(source, value);
+        if is_dowel_component {
+            attrs.push_str(&format!(" accessibilityState={{{value}}}"));
+        } else {
+            attrs.push_str(&format!(" aria-disabled={{({value}).disabled}}"));
+            attrs.push_str(&format!(" aria-selected={{({value}).selected}}"));
+            attrs.push_str(&format!(" aria-checked={{({value}).checked}}"));
+            attrs.push_str(&format!(" aria-busy={{({value}).busy}}"));
+            attrs.push_str(&format!(" aria-expanded={{({value}).expanded}}"));
+        }
+    }
+    if let Some(value) = node.props.accessibility_value {
+        let value = source_text(source, value);
+        if is_dowel_component {
+            attrs.push_str(&format!(" accessibilityValue={{{value}}}"));
+        } else {
+            attrs.push_str(&format!(" aria-valuemin={{({value}).min}}"));
+            attrs.push_str(&format!(" aria-valuemax={{({value}).max}}"));
+            attrs.push_str(&format!(" aria-valuenow={{({value}).now}}"));
+            attrs.push_str(&format!(" aria-valuetext={{({value}).text}}"));
+        }
+    }
+    if let Some(value) = node.props.accessibility_live_region {
+        let value = source_text(source, value);
+        if is_dowel_component {
+            attrs.push_str(&format!(" accessibilityLiveRegion={{{value}}}"));
+        } else {
+            attrs.push_str(&format!(" aria-live={{{value} === 'none' ? undefined : {value}}}"));
+        }
+    }
+    if let Some(value) = node.props.on_layout {
+        attrs.push_str(&format!(" onLayout={{{}}}", source_text(source, value)));
+    }
+
     // Written under the DOM's name for it. See the parser: the source may
     // spell this either way, and re-emitting `accessibilityLabel` here
     // would leave the field with no accessible name at all.
@@ -290,7 +360,7 @@ fn render_node(
         // Dowel component, which maps it to `aria-label` itself. Writing
         // the DOM spelling on a component would make it an unknown prop
         // that React drops.
-        let name = if tag.starts_with("Dowel") || matches!(tag, "ScrollView" | "FlatList") {
+        let name = if is_dowel_component {
             "accessibilityLabel"
         } else {
             "aria-label"
@@ -299,7 +369,7 @@ fn render_node(
       }
     }
     if let Some(hint) = node.props.accessibility_hint {
-        let name = if tag.starts_with("Dowel") || matches!(tag, "ScrollView" | "FlatList") {
+        let name = if is_dowel_component {
             "accessibilityHint"
         } else {
             "aria-description"
@@ -367,6 +437,14 @@ fn render_node(
             attrs.push_str(&format!(" showsHorizontalScrollIndicator={{{}}}", render_condition_expr(source, value)));
         }
     }
+    if matches!(node.primitive, Primitive::ScrollView | Primitive::FlatList) {
+        if let Some(value) = node.props.on_scroll {
+            attrs.push_str(&format!(" onScroll={{{}}}", source_text(source, value)));
+        }
+        if let Some(value) = node.props.scroll_event_throttle {
+            attrs.push_str(&format!(" scrollEventThrottle={{{}}}", source_text(source, value)));
+        }
+    }
     if node.primitive == Primitive::Image {
         if let Some(label) = node.props.accessibility_label {
             attrs.push_str(&format!(" alt={{{}}}", source_text(source, label)));
@@ -401,10 +479,9 @@ fn render_node(
 
     // Everything Dowel doesn't model, re-emitted verbatim and last so JSX's
     // last-wins duplicate resolution keeps matching the source's own
-    // ordering semantics. Emitted as written, including RN-specific props
-    // (`testID`) that React DOM will warn about as unknown on Web -- a
-    // visible warning beats silently dropping what the author wrote;
-    // mapping those to Web equivalents is a separate piece of work.
+    // ordering semantics. Known cross-platform props were consumed above;
+    // an unknown RN-specific prop is still carried as written, because a
+    // visible React warning is safer than silently deleting app behavior.
     for prop in &node.props.passthrough {
         attrs.push(' ');
         attrs.push_str(&render_verbatim(
@@ -754,6 +831,52 @@ export function Login() {
     }
 
     #[test]
+    fn universal_native_props_lower_to_dom_identity_pointer_and_aria() {
+        let source = r#"
+            import { View } from '@dowel/core'
+            const el = <View testID="card" nativeID="result-card" pointerEvents="box-none"
+              accessibilityState={{ disabled, selected: true, busy }}
+              accessibilityValue={{ min: 0, max: 10, now: progress, text: label }}
+              accessibilityLiveRegion="polite" />
+        "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+        assert!(output.jsx.starts_with("<div className=\"dowel-view\""), "{}", output.jsx);
+        assert!(output.jsx.contains("data-testid={\"card\"}"), "{}", output.jsx);
+        assert!(output.jsx.contains("id={\"result-card\"}"), "{}", output.jsx);
+        assert!(output.jsx.contains("data-dowel-pointer-events={\"box-none\"}"), "{}", output.jsx);
+        assert!(output.jsx.contains("aria-disabled={({ disabled, selected: true, busy }).disabled}"), "{}", output.jsx);
+        assert!(output.jsx.contains("aria-valuenow={({ min: 0, max: 10, now: progress, text: label }).now}"), "{}", output.jsx);
+        assert!(output.jsx.contains("aria-live={\"polite\" === 'none' ? undefined : \"polite\"}"), "{}", output.jsx);
+        assert!(output.css.contains("[data-dowel-pointer-events='box-none'] > *"), "{}", output.css);
+    }
+
+    #[test]
+    fn on_layout_selects_the_core_adapter_only_for_the_measured_node() {
+        let source = r#"
+            import { View, Text } from '@dowel/core'
+            const el = <View onLayout={measure} testID="measured"><Text>child</Text></View>
+        "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+        assert!(output.jsx.starts_with("<View className=\"dowel-view\""), "{}", output.jsx);
+        assert!(output.jsx.contains("testID={\"measured\"} onLayout={measure}"), "{}", output.jsx);
+        assert!(output.jsx.contains("<span>child</span>"), "{}", output.jsx);
+    }
+
+    #[test]
+    fn scroll_events_select_the_bridge_and_keep_the_native_contract() {
+        let source = r#"
+            import { ScrollView, Text } from '@dowel/core'
+            const el = <ScrollView onScroll={remember} scrollEventThrottle={16}><Text>row</Text></ScrollView>
+        "#;
+        let parsed = dowel_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+        assert!(output.jsx.starts_with("<ScrollView className=\"dowel-scroll-view\""), "{}", output.jsx);
+        assert!(output.jsx.contains("onScroll={remember} scrollEventThrottle={16}"), "{}", output.jsx);
+    }
+
+    #[test]
     fn only_the_unresolvable_leaf_falls_back() {
         // proposal §7's three tiers in one className: a literal compiles
         // away, a guarded literal becomes a conditional rule, and only the
@@ -986,7 +1109,8 @@ export function Login() {
         let output = lower(&parsed.roots[0].node, source, &Theme::default());
         assert!(output.jsx.contains("{...rest}"));
         assert!(output.jsx.contains("onLayout={onLayout}"));
-        assert!(output.jsx.contains(r#"testID="row""#));
+        assert!(output.jsx.starts_with("<View "), "{}", output.jsx);
+        assert!(output.jsx.contains(r#"testID={"row"}"#));
     }
 
     #[test]

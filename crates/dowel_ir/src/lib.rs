@@ -264,6 +264,17 @@ pub struct PassthroughProp {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PropSet {
     pub on_press: Option<ExprRef>,
+    /// Cross-platform identity and interaction props whose spellings or
+    /// event shapes differ between React Native and the DOM.
+    pub test_id: Option<ExprRef>,
+    pub native_id: Option<ExprRef>,
+    pub pointer_events: Option<ExprRef>,
+    pub accessibility_state: Option<ExprRef>,
+    pub accessibility_value: Option<ExprRef>,
+    pub accessibility_live_region: Option<ExprRef>,
+    pub on_layout: Option<ExprRef>,
+    pub on_scroll: Option<ExprRef>,
+    pub scroll_event_throttle: Option<ExprRef>,
     pub disabled: Option<ConditionExpr>,
     /// Explicit override; `None` means derive the role from `Primitive`
     /// (e.g. `Button` -> `AccessibilityRole::Button`).

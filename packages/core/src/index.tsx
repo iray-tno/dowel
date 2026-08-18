@@ -5,27 +5,126 @@
 // job is to make invoking these at runtime unnecessary where it can, not
 // to make them required.
 
-import { useEffect, useRef, type MouseEventHandler, type ReactNode } from 'react'
+import { useEffect, useRef, type MouseEventHandler, type ReactNode, type UIEventHandler } from 'react'
 
-export interface ViewProps {
+export interface DowelLayoutRectangle {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export interface DowelLayoutEvent {
+  nativeEvent: { layout: DowelLayoutRectangle }
+}
+
+export interface UniversalProps {
+  testID?: string
+  nativeID?: string
+  pointerEvents?: 'auto' | 'none' | 'box-none' | 'box-only'
+  accessibilityState?: {
+    disabled?: boolean
+    selected?: boolean
+    checked?: boolean | 'mixed'
+    busy?: boolean
+    expanded?: boolean
+  }
+  accessibilityValue?: { min?: number; max?: number; now?: number; text?: string }
+  accessibilityLiveRegion?: 'none' | 'polite' | 'assertive'
+  onLayout?: (event: DowelLayoutEvent) => void
+}
+
+function universalDomProps(props: UniversalProps) {
+  const state = props.accessibilityState
+  const value = props.accessibilityValue
+  return {
+    'data-testid': props.testID,
+    id: props.nativeID,
+    'data-dowel-pointer-events': props.pointerEvents,
+    'aria-disabled': state?.disabled,
+    'aria-selected': state?.selected,
+    'aria-checked': state?.checked,
+    'aria-busy': state?.busy,
+    'aria-expanded': state?.expanded,
+    'aria-valuemin': value?.min,
+    'aria-valuemax': value?.max,
+    'aria-valuenow': value?.now,
+    'aria-valuetext': value?.text,
+    'aria-live': props.accessibilityLiveRegion === 'none' ? undefined : props.accessibilityLiveRegion,
+  } as const
+}
+
+function useLayoutRef<T extends HTMLElement>(onLayout?: (event: DowelLayoutEvent) => void) {
+  const elementRef = useRef<T>(null)
+  const callbackRef = useRef(onLayout)
+  callbackRef.current = onLayout
+
+  useEffect(() => {
+    const element = elementRef.current
+    if (!element || !callbackRef.current) return
+
+    let previous = ''
+    const emit = () => {
+      const rect = element.getBoundingClientRect()
+      const layout = { x: element.offsetLeft, y: element.offsetTop, width: rect.width, height: rect.height }
+      const key = `${layout.x}:${layout.y}:${layout.width}:${layout.height}`
+      if (key === previous) return
+      previous = key
+      callbackRef.current?.({ nativeEvent: { layout } })
+    }
+
+    emit()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(emit)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [Boolean(onLayout)])
+
+  return elementRef
+}
+
+function useScrollHandler<T extends HTMLElement>(
+  onScroll?: (event: DowelScrollEvent) => void,
+  scrollEventThrottle = 0,
+): UIEventHandler<T> | undefined {
+  const lastEmission = useRef(0)
+  if (!onScroll) return undefined
+  return (event) => {
+    const now = Date.now()
+    if (scrollEventThrottle > 0 && now - lastEmission.current < scrollEventThrottle) return
+    lastEmission.current = now
+    const target = event.currentTarget
+    onScroll({
+      nativeEvent: {
+        contentOffset: { x: target.scrollLeft, y: target.scrollTop },
+        contentSize: { width: target.scrollWidth, height: target.scrollHeight },
+        layoutMeasurement: { width: target.clientWidth, height: target.clientHeight },
+      },
+    })
+  }
+}
+
+export interface ViewProps extends UniversalProps {
   className?: string
   children?: ReactNode
 }
 
-export function View({ className, children }: ViewProps) {
-  return <div className={className}>{children}</div>
+export function View({ className, children, onLayout, ...universal }: ViewProps) {
+  const ref = useLayoutRef<HTMLDivElement>(onLayout)
+  return <div ref={ref} className={className} {...universalDomProps(universal)}>{children}</div>
 }
 
-export interface TextProps {
+export interface TextProps extends UniversalProps {
   className?: string
   children?: ReactNode
 }
 
-export function Text({ className, children }: TextProps) {
-  return <span className={className}>{children}</span>
+export function Text({ className, children, onLayout, ...universal }: TextProps) {
+  const ref = useLayoutRef<HTMLSpanElement>(onLayout)
+  return <span ref={ref} className={className} {...universalDomProps(universal)}>{children}</span>
 }
 
-export interface ImageProps {
+export interface ImageProps extends UniversalProps {
   className?: string
   /** URL on Web; URL or Metro's numeric local-asset id on Native. */
   src: string | number
@@ -36,14 +135,15 @@ export interface ImageProps {
   onError?: (event: unknown) => void
 }
 
-export function Image({ className, src, alt, accessibilityLabel, onLoad, onError }: ImageProps) {
+export function Image({ className, src, alt, accessibilityLabel, onLoad, onError, onLayout, ...universal }: ImageProps) {
+  const ref = useLayoutRef<HTMLImageElement>(onLayout)
   // A numeric id is meaningful only after Native compilation. Keeping it
   // out of the DOM fallback avoids React serializing a bogus URL.
   const webSrc = typeof src === 'string' ? src : undefined
-  return <img className={className} src={webSrc} alt={alt ?? accessibilityLabel ?? ''} onLoad={onLoad} onError={onError} />
+  return <img ref={ref} className={className} src={webSrc} alt={alt ?? accessibilityLabel ?? ''} onLoad={onLoad} onError={onError} {...universalDomProps(universal)} />
 }
 
-export interface ScrollViewProps {
+export interface ScrollViewProps extends UniversalProps {
   className?: string
   children?: ReactNode
   horizontal?: boolean
@@ -54,6 +154,16 @@ export interface ScrollViewProps {
   showsHorizontalScrollIndicator?: boolean
   accessibilityLabel?: string
   accessibilityHint?: string
+  onScroll?: (event: DowelScrollEvent) => void
+  scrollEventThrottle?: number
+}
+
+export interface DowelScrollEvent {
+  nativeEvent: {
+    contentOffset: { x: number; y: number }
+    contentSize: { width: number; height: number }
+    layoutMeasurement: { width: number; height: number }
+  }
 }
 
 export function ScrollView({
@@ -67,14 +177,23 @@ export function ScrollView({
   showsHorizontalScrollIndicator = true,
   accessibilityLabel,
   accessibilityHint,
+  onScroll,
+  scrollEventThrottle,
+  onLayout,
+  ...universal
 }: ScrollViewProps) {
+  const containerRef = useLayoutRef<HTMLDivElement>(onLayout)
+  const handleScroll = useScrollHandler<HTMLDivElement>(onScroll, scrollEventThrottle)
   const showIndicator = horizontal ? showsHorizontalScrollIndicator : showsVerticalScrollIndicator
   return (
     <div
+      ref={containerRef}
       className={className}
       aria-label={accessibilityLabel}
       aria-description={accessibilityHint}
       aria-busy={refreshing || undefined}
+      onScroll={handleScroll}
+      {...universalDomProps(universal)}
       style={horizontal
         ? { overflowX: 'auto', overflowY: 'hidden', scrollbarWidth: showIndicator ? 'auto' : 'none' }
         : { overflowX: 'hidden', overflowY: 'auto', scrollbarWidth: showIndicator ? 'auto' : 'none' }}
@@ -94,7 +213,7 @@ export interface FlatListRenderInfo<T> {
   index: number
 }
 
-export interface FlatListProps<T> {
+export interface FlatListProps<T> extends UniversalProps {
   className?: string
   data: readonly T[]
   renderItem: (info: FlatListRenderInfo<T>) => ReactNode
@@ -113,6 +232,8 @@ export interface FlatListProps<T> {
   keyboardShouldPersistTaps?: 'always' | 'never' | 'handled'
   showsVerticalScrollIndicator?: boolean
   showsHorizontalScrollIndicator?: boolean
+  onScroll?: (event: DowelScrollEvent) => void
+  scrollEventThrottle?: number
 }
 
 /** Web fallback; Native compilation replaces this with the virtualized RN FlatList. */
@@ -135,9 +256,14 @@ export function FlatList<T>({
   keyboardShouldPersistTaps: _keyboardShouldPersistTaps,
   showsVerticalScrollIndicator = true,
   showsHorizontalScrollIndicator = true,
+  onScroll,
+  scrollEventThrottle,
+  onLayout,
+  ...universal
 }: FlatListProps<T>) {
-  const containerRef = useRef<HTMLDivElement>(null)
+  const containerRef = useLayoutRef<HTMLDivElement>(onLayout)
   const endRef = useRef<HTMLDivElement>(null)
+  const handleScroll = useScrollHandler<HTMLDivElement>(onScroll, scrollEventThrottle)
   const showIndicator = horizontal ? showsHorizontalScrollIndicator : showsVerticalScrollIndicator
 
   useEffect(() => {
@@ -166,6 +292,8 @@ export function FlatList<T>({
       aria-label={accessibilityLabel}
       aria-description={accessibilityHint}
       aria-busy={refreshing || undefined}
+      onScroll={handleScroll}
+      {...universalDomProps(universal)}
       style={horizontal
         ? { overflowX: 'auto', overflowY: 'hidden', scrollbarWidth: showIndicator ? 'auto' : 'none' }
         : { overflowX: 'hidden', overflowY: 'auto', scrollbarWidth: showIndicator ? 'auto' : 'none' }}

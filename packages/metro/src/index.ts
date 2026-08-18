@@ -13,6 +13,7 @@
 
 import { createRequire } from 'node:module'
 import path from 'node:path'
+import { readMetroState } from './config.ts'
 import { transformHozoSource } from './transform.ts'
 import { readProjectTheme } from './theme.ts'
 
@@ -56,7 +57,9 @@ function loadUpstream(projectRoot?: string): UpstreamTransformer {
   if (upstream) {
     return upstream
   }
-  const configured = process.env.HOZO_UPSTREAM_TRANSFORMER
+  const configured =
+    (projectRoot ? readMetroState(projectRoot)?.upstreamTransformer : undefined) ??
+    process.env.HOZO_UPSTREAM_TRANSFORMER
   const candidates = configured ? [configured] : UPSTREAM_CANDIDATES
   // Resolved from the *project*, not from this package. The upstream
   // transformer is the consuming app's dependency, and under pnpm's strict
@@ -98,3 +101,4 @@ export async function transform(params: TransformParams): Promise<unknown> {
 
 export { transformHozoSource } from './transform.ts'
 export { generateCandidateModule, candidateModulePath } from './project.ts'
+export { withHozo, type HozoMetroOptions } from './config.ts'

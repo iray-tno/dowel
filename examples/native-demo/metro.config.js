@@ -9,7 +9,7 @@
 
 const path = require('node:path')
 const { getDefaultConfig } = require('@react-native/metro-config')
-const { generateCandidateModule } = require('@hozo/metro/project')
+const { withHozo } = require('@hozo/metro/config')
 
 const projectRoot = __dirname
 const workspaceRoot = path.resolve(projectRoot, '..', '..')
@@ -17,8 +17,6 @@ const workspaceRoot = path.resolve(projectRoot, '..', '..')
 
 
 const config = getDefaultConfig(projectRoot)
-
-config.transformer.babelTransformerPath = require.resolve('@hozo/metro')
 
 // A pnpm workspace keeps dependencies outside the project directory, so
 // Metro has to be told to look there. Nothing Hozo-specific -- every
@@ -29,8 +27,8 @@ config.resolver.nodeModulesPaths = [
   path.resolve(workspaceRoot, 'node_modules'),
 ]
 
-// Exported as a promise, which Metro awaits: the candidate module is
-// generated from the project's theme, and reading that means asking
-// Tailwind, which is async. Generating it against the defaults instead
-// would give one utility two different answers inside one bundle.
-module.exports = generateCandidateModule(projectRoot, { css: 'global.css' }).then(() => config)
+// Exported as a promise, which Metro awaits. withHozo generates the
+// candidate module, preserves the rest of this config, and installs its
+// transformer while retaining any transformer already configured by RN,
+// Expo, or another tool as the upstream handoff.
+module.exports = withHozo(config, { projectRoot, css: 'global.css' })

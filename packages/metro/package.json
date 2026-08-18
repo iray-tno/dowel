@@ -19,6 +19,7 @@
   },
   "exports": {
     ".": "./src/index.ts",
+    "./config": "./src/config.ts",
     "./project": "./src/project.ts"
   },
   "peerDependenciesMeta": {

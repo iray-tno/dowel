@@ -2,7 +2,7 @@
 
 Metro integration for Hozo's React Native backend. Lowers `View`/`Text`/`Pressable`/`Button` from `@hozo/core` into real React Native primitives plus a `StyleSheet.create({...})`, rewriting each component in place.
 
-> Not yet verified against a running Metro/Expo build — no device or simulator was available while it was written. The source-rewrite logic (`transformHozoSource`) is unit-tested; the Metro API surface on top of it is not.
+The integration is exercised by development and minified production Metro bundles. Physical-device validation is still pending.
 
 ## Setup
 
@@ -10,23 +10,20 @@ Metro integration for Hozo's React Native backend. Lowers `View`/`Text`/`Pressab
 
 ```js
 const { getDefaultConfig } = require('expo/metro-config') // or '@react-native/metro-config'
-const { generateCandidateModule } = require('@hozo/metro')
+const { withHozo } = require('@hozo/metro/config')
 
 const projectRoot = __dirname
-generateCandidateModule(projectRoot)
-
 const config = getDefaultConfig(projectRoot)
-config.transformer.babelTransformerPath = require.resolve('@hozo/metro')
-module.exports = config
+module.exports = withHozo(config, { projectRoot })
 ```
 
-Both lines are needed. The transformer alone handles every `className` the compiler can read; `generateCandidateModule` covers the ones it can't.
+Metro accepts a promised config, so `withHozo` can resolve the Tailwind theme and generate the dynamic candidate module before bundling begins. It preserves the supplied config and records an existing Babel transformer as its upstream, including Expo's or another tool's transformer.
 
-## What `generateCandidateModule` is for
+## What the generated candidate module is for
 
 A `className` Hozo can't read statically — `<View className={getVariant()} />` — still has to produce styles. On Web that's free: the class string reaches the DOM and the browser matches it against a generated stylesheet. React Native has no CSS engine, so the string has to be resolved on device.
 
-`generateCandidateModule` scans the project for class-shaped strings and writes `node_modules/.hozo/candidates.native.js`: a class-name → style-object map plus a resolver bound to it (from `@hozo/runtime`). Files with an unreadable `className` import it; files without one don't.
+`withHozo` scans the project for class-shaped strings and writes `node_modules/.hozo/candidates.native.js`: a class-name → style-object map plus a resolver bound to it (from `@hozo/runtime`). Files with an unreadable `className` import it; files without one don't. The lower-level `generateCandidateModule` API remains available from `@hozo/metro/project`.
 
 It runs at config load rather than inside the transformer because Metro transforms in `jest-worker` subprocesses. Scanning there would mean several processes writing one cache file; the config layer is ordinary main-process code, so there's exactly one writer.
 

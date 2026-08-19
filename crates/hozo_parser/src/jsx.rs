@@ -216,6 +216,13 @@ fn passthrough_prop(
     PassthroughProp {
         span: to_expr_ref(attr.span()),
         is_spread: false,
+        // A namespaced name (`xlink:href`) is not something Hozo emits a
+        // semantic counterpart for, so leaving it `None` costs nothing and
+        // avoids inventing a spelling for it.
+        name: match &attr.name {
+            JSXAttributeName::Identifier(name) => Some(name.name.to_string()),
+            JSXAttributeName::NamespacedName(_) => None,
+        },
         nested: finder.nested,
     }
 }
@@ -302,7 +309,12 @@ fn build_node(
                 }
                 props
                     .passthrough
-                    .push(PassthroughProp { span: to_expr_ref(spread.span()), is_spread: true, nested: Vec::new() });
+                    .push(PassthroughProp {
+                        span: to_expr_ref(spread.span()),
+                        is_spread: true,
+                        name: None,
+                        nested: Vec::new(),
+                    });
                 continue;
             }
         };

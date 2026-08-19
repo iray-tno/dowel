@@ -713,7 +713,29 @@ fn render_node(
     if needs_focus_visible {
         props_text.push_str(" hozoFocusVisible");
     }
+    // Skipping the ones the author already wrote.
+    //
+    // These are re-emitted verbatim further down, after everything here,
+    // so JSX's last-wins resolution already meant the author's value was
+    // the one that applied -- emitting both was noise rather than a wrong
+    // answer. It only started happening when the integrations stopped
+    // requiring a rewrite to `@hozo/core`: a React Native file that sets
+    // `accessibilityRole="list"` on its own `<FlatList>` is ordinary, and
+    // Hozo adds the same role to every one.
+    //
+    // A `{...spread}` keeps the semantic prop, because its contents are
+    // not knowable here -- and if it does carry the prop it still lands
+    // last and still wins.
+    let authored: Vec<&str> = node
+        .props
+        .passthrough
+        .iter()
+        .filter_map(|prop| prop.name.as_deref())
+        .collect();
     for (key, value) in &extra_props {
+        if authored.contains(key) {
+            continue;
+        }
         props_text.push_str(&format!(r#" {key}="{value}""#));
     }
     for (name, value) in [
@@ -3395,6 +3417,52 @@ export function Login() {
             .diagnostics
             .iter()
             .any(|d| d.code == hozo_ir::DiagnosticCode::NotWiredOnNative));
+    }
+
+    #[test]
+    fn a_semantic_prop_the_author_already_wrote_is_not_emitted_twice() {
+        // Ordinary in a React Native file, and unreachable while the
+        // integrations required a rewrite to `@hozo/core`: the author sets
+        // the role their own `<FlatList>` needs, and Hozo adds the same
+        // one to every FlatList it lowers.
+        let source = "import { FlatList } from 'react-native'
+export const C = () => <FlatList accessibilityRole=\"list\" data={[]} renderItem={() => null} />
+";
+        let parsed = hozo_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+        assert_eq!(
+            output.jsx.matches("accessibilityRole").count(),
+            1,
+            "{}",
+            output.jsx
+        );
+    }
+
+    #[test]
+    fn the_authors_value_is_the_one_that_survives() {
+        // Dropping ours rather than theirs. JSX resolves duplicates
+        // last-wins and passthrough props are emitted last, so this was
+        // already the effective answer -- now it is also the written one.
+        let source = "import { List } from '@hozo/core'
+export const C = () => <List accessibilityRole=\"menu\">x</List>
+";
+        let parsed = hozo_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+        assert!(output.jsx.contains(r#"accessibilityRole="menu""#), "{}", output.jsx);
+        assert!(!output.jsx.contains(r#"accessibilityRole="list""#), "{}", output.jsx);
+    }
+
+    #[test]
+    fn a_spread_does_not_suppress_the_semantic_prop() {
+        // Its contents are not knowable here, and it lands after ours --
+        // so if it does carry the prop it still wins, and if it doesn't
+        // the element still has its role.
+        let source = "import { List } from '@hozo/core'
+export const C = (p) => <List {...p}>x</List>
+";
+        let parsed = hozo_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+        assert!(output.jsx.contains(r#"accessibilityRole="list""#), "{}", output.jsx);
     }
 
     #[test]

@@ -274,6 +274,17 @@ impl Child {
 #[derive(Debug, Clone, PartialEq)]
 pub struct PassthroughProp {
     pub span: ExprRef,
+    /// The attribute's name, or `None` for a `{...spread}` whose contents
+    /// are not knowable at compile time.
+    ///
+    /// Carried so a backend can tell whether the author already wrote a
+    /// prop it was about to add. The Native backend emits semantic props
+    /// like `accessibilityRole="list"` and re-emits passthrough ones after
+    /// them, so a React Native file that already set the role got it
+    /// twice: harmless, since JSX resolves duplicates last-wins and the
+    /// author's is last, but wrong to read and noise in any snapshot of
+    /// the output.
+    pub name: Option<String>,
     /// True for `{...expr}`. Tracked separately because a spread's
     /// *position* matters: JSX resolves duplicate props last-wins, so a
     /// spread after Hozo's compiled className can silently override it at

@@ -40,3 +40,35 @@ test('carries what a role needs to mean anything', () => {
   // named as the mistake it is rather than reported as unknown.
   assert.match(table, /name: "widget", is_abstract: true/)
 })
+
+test('every requirement the table carries is one the checker reads', () => {
+  // The coverage claim, stated as a measurement rather than a promise.
+  //
+  // There is no per-role code in `aria_check.rs` -- it reads
+  // `required_props`, `required_context` and `required_owned` for whatever
+  // role it finds, so coverage is structural: every role with a
+  // requirement is checked, and a role gains checks the moment the
+  // specification gives it one and the table is regenerated.
+  const table = readFileSync(generated, 'utf8')
+  const rows = [...table.matchAll(/AriaRole \{ name: "([^"]+)", is_abstract: (\w+), required_props: &\[([^\]]*)\], required_context: &\[([^\]]*)\], required_owned: &\[([^\]]*)\]/g)]
+  const usable = rows.filter(([, , isAbstract]) => isAbstract === 'false')
+  const withRequirement = usable.filter(([, , , props, context, owned]) => props || context || owned)
+
+  assert.ok(usable.length > 70, `expected the ARIA role list, got ${usable.length}`)
+  assert.ok(withRequirement.length > 10, `expected roles with requirements, got ${withRequirement.length}`)
+
+  // What the checker reads is exactly the three fields the generator
+  // writes. Anything ARIA says that is not in those fields -- prohibited
+  // properties, name-from-content, allowed values -- is outside this and
+  // stays outside until the table carries it.
+  const checker = readFileSync(
+    path.join(repoRoot, 'crates', 'hozo_parser', 'src', 'aria_check.rs'),
+    'utf8',
+  )
+  for (const field of ['required_props', 'required_context', 'required_owned']) {
+    assert.match(checker, new RegExp(`spec\.${field}`), `${field} is in the table and unread`)
+  }
+  console.log(
+    `        ARIA: ${usable.length} usable roles, ${withRequirement.length} carrying a requirement`,
+  )
+})

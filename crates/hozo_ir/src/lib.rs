@@ -58,6 +58,12 @@ pub enum DiagnosticCode {
     /// has no word for. Guessing the nearest one would announce something
     /// the author never wrote, so the attribute is dropped and named.
     RoleHasNoWebEquivalent,
+    /// An ARIA role written without what the specification says it needs.
+    ///
+    /// The failure this names is quiet in every way that usually catches a
+    /// defect: the element renders, nothing throws, and the page looks
+    /// finished. What is wrong is only audible.
+    AriaIncompletePattern,
     /// A `Dialog` that can't be dismissed (proposal §10.3).
     ///
     /// Escape on Web and the hardware back button on Android both arrive

@@ -31,4 +31,14 @@ config.resolver.nodeModulesPaths = [
 // candidate module, preserves the rest of this config, and installs its
 // transformer while retaining any transformer already configured by RN,
 // Expo, or another tool as the upstream handoff.
-module.exports = withHozo(config, { root: projectRoot, css: 'global.css' })
+// `sources` is narrowed to `@hozo/core` here, and this example is the one
+// place that should be. Hozo compiles `react-native` imports by default --
+// that is how an existing Expo app gets the compiler without a rewrite --
+// but `NativeBench.tsx` exists to be the hand-written React Native the
+// bundle benchmark measures Hozo *against*. Compiled, it stops being a
+// baseline, and the increment silently becomes Hozo-versus-Hozo.
+module.exports = withHozo(config, {
+  root: projectRoot,
+  css: 'global.css',
+  sources: ['@hozo/core'],
+})

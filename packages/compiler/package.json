@@ -10,7 +10,8 @@
     ".": "./src/index.ts",
     "./project": "./src/project.ts",
     "./lower": "./src/lower.ts",
-    "./diagnostics": "./src/diagnostics.ts"
+    "./diagnostics": "./src/diagnostics.ts",
+    "./sources": "./src/sources.ts"
   },
   "dependencies": {
     "globby": "^14.1.0"

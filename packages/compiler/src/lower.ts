@@ -15,6 +15,7 @@
 import path from 'node:path'
 
 import { compile, type CompileDiagnostic, type Theme } from './index.ts'
+import { DEFAULT_PRIMITIVE_SOURCES, decideSources, foreignSourceMessage } from './sources.ts'
 
 const HOZO_CORE_IMPORT_RE = /import\s*\{[^}]*\}\s*from\s*['"]@hozo\/core['"]\s*\n?/
 
@@ -108,6 +109,15 @@ export function sideEffectImport(specifier: string): string {
   return `import ${JSON.stringify(specifier)}\n`
 }
 
+export interface LowerOptions {
+  /**
+   * Modules whose primitives may be lowered. Defaults to
+   * `DEFAULT_PRIMITIVE_SOURCES`, which includes `react-native` -- see
+   * `./sources.ts` for why the gate is not a substring test.
+   */
+  sources?: readonly string[]
+}
+
 export interface LoweredModule {
   /** The source with every compiled component spliced back in. */
   code: string
@@ -118,6 +128,14 @@ export interface LoweredModule {
   /** Its absolute path, next to the source file. */
   cssPath: string
   diagnostics: CompileDiagnostic[]
+  /**
+   * Whether anything was actually lowered.
+   *
+   * `false` carries diagnostics and the untouched source: the file has
+   * primitives Hozo declined, and the caller should report why rather than
+   * splice a stylesheet import into a module with no stylesheet.
+   */
+  lowered: boolean
 }
 
 /**
@@ -132,8 +150,35 @@ export function lowerModule(
   id: string,
   file: string,
   theme: Theme | undefined,
+  options: LowerOptions = {},
 ): LoweredModule | undefined {
-  if (!file.endsWith('.tsx') || !code.includes('@hozo/core')) return undefined
+  if (!file.endsWith('.tsx')) return undefined
+
+  const allowed = options.sources ?? DEFAULT_PRIMITIVE_SOURCES
+  // A cheap reject before parsing: a file mentioning none of the trusted
+  // modules has nothing this can lower, and most of a project's files are
+  // that. The real decision needs the AST and comes next.
+  if (!allowed.some((module) => code.includes(module))) return undefined
+
+  const decision = decideSources(code, allowed)
+  if (!decision.compilable) {
+    return {
+      code,
+      css: '',
+      cssFileName: '',
+      cssPath: '',
+      diagnostics: [
+        {
+          code: 'PRIMITIVE_FROM_UNKNOWN_MODULE',
+          severity: 'warning',
+          message: foreignSourceMessage(file, decision.foreign, allowed),
+          spanStart: 0,
+          spanEnd: 0,
+        },
+      ],
+      lowered: false,
+    }
+  }
 
   const components = compile(code, theme)
   if (components.length === 0) return undefined
@@ -171,5 +216,6 @@ export function lowerModule(
     cssFileName,
     cssPath: path.join(path.dirname(file), cssFileName),
     diagnostics: components.flatMap((component) => component.diagnostics),
+    lowered: true,
   }
 }

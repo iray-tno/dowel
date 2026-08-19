@@ -38,7 +38,7 @@ expect(/smoke-row-/.test(bundle), 'the virtualized renderItem fixture is bundled
 expect(app.includes('placeholderTextColor'), 'placeholder-* became a TextInput prop')
 expect(app.includes('accessibilityLabel'), 'the accessible name reached the field')
 expect(!/className/.test(app), 'no className is left in the compiled output')
-expect(/style: styles\./.test(app), 'elements reference the generated StyleSheet')
+expect(/style: hozoStyles\./.test(app), 'elements reference the generated StyleSheet')
 
 // Text styles set on the View were carried down rather than left behind.
 expect(/fontSize:/.test(bundle), 'text styles reached the StyleSheet')

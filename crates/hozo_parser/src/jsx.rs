@@ -150,6 +150,11 @@ fn clean_jsx_text(raw: &str) -> String {
     out
 }
 
+/// Whether a name is one the compiler lowers when it appears as a tag.
+pub fn is_primitive_name(name: &str) -> bool {
+    primitive_name(name).is_some()
+}
+
 fn primitive_name(name: &str) -> Option<&'static str> {
     match name {
         "View" => Some("View"),

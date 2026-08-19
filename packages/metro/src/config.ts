@@ -22,9 +22,18 @@ interface MetroConfigShape {
   [key: string]: unknown
 }
 
+/**
+ * What the config layer has to tell the transformer.
+ *
+ * They are separate processes -- Metro transforms in `jest-worker`
+ * subprocesses -- and the only thing they reliably share is the project
+ * root, so anything configured in `metro.config.js` reaches the transform
+ * through this file.
+ */
 export interface HozoMetroState {
   upstreamTransformer?: string
   css?: string
+  sources?: readonly string[]
 }
 
 export const METRO_STATE_FILE = 'metro.json'
@@ -71,7 +80,11 @@ export async function withHozo<T extends MetroConfigShape>(
   })
   writeFileIfChanged(
     metroStatePath(projectRoot),
-    `${JSON.stringify({ upstreamTransformer, css: options.css } satisfies HozoMetroState, null, 2)}\n`,
+    `${JSON.stringify(
+      { upstreamTransformer, css: options.css, sources: options.sources } satisfies HozoMetroState,
+      null,
+      2,
+    )}\n`,
   )
 
   return {

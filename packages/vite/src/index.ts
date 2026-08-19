@@ -132,7 +132,7 @@ export function hozo(options: HozoOptions = {}): Plugin {
       }
 
       if (!file) return
-      const lowered = lowerModule(code, id, file, theme)
+      const lowered = lowerModule(code, id, file, theme, { sources: options.sources })
       if (!lowered) return
 
       // Shared with Metro and Next, which is new: this warned on
@@ -141,6 +141,10 @@ export function hozo(options: HozoOptions = {}): Plugin {
       // can emit today comes from the Native backend, so this had simply
       // never been handed one.
       reportDiagnostics(lowered.diagnostics, file, (message) => this.warn(message))
+      // Declined rather than compiled: the file keeps its own primitives
+      // and must not gain an import for a stylesheet that was never
+      // written.
+      if (!lowered.lowered) return
 
       let next = lowered.code
       writeFileIfChanged(lowered.cssPath, lowered.css)

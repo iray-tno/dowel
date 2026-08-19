@@ -298,3 +298,35 @@ fn to_theme(theme: Option<JsTheme>) -> hozo_ir::Theme {
         spacing_px,
     )
 }
+
+/// One imported binding whose local name is a Hozo primitive tag.
+#[napi(object)]
+pub struct PrimitiveImport {
+    pub local: String,
+    pub module: String,
+}
+
+/// Where a file's primitive-named bindings come from.
+///
+/// The compiler matches on the JSX tag name and never asks where the name
+/// came from, which is what lets a plain React Native file compile without
+/// changing a line of it -- and equally what would let a `<View>` from
+/// some other component library be lowered to a `<div>`. The integration
+/// decides which modules it trusts; this is what it decides with.
+#[napi]
+pub fn primitive_imports(source: String) -> Vec<PrimitiveImport> {
+    hozo_parser::primitive_imports(&source)
+        .into_iter()
+        .map(|entry| PrimitiveImport { local: entry.local, module: entry.module })
+        .collect()
+}
+
+/// Every binding a source file imports from one module, by local name.
+///
+/// The Native backend prepends `import { View, StyleSheet } from
+/// 'react-native'`, and a React Native file already has its own -- so it
+/// needs to know which names are taken before adding to them.
+#[napi]
+pub fn module_imports(source: String, module: String) -> Vec<String> {
+    hozo_parser::module_imports(&source, &module)
+}

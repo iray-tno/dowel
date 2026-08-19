@@ -11,11 +11,12 @@
 //   stripped @hozo/core import must be replaced with one from
 //   'react-native', not just deleted.
 // - Styles aren't a separate CSS file/import -- they're inlined as a
-//   `const styles = StyleSheet.create({...})` declaration in the same
+//   `const hozoStyles = StyleSheet.create({...})` declaration in the same
 //   file, since that's the idiomatic RN pattern.
 
-import { compileNative, type CompiledNativeComponent, type Theme } from '@hozo/compiler'
+import { compileNative, moduleImports, type CompiledNativeComponent, type Theme } from '@hozo/compiler'
 import { reportDiagnostics } from '@hozo/compiler/diagnostics'
+import { DEFAULT_PRIMITIVE_SOURCES, decideSources, foreignSourceMessage } from '@hozo/compiler/sources'
 import { importSpecifier } from '@hozo/compiler/project'
 import { candidateModulePath } from './project.ts'
 
@@ -51,15 +52,33 @@ function mergeStyleObjects(blocks: string[]): string {
 
 /**
  * Returns the rewritten source, or `null` if there's nothing for Hozo to
- * do (not a `.tsx` file, or no `@hozo/core` usage found).
+ * do: not a `.tsx` file, no primitives from a module the project trusts,
+ * or primitives from one it doesn't.
  */
 export function transformHozoSource(
   code: string,
   filename: string,
   projectRoot?: string,
   theme?: Theme,
+  sources: readonly string[] = DEFAULT_PRIMITIVE_SOURCES,
 ): string | null {
-  if (!filename.endsWith('.tsx') || !code.includes('@hozo/core')) {
+  if (!filename.endsWith('.tsx')) {
+    return null
+  }
+  // A cheap reject before parsing; the real decision needs the AST.
+  if (!sources.some((module) => code.includes(module))) {
+    return null
+  }
+  // This was `code.includes('@hozo/core')`, which skipped every Expo and
+  // React Native project on the grounds that it had not been rewritten --
+  // while the compiler underneath had always handled `react-native`
+  // imports and produced identical output for them. See
+  // `@hozo/compiler/sources` for why the gate has to know the module and
+  // not just the tag.
+  const decision = decideSources(code, sources)
+  if (!decision.compilable) {
+    // eslint-disable-next-line no-console
+    console.warn(`[hozo] PRIMITIVE_FROM_UNKNOWN_MODULE: ${foreignSourceMessage(filename, decision.foreign, sources)}`)
     return null
   }
 
@@ -175,9 +194,21 @@ export function transformHozoSource(
 
   next = next.replace(HOZO_CORE_IMPORT_RE, '')
 
-  const rnImports = [...usedTags, 'StyleSheet'].join(', ')
+  // Only the bindings the file does not already have.
+  //
+  // The prepended import was unconditional while the only accepted source
+  // was `@hozo/core`, whose import this strips -- so nothing could collide
+  // with it. A React Native file imports its `View` from `react-native`
+  // itself, that import is not stripped (it may also carry `Animated`,
+  // `Platform`, things Hozo knows nothing about), and re-declaring `View`
+  // beside it is a SyntaxError: `Identifier 'View' has already been
+  // declared`.
+  const alreadyImported = new Set(moduleImports(next, 'react-native'))
+  const needed = [...usedTags, 'StyleSheet'].filter((name) => !alreadyImported.has(name))
   const mergedStyles = mergeStyleObjects(styleBlocks)
-  next = `import { ${rnImports} } from 'react-native'\nconst styles = StyleSheet.create(${mergedStyles})\n${next}`
+  const rnImport =
+    needed.length > 0 ? `import { ${needed.join(', ')} } from 'react-native'\n` : ''
+  next = `${rnImport}const hozoStyles = StyleSheet.create(${mergedStyles})\n${next}`
   if (runtimeImports.size > 0) {
     next = `import { ${[...runtimeImports].join(', ')} } from '@hozo/runtime'\n${next}`
   }

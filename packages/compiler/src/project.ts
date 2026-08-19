@@ -67,6 +67,15 @@ export interface HozoProjectOptions {
    * the working directory Next evaluates its config in.
    */
   root?: string
+  /**
+   * Modules whose primitives Hozo may lower.
+   *
+   * Defaults to `@hozo/core` and `react-native`. A project that re-exports
+   * primitives through its own module adds it here; see
+   * `@hozo/compiler/sources` for what the list decides and why it is not a
+   * substring test.
+   */
+  sources?: readonly string[]
   /** Report project-scan work and timing through the bundler's logger. */
   debug?: boolean
 }

@@ -51,3 +51,43 @@ The hook has to be a statement. Inlining the call into the JSX (`style={[a, useH
 Error-severity diagnostics stop the build. The case that exists for is a Web-only utility (`block`, `grid`, `h-screen`) reaching the Native backend: there's no correct output, so continuing would ship a layout that looks right on Web and is silently wrong on device.
 
 Everything else is a warning printed during the build.
+
+## Existing React Native and Expo projects
+
+Hozo compiles a file whose primitives come from `react-native`, with no
+migration to `@hozo/core`:
+
+```tsx
+import { View, Text } from 'react-native'
+
+export function Card() {
+  return (
+    <View className="rounded-xl p-4">
+      <Text className="font-bold">Hello</Text>
+    </View>
+  )
+}
+```
+
+The compiler always handled this — it matches on the JSX tag name and never
+asks where the name came from, which is what proposal §2.1 promises. What
+did not was the gate in front of it: every integration tested
+`code.includes('@hozo/core')`, so an Expo project was skipped for not having
+been rewritten.
+
+Matching on the tag name is also why the gate cannot simply be widened. A
+`<View>` from a third-party component library has its own props and its own
+layout, and lowering it to a React Native `View` because the tag is spelled
+`View` would replace someone's component with a different one. So a file is
+compiled when *every* primitive-named binding in it comes from a module the
+project trusts:
+
+```js
+withHozo(config, { sources: ['@hozo/core', 'react-native', './src/ui'] })
+```
+
+The default is `['@hozo/core', 'react-native']`. A file importing only from
+modules outside that list is left alone silently — a project whose own
+components are named `View` is not doing anything wrong. A file mixing the
+two is left alone *with* a warning, because there its author has every
+reason to expect lowering.

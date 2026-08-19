@@ -63,13 +63,22 @@ export default function hozoLoader(source) {
           state.cache.persist()
         }
 
-        const lowered = lowerModule(source, this.resourcePath, file, theme)
+        const lowered = lowerModule(source, this.resourcePath, file, theme, {
+          sources: options.sources,
+        })
         if (!lowered) {
           callback(null, source)
           return
         }
         for (const diagnostic of lowered.diagnostics) {
           this.emitWarning(hozoWarning(diagnostic))
+        }
+        // Declined rather than compiled: the file keeps its own
+        // primitives and must not gain an import for a stylesheet that
+        // was never written.
+        if (!lowered.lowered) {
+          callback(null, source)
+          return
         }
         writeFileIfChanged(lowered.cssPath, lowered.css)
         // Both stylesheets are imported from the module itself rather than

@@ -51,14 +51,14 @@ test('maps the cross-platform PanResponder value to React Native', () => {
 test('injects a StyleSheet.create declaration and rewrites the JSX span', () => {
   const output = transformHozoSource(LOGIN_SOURCE, 'Login.tsx')
   assert.ok(output)
-  assert.match(output!, /const styles = StyleSheet\.create\(\{/)
-  assert.match(output!, /<View style=\{styles\.hozo_r0_0\}>/)
-  assert.match(output!, /<Text style=\{styles\.hozo_r0_1\}>Welcome<\/Text>/)
+  assert.match(output!, /const hozoStyles = StyleSheet\.create\(\{/)
+  assert.match(output!, /<View style=\{hozoStyles\.hozo_r0_0\}>/)
+  assert.match(output!, /<Text style=\{hozoStyles\.hozo_r0_1\}>Welcome<\/Text>/)
   // The Pressable's label is wrapped: React Native crashes on a raw
   // string inside anything but a Text.
   assert.match(
     output!,
-    /<Pressable style=\{styles\.hozo_r0_2\}[^>]*><Text>Continue<\/Text><\/Pressable>/,
+    /<Pressable style=\{hozoStyles\.hozo_r0_2\}[^>]*><Text>Continue<\/Text><\/Pressable>/,
   )
 })
 
@@ -71,7 +71,7 @@ export function Cover() {
   const output = transformHozoSource(source, 'Cover.tsx')
   assert.ok(output)
   assert.match(output!, /import \{[^}]*Image[^}]*\} from 'react-native'/)
-  assert.match(output!, /<Image style=\{styles\.hozo_r0_0\} accessibilityLabel=\{"Cover"\} source=\{\{ uri: "https:\/\/example\.com\/cover\.jpg" \}\} \/>/)
+  assert.match(output!, /<Image style=\{hozoStyles\.hozo_r0_0\} accessibilityLabel=\{"Cover"\} source=\{\{ uri: "https:\/\/example\.com\/cover\.jpg" \}\} \/>/)
   assert.ok(!output!.includes("from '@hozo/core'"))
 })
 
@@ -98,7 +98,7 @@ export function Rail() {
   const output = transformHozoSource(source, 'Rail.tsx')
   assert.ok(output)
   assert.match(output!, /import \{[^}]*ScrollView[^}]*\} from 'react-native'/)
-  assert.match(output!, /<ScrollView style=\{styles\.hozo_r0_0\} horizontal=\{true\}>/)
+  assert.match(output!, /<ScrollView style=\{hozoStyles\.hozo_r0_0\} horizontal=\{true\}>/)
   assert.ok(!output!.includes('HozoScrollView'))
 })
 
@@ -112,7 +112,7 @@ export function Rows() {
   assert.ok(output)
   assert.match(output!, /import \{[^}]*FlatList[^}]*\} from 'react-native'/)
   assert.match(output!, /import \{[^}]*Text[^}]*\} from 'react-native'/)
-  assert.match(output!, /renderItem=\{\(\{ item \}\) => <Text style=\{styles\.hozo_r0_1\}>\{item\}<\/Text>\}/)
+  assert.match(output!, /renderItem=\{\(\{ item \}\) => <Text style=\{hozoStyles\.hozo_r0_1\}>\{item\}<\/Text>\}/)
   assert.ok(!output!.includes("from '@hozo/core'"))
 })
 
@@ -203,7 +203,7 @@ export function Card() {
   // One declaration, though two elements guard on it -- a second `const`
   // would redeclare the binding and change the hook order.
   assert.equal(output!.match(/const __hozoDark =/g)?.length, 1)
-  assert.match(output!, /__hozoDark && styles\.hozo_r0_0_dark/)
+  assert.match(output!, /__hozoDark && hozoStyles\.hozo_r0_0_dark/)
 })
 
 test('refuses a hook where no statement can go', () => {
@@ -254,6 +254,72 @@ export function Results({ rows, loading, reload, loadMore }) {
   assert.match(output!, /refreshing=\{loading\} onRefresh=\{reload\}/)
   assert.match(output!, /data=\{rows\} numColumns=\{2\}/)
   assert.match(output!, /onEndReached=\{loadMore\} onEndReachedThreshold=\{0\.5\}/)
-  assert.match(output!, /ListEmptyComponent=\{<Text style=\{styles\.hozo_r0_1\}>Empty<\/Text>\}/)
-  assert.match(output!, /renderItem=\{\(\{ item \}\) => <Text style=\{styles\.hozo_r0_2\}>\{item\}<\/Text>\}/)
+  assert.match(output!, /ListEmptyComponent=\{<Text style=\{hozoStyles\.hozo_r0_1\}>Empty<\/Text>\}/)
+  assert.match(output!, /renderItem=\{\(\{ item \}\) => <Text style=\{hozoStyles\.hozo_r0_2\}>\{item\}<\/Text>\}/)
+})
+
+test('compiles a plain React Native file, which is what an Expo app is', () => {
+  // Proposal §2.1. The compiler always handled this; the gate in front of
+  // it was `code.includes('@hozo/core')`, which skipped every Expo and
+  // React Native project on the grounds that it had not been rewritten.
+  const output = transformHozoSource(
+    "import { View, Text } from 'react-native'\n" +
+      'export function Card() { return (<View className="rounded-xl p-4"><Text className="font-bold">Hi</Text></View>) }\n',
+    'Card.tsx',
+  )
+  assert.ok(output)
+  assert.match(output, /StyleSheet\.create/)
+  assert.match(output, /borderRadius: 12/)
+  assert.match(output, /style=\{hozoStyles\.hozo_r0_0\}/)
+  assert.ok(!output.includes('className='), 'the utility string should be gone')
+})
+
+test('adds only the react-native bindings the file does not already have', () => {
+  // Re-declaring a name the file already imports is a SyntaxError, not a
+  // duplicate: `Identifier 'View' has already been declared`. The
+  // prepended import was unconditional while `@hozo/core` was the only
+  // accepted source, because that import gets stripped and could not
+  // collide.
+  const output = transformHozoSource(
+    "import { View, Text } from 'react-native'\n" +
+      'export function Card() { return (<View className="p-4"><Text>Hi</Text></View>) }\n',
+    'Card.tsx',
+  )
+  assert.ok(output)
+  assert.equal(output.match(/from 'react-native'/g)?.length, 2, 'one original import plus one added')
+  assert.match(output, /import \{ StyleSheet \} from 'react-native'/)
+})
+
+test('adds no import at all when the file already has everything', () => {
+  const output = transformHozoSource(
+    "import { StyleSheet, View } from 'react-native'\n" +
+      'export function Card() { return (<View className="p-4" />) }\n',
+    'Card.tsx',
+  )
+  assert.ok(output)
+  assert.equal(output.match(/from 'react-native'/g)?.length, 1)
+})
+
+test('declines a file whose primitives come from somewhere else', () => {
+  assert.equal(
+    transformHozoSource(
+      "import { View } from 'react-native'\nimport { Pressable } from 'some-ui-kit'\n" +
+        'export function Card() { return (<View className="p-4"><Pressable /></View>) }\n',
+      'Card.tsx',
+    ),
+    null,
+  )
+})
+
+test('a project can add its own module to the trusted list', () => {
+  const source =
+    "import { View } from './ui'\nexport function Card() { return (<View className=\"p-4\" />) }\n"
+  assert.equal(transformHozoSource(source, 'Card.tsx'), null)
+  const output = transformHozoSource(source, 'Card.tsx', undefined, undefined, [
+    '@hozo/core',
+    'react-native',
+    './ui',
+  ])
+  assert.ok(output)
+  assert.match(output, /StyleSheet\.create/)
 })

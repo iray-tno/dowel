@@ -118,6 +118,17 @@ impl NameAllocator {
 /// `source` is the original TSX text `root` was parsed from -- needed to
 /// re-emit `ExprRef`/`ConditionExpr` guards verbatim (they're spans into
 /// it, never evaluated by the compiler; see `hozo_ir`'s doc comments).
+/// The binding the generated `StyleSheet.create` is assigned to.
+///
+/// Not `styles`. That is the name every React Native file in the world
+/// already uses, and once the integrations stopped requiring a rewrite to
+/// `@hozo/core` -- so that an existing RN file compiles as written --
+/// declaring a second one beside it became a SyntaxError rather than a
+/// shadowing. The bundle-size baseline in the native example was the first
+/// file to hit it, which is fitting: it is the one deliberately written
+/// the way React Native documents.
+const STYLE_OBJECT: &str = "hozoStyles";
+
 pub fn lower(root: &Node, source: &str, theme: &Theme) -> LowerOutput {
     let mut allocator = NameAllocator { next: 0 };
     let mut style_entries: Vec<(String, Vec<StyleProperty>)> = Vec::new();
@@ -1555,7 +1566,7 @@ fn spaced_children(
 /// The nested spans are subranges of `expr_ref`'s and don't overlap (each
 /// is the outermost primitive on its branch), so one left-to-right pass is
 /// enough. `{show && <Text className="p-4">hi</Text>}` comes out as
-/// `{show && <Text style={styles.hozo1}>hi</Text>}` -- the guard
+/// `{show && <Text style={hozoStyles.hozo1}>hi</Text>}` -- the guard
 /// untouched, the element fully compiled.
 ///
 /// Position is `Unknown` for every one of them: the surrounding expression
@@ -1879,7 +1890,7 @@ fn build_style_entries(
         let parts: Vec<String> = props
             .is_empty()
             .then(Vec::new)
-            .unwrap_or_else(|| vec![format!("styles.{name}")])
+            .unwrap_or_else(|| vec![format!("{STYLE_OBJECT}.{name}")])
             .into_iter()
             .chain(viewport.clone())
             .chain(animation.clone())
@@ -2548,12 +2559,12 @@ export function Login() {
         let root = &parsed.roots[0].node;
         let output = lower(root, LOGIN_EXAMPLE, &Theme::default());
 
-        assert!(output.jsx.starts_with("<View style={styles.hozo0}>"));
-        assert!(output.jsx.contains("<Text style={styles.hozo1}>Welcome</Text>"));
+        assert!(output.jsx.starts_with("<View style={hozoStyles.hozo0}>"));
+        assert!(output.jsx.contains("<Text style={hozoStyles.hozo1}>Welcome</Text>"));
         // The label is wrapped: React Native crashes on a raw string inside
         // a Pressable, even though the same source is fine on Web.
         assert!(output.jsx.contains(
-            r#"<Pressable style={styles.hozo2} accessibilityRole="button"><Text>Continue</Text></Pressable>"#
+            r#"<Pressable style={hozoStyles.hozo2} accessibilityRole="button"><Text>Continue</Text></Pressable>"#
         ));
 
         assert!(output.styles.contains("hozo0: {"));
@@ -2584,7 +2595,7 @@ export function Login() {
 
         assert!(output.styles.contains("hozo0_disabled: {"));
         assert!(output.styles.contains("opacity: 0.5,"));
-        assert!(output.jsx.contains("style={[styles.hozo0, (isLoading) && styles.hozo0_disabled]}"));
+        assert!(output.jsx.contains("style={[hozoStyles.hozo0, (isLoading) && hozoStyles.hozo0_disabled]}"));
         assert!(output.jsx.contains("disabled={isLoading}"));
     }
 
@@ -2598,7 +2609,7 @@ export function Login() {
         let output = lower(&parsed.roots[0].node, source, &Theme::default());
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert!(output.jsx.contains("disabled={true}"), "{}", output.jsx);
-        assert!(output.jsx.contains("(true) && styles.hozo0_disabled"), "{}", output.jsx);
+        assert!(output.jsx.contains("(true) && hozoStyles.hozo0_disabled"), "{}", output.jsx);
     }
 
     #[test]
@@ -2699,7 +2710,7 @@ export function Login() {
 
         assert!(output.styles.contains("hozo0_pressed: {"));
         assert!(output.styles.contains("opacity: 0.5,"));
-        assert!(output.jsx.contains("style={({ pressed }) => [styles.hozo0, pressed && styles.hozo0_pressed]}"));
+        assert!(output.jsx.contains("style={({ pressed }) => [hozoStyles.hozo0, pressed && hozoStyles.hozo0_pressed]}"));
     }
 
     #[test]
@@ -2712,7 +2723,7 @@ export function Login() {
         let output = lower(&parsed.roots[0].node, source, &Theme::default());
 
         assert!(output.styles.contains("hozo0_pressed: {"));
-        assert!(output.jsx.contains("style={styles.hozo0}"));
+        assert!(output.jsx.contains("style={hozoStyles.hozo0}"));
         assert!(!output.jsx.contains("pressed"));
     }
 
@@ -2745,7 +2756,7 @@ export function Login() {
             "#;
         let parsed = hozo_parser::parse_tsx(source);
         let output = lower(&parsed.roots[0].node, source, &Theme::default());
-        assert!(output.jsx.contains("style={[styles.hozo0, (active) && styles.hozo0_cond_"));
+        assert!(output.jsx.contains("style={[hozoStyles.hozo0, (active) && hozoStyles.hozo0_cond_"));
     }
 
     #[test]
@@ -2770,7 +2781,7 @@ export function Login() {
             span: hozo_ir::SourceSpan { start: 0, end: 0 },
         };
         let output = lower(&node, "", &Theme::default());
-        assert!(output.jsx.contains("style={styles.hozo0}"));
+        assert!(output.jsx.contains("style={hozoStyles.hozo0}"));
         assert!(output.styles.contains("hozo0_hover: {"));
         assert!(!output.jsx.contains("hozo0_hover"));
     }
@@ -3069,8 +3080,8 @@ export function Login() {
             ]
         );
         assert_eq!(output.runtime_imports, vec!["useHozoDark", "useHozoBreakpoint"]);
-        assert!(output.jsx.contains("__hozoDark && styles.hozo0_dark"), "{}", output.jsx);
-        assert!(output.jsx.contains("__hozoBp_md && styles.hozo0_md"), "{}", output.jsx);
+        assert!(output.jsx.contains("__hozoDark && hozoStyles.hozo0_dark"), "{}", output.jsx);
+        assert!(output.jsx.contains("__hozoBp_md && hozoStyles.hozo0_md"), "{}", output.jsx);
     }
 
     #[test]
@@ -3091,14 +3102,14 @@ export function Login() {
         assert!(
             output
                 .jsx
-                .contains("__hozoBp_md && __hozoDark && styles.hozo0_md_dark"),
+                .contains("__hozoBp_md && __hozoDark && hozoStyles.hozo0_md_dark"),
             "{}",
             output.jsx
         );
         assert!(
             output
                 .jsx
-                .contains("(isOff) && pressed && styles.hozo1_disabled_pressed"),
+                .contains("(isOff) && pressed && hozoStyles.hozo1_disabled_pressed"),
             "{}",
             output.jsx
         );
@@ -3132,9 +3143,9 @@ export function Login() {
             "{}",
             output.jsx
         );
-        assert!(output.jsx.contains("hovered && styles.hozo0_hover"), "{}", output.jsx);
-        assert!(output.jsx.contains("focused && styles.hozo0_focus"), "{}", output.jsx);
-        assert!(output.jsx.contains("pressed && styles.hozo0_pressed"), "{}", output.jsx);
+        assert!(output.jsx.contains("hovered && hozoStyles.hozo0_hover"), "{}", output.jsx);
+        assert!(output.jsx.contains("focused && hozoStyles.hozo0_focus"), "{}", output.jsx);
+        assert!(output.jsx.contains("pressed && hozoStyles.hozo0_pressed"), "{}", output.jsx);
         assert!(output.jsx.contains("onHoverIn={noticeHover}"), "{}", output.jsx);
         assert!(output.jsx.contains("onFocus={noticeFocus}"), "{}", output.jsx);
         assert!(output.runtime_imports.contains(&"HozoPressable"));
@@ -3156,7 +3167,7 @@ export function Login() {
         assert!(output.jsx.starts_with("<HozoPressable"), "{}", output.jsx);
         assert!(output.jsx.contains("hozoFocusVisible"), "{}", output.jsx);
         assert!(output.jsx.contains("{ pressed, hovered, focused, focusVisible }"), "{}", output.jsx);
-        assert!(output.jsx.contains("focusVisible && styles.hozo0_focusvisible"), "{}", output.jsx);
+        assert!(output.jsx.contains("focusVisible && hozoStyles.hozo0_focusvisible"), "{}", output.jsx);
         assert!(output.jsx.contains("__hozoBp_md && focusVisible &&"), "{}", output.jsx);
     }
 
@@ -3179,7 +3190,7 @@ export function Login() {
             "{}",
             output.jsx
         );
-        assert!(output.jsx.contains("hovered && styles.hozo0_hover"), "{}", output.jsx);
+        assert!(output.jsx.contains("hovered && hozoStyles.hozo0_hover"), "{}", output.jsx);
     }
 
     #[test]
@@ -3250,7 +3261,7 @@ export function Login() {
         assert!(
             output
                 .jsx
-                .contains("__hozoBp_md && hovered && styles.hozo0_md_hover"),
+                .contains("__hozoBp_md && hovered && hozoStyles.hozo0_md_hover"),
             "{}",
             output.jsx
         );
@@ -3272,11 +3283,11 @@ export function Login() {
 
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert!(
-            output.jsx.contains("__hozoBp_md && styles.hozo1_first_md"),
+            output.jsx.contains("__hozoBp_md && hozoStyles.hozo1_first_md"),
             "{}",
             output.jsx
         );
-        assert!(!output.jsx.contains("styles.hozo2_first_md"), "{}", output.jsx);
+        assert!(!output.jsx.contains("hozoStyles.hozo2_first_md"), "{}", output.jsx);
     }
 
     #[test]
@@ -3313,8 +3324,8 @@ export function Login() {
         let parsed = hozo_parser::parse_tsx(source);
         let output = lower(&parsed.roots[0].node, source, &Theme::default());
 
-        let base = output.jsx.find("styles.hozo0,").expect("base style");
-        let conditional = output.jsx.find("styles.hozo0_disabled").expect("conditional style");
+        let base = output.jsx.find("hozoStyles.hozo0,").expect("base style");
+        let conditional = output.jsx.find("hozoStyles.hozo0_disabled").expect("conditional style");
         assert!(base < conditional, "{}", output.jsx);
     }
 
@@ -3337,10 +3348,10 @@ export function Login() {
 
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         // The first child gets it applied unconditionally...
-        assert!(output.jsx.contains("styles.hozo1_first"), "{}", output.jsx);
+        assert!(output.jsx.contains("hozoStyles.hozo1_first"), "{}", output.jsx);
         // ...and the second doesn't get one at all, which is exactly what
         // `:first-child` would do.
-        assert!(!output.jsx.contains("styles.hozo2_first"), "{}", output.jsx);
+        assert!(!output.jsx.contains("hozoStyles.hozo2_first"), "{}", output.jsx);
     }
 
     #[test]
@@ -3404,8 +3415,8 @@ export function Login() {
             "{:?}",
             output.diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
         );
-        assert!(output.jsx.contains("pressed && styles."), "{}", output.jsx);
-        assert!(output.jsx.contains("(isOff) && styles."), "{}", output.jsx);
+        assert!(output.jsx.contains("pressed && hozoStyles."), "{}", output.jsx);
+        assert!(output.jsx.contains("(isOff) && hozoStyles."), "{}", output.jsx);
     }
 
     #[test]
@@ -3443,7 +3454,7 @@ export function Login() {
         let parsed = hozo_parser::parse_tsx(source);
         let output = lower(&parsed.roots[0].node, source, &Theme::default());
 
-        let compiled = output.jsx.find("styles.hozo0").expect("compiled styles");
+        let compiled = output.jsx.find("hozoStyles.hozo0").expect("compiled styles");
         let dynamic = output.jsx.find("hozoClasses(").expect("resolver call");
         assert!(compiled < dynamic, "{}", output.jsx);
     }
@@ -3495,7 +3506,7 @@ export function Login() {
         let parsed = hozo_parser::parse_tsx(source);
         let output = lower(&parsed.roots[0].node, source, &Theme::default());
 
-        assert!(output.jsx.contains("<Text style={styles.hozo0_text}>Hello</Text>"));
+        assert!(output.jsx.contains("<Text style={hozoStyles.hozo0_text}>Hello</Text>"));
         // Layout stays on the View, text styling moves to the Text.
         assert!(output.styles.contains("paddingTop: 16,"));
         assert!(output.styles.contains("hozo0_text: {"));
@@ -3695,7 +3706,7 @@ export function Login() {
         let parsed = hozo_parser::parse_tsx(source);
         let output = lower(&parsed.roots[0].node, source, &Theme::default());
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-        assert!(output.jsx.contains("<HozoDialog style={styles.hozo0}"), "{}", output.jsx);
+        assert!(output.jsx.contains("<HozoDialog style={hozoStyles.hozo0}"), "{}", output.jsx);
         assert!(output.jsx.contains("open={showing}"), "{}", output.jsx);
         assert!(output.runtime_imports.contains(&"HozoDialog"), "{:?}", output.runtime_imports);
         assert!(output.styles.contains("paddingTop: 24,"), "{}", output.styles);
@@ -3896,7 +3907,7 @@ export function Login() {
         let output = lower(&parsed.roots[0].node, source, &Theme::default());
 
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-        assert!(output.jsx.contains("<HozoSpaced style={styles.hozo0Children}>"), "{}", output.jsx);
+        assert!(output.jsx.contains("<HozoSpaced style={hozoStyles.hozo0Children}>"), "{}", output.jsx);
         assert!(output.jsx.contains("</HozoSpaced>"), "{}", output.jsx);
         assert!(output.runtime_imports.contains(&"HozoSpaced"), "{:?}", output.runtime_imports);
 
@@ -4071,7 +4082,7 @@ export function Login() {
         // Two array elements, not one comma expression: the static entry
         // and the live one.
         assert!(
-            output.jsx.contains("style={[styles.hozo0, { height: __hozoViewport.height }]}"),
+            output.jsx.contains("style={[hozoStyles.hozo0, { height: __hozoViewport.height }]}"),
             "{}",
             output.jsx
         );
@@ -4140,7 +4151,7 @@ export function Login() {
         let parsed = hozo_parser::parse_tsx(source);
         let output = lower(&parsed.roots[0].node, source, &Theme::default());
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-        assert!(output.jsx.contains("__hozoBp_md && styles.hozo0_md"), "{}", output.jsx);
+        assert!(output.jsx.contains("__hozoBp_md && hozoStyles.hozo0_md"), "{}", output.jsx);
         assert!(
             output.jsx.contains("__hozoBp_md && { height: __hozoViewport.height }"),
             "{}",

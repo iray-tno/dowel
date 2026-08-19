@@ -13,6 +13,7 @@ import { createRequire } from 'node:module'
 import path from 'node:path'
 import { loadProjectTheme } from '@hozo/tailwind'
 import { readMetroState } from './config.ts'
+import { DEFAULT_PRIMITIVE_SOURCES } from '@hozo/compiler/sources'
 import { transformHozoSource } from './transform.ts'
 
 const require = createRequire(import.meta.url)
@@ -98,7 +99,13 @@ export async function transform(params: TransformParams): Promise<unknown> {
         warn: (message) => console.warn(message),
       })
     : undefined
-  const rewritten = transformHozoSource(params.src, params.filename, projectRoot, theme)
+  const rewritten = transformHozoSource(
+    params.src,
+    params.filename,
+    projectRoot,
+    theme,
+    state?.sources ?? DEFAULT_PRIMITIVE_SOURCES,
+  )
   const nextParams = rewritten === null ? params : { ...params, src: rewritten }
   return loadUpstream(projectRoot).transform(nextParams)
 }

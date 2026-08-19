@@ -6,6 +6,7 @@ mod jsx;
 mod scan;
 mod tailwind;
 
+pub use jsx::is_primitive_name;
 pub use scan::{resolve_class_name, scan_class_candidates, ScannedUtility};
 
 use hozo_ir::Diagnostic;
@@ -25,6 +26,64 @@ pub struct ParseOutput {
     /// rules. The candidate scan subtracts these, so a class that already
     /// compiled away doesn't also ship under its Tailwind name.
     pub consumed_class_spans: Vec<hozo_ir::SourceSpan>,
+}
+
+/// One imported binding whose local name is a Hozo primitive.
+///
+/// The compiler itself matches on the JSX *tag name* and never asks where
+/// that name came from, which is what lets a plain React Native file
+/// compile without changing a line of it. It is also what makes this
+/// necessary: a `<View>` imported from some other component library would
+/// be lowered to a `<div>` just as happily, and that is flatly wrong.
+///
+/// So the compiler stays tag-based and the *integration* decides which
+/// modules it trusts, using this. Reported rather than enforced here
+/// because the answer is a project's configuration, not a fact about the
+/// source.
+pub struct PrimitiveImport {
+    /// The name the JSX will use -- the local binding, so `View as Box`
+    /// reports `Box`.
+    pub local: String,
+    /// The module specifier it was imported from.
+    pub module: String,
+}
+
+/// Every primitive-named binding a source file imports, with its origin.
+pub fn primitive_imports(source_text: &str) -> Vec<PrimitiveImport> {
+    let allocator = Allocator::default();
+    let source_type = SourceType::from_extension("tsx").expect("\"tsx\" is a known extension");
+    let ret = Parser::new(&allocator, source_text, source_type).parse();
+
+    ret.module_record
+        .import_entries
+        .iter()
+        // A type-only import contributes no runtime binding, so it can
+        // never be the thing a JSX tag resolves to.
+        .filter(|entry| !entry.is_type)
+        .filter(|entry| is_primitive_name(entry.local_name.name.as_str()))
+        .map(|entry| PrimitiveImport {
+            local: entry.local_name.name.to_string(),
+            module: entry.module_request.name.to_string(),
+        })
+        .collect()
+}
+
+/// Every binding a source file imports from one module, by local name.
+///
+/// Narrower than it looks: the Native backend needs it to avoid
+/// re-declaring a binding the file already imported from `react-native`,
+/// which is a SyntaxError rather than a duplicate.
+pub fn module_imports(source_text: &str, module: &str) -> Vec<String> {
+    let allocator = Allocator::default();
+    let source_type = SourceType::from_extension("tsx").expect("\"tsx\" is a known extension");
+    let ret = Parser::new(&allocator, source_text, source_type).parse();
+
+    ret.module_record
+        .import_entries
+        .iter()
+        .filter(|entry| !entry.is_type && entry.module_request.name.as_str() == module)
+        .map(|entry| entry.local_name.name.to_string())
+        .collect()
 }
 
 /// Parses TSX source into Hozo IR node trees, one per top-level JSX
@@ -214,5 +273,47 @@ export function Login() {
         let slot = output.roots[0].hook_slot.expect("Inner has a block body");
         let inner_brace = source.find("Inner() {").unwrap() + "Inner() {".len();
         assert_eq!(slot as usize, inner_brace);
+    }
+}
+
+#[cfg(test)]
+mod import_tests {
+    use super::*;
+
+    #[test]
+    fn reports_where_each_primitive_came_from() {
+        let imports = primitive_imports(
+            "import { View, Text } from 'react-native'\nimport { Button } from '@hozo/core'\n",
+        );
+        assert_eq!(imports.len(), 3);
+        assert_eq!(imports[0].local, "View");
+        assert_eq!(imports[0].module, "react-native");
+        assert_eq!(imports[2].local, "Button");
+        assert_eq!(imports[2].module, "@hozo/core");
+    }
+
+    #[test]
+    fn a_renamed_import_reports_the_name_the_jsx_uses() {
+        // `View as Box` makes `<Box>`, which the tag matcher declines --
+        // so the local name is what an integration has to reason about,
+        // not the exported one.
+        let imports = primitive_imports("import { View as Box } from 'react-native'\n");
+        assert!(imports.is_empty(), "Box is not a primitive tag name");
+
+        let imports = primitive_imports("import { Pressable as View } from 'some-ui-kit'\n");
+        assert_eq!(imports.len(), 1);
+        assert_eq!(imports[0].local, "View");
+        assert_eq!(imports[0].module, "some-ui-kit");
+    }
+
+    #[test]
+    fn a_type_only_import_binds_nothing_at_runtime() {
+        assert!(primitive_imports("import type { View } from 'react-native'\n").is_empty());
+        assert!(primitive_imports("import { type View } from 'react-native'\n").is_empty());
+    }
+
+    #[test]
+    fn ordinary_imports_are_not_primitives() {
+        assert!(primitive_imports("import { useState } from 'react'\n").is_empty());
     }
 }

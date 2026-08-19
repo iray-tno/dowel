@@ -300,15 +300,20 @@ test('adds no import at all when the file already has everything', () => {
   assert.equal(output.match(/from 'react-native'/g)?.length, 1)
 })
 
-test('declines a file whose primitives come from somewhere else', () => {
-  assert.equal(
-    transformHozoSource(
-      "import { View } from 'react-native'\nimport { Pressable } from 'some-ui-kit'\n" +
-        'export function Card() { return (<View className="p-4"><Pressable /></View>) }\n',
-      'Card.tsx',
-    ),
-    null,
+test('carries a foreign component and lowers the tree around it', () => {
+  // The `@expo/ui` case, which is the reason resolution is per tag rather
+  // than per file: that package exports `Text`, `Button`, `List`,
+  // `ListItem`, `ScrollView` and `TextInput`, every one a native platform
+  // component sharing nothing with the Hozo primitive but its spelling.
+  const output = transformHozoSource(
+    "import { View } from 'react-native'\nimport { Button, Host } from '@expo/ui/swift-ui'\n" +
+      'export function Screen() { return (<View className="p-4"><Host><Button label="Save" /></Host></View>) }\n',
+    'Screen.tsx',
   )
+  assert.ok(output)
+  assert.match(output, /style=\{hozoStyles\.hozo_r0_0\}/, 'the View should have lowered')
+  assert.match(output, /<Host><Button label="Save" \/><\/Host>/, 'the @expo/ui half must survive')
+  assert.ok(!output.includes('className='), 'the utility string should be gone')
 })
 
 test('a project can add its own module to the trusted list', () => {
@@ -322,4 +327,20 @@ test('a project can add its own module to the trusted list', () => {
   ])
   assert.ok(output)
   assert.match(output, /StyleSheet\.create/)
+})
+
+test('does not import React Native’s component when the name is somebody else’s', () => {
+  // `@expo/ui` exports `Text`, and the file already binds that name.
+  // Adding React Native's beside it is `Identifier 'Text' has already been
+  // declared` -- which is the same reason the compiler carried the tag
+  // rather than lowering it.
+  const output = transformHozoSource(
+    "import { View } from 'react-native'\nimport { Text } from '@expo/ui/swift-ui'\n" +
+      'export function S() { return (<View className="p-4"><Text>hi</Text></View>) }\n',
+    'S.tsx',
+  )
+  assert.ok(output)
+  assert.match(output, /import \{ StyleSheet \} from 'react-native'/)
+  assert.ok(!/import \{[^}]*\bText\b[^}]*\} from 'react-native'/.test(output), output)
+  assert.match(output, /<Text>hi<\/Text>/, 'the @expo/ui Text must survive')
 })

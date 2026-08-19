@@ -13,17 +13,19 @@
 // happens to be spelled `View` would silently replace someone's component
 // with something else.
 //
-// So the compiler stays tag-based and this decides. A file is lowered when
-// every primitive-named binding in it comes from a module the project
-// trusts, and left alone when one doesn't.
+// So the list travels into the compiler, which resolves each tag against
+// the module its binding came from. A tag from a module the project does
+// not trust is carried verbatim -- the same treatment any component Hozo
+// does not model already gets -- and the tree around it still compiles.
 //
-// Left alone *quietly* when it trusts none of them: a project whose own
-// components happen to be named `View` is not doing anything wrong, and a
-// warning on each of its files would be noise about a decision Hozo was
-// never asked to make. The diagnostic is for the mixed file -- one that
-// imports from a module Hozo does handle and one it doesn't -- where the
-// author has every reason to expect lowering and the reason it did not
-// happen is a single import they can see.
+// Per tag rather than per file, and that is the whole of `@expo/ui`
+// support. A real Expo app writes `<View className="p-4">` from
+// `react-native` and `<Button label="Save">` from `@expo/ui` in one tree,
+// and `@expo/ui` exports `Text`, `Button`, `List`, `ListItem`,
+// `ScrollView` and `TextInput` -- every one a native platform component
+// sharing nothing with the Hozo primitive but its spelling. Refusing the
+// file would leave the half Hozo understands uncompiled; accepting it
+// would replace a SwiftUI button with a `<div>`.
 //
 // The integrations all defaulted to `@hozo/core` only, by way of a
 // `code.includes('@hozo/core')` substring test. That skipped every Expo and
@@ -41,49 +43,20 @@ import { primitiveImports } from './index.ts'
  */
 export const DEFAULT_PRIMITIVE_SOURCES = ['@hozo/core', 'react-native'] as const
 
-export interface SourceDecision {
-  /** Whether this file's primitives may be lowered. */
-  compilable: boolean
-  /**
-   * Primitive-named bindings from a module not on the list.
-   *
-   * Non-empty means `compilable` is false: one unrecognised `View` makes
-   * the whole file unsafe to lower, because the compiler cannot tell two
-   * `<View>` tags apart.
-   */
-  foreign: { local: string; module: string }[]
-}
-
 /**
- * Decides whether a file may be lowered, and says what stopped it.
+ * Primitive-named bindings this file imports from a module not on the list.
  *
- * A file importing no primitives at all is `compilable` with nothing to
- * lower -- the caller finds that out from the compiler, which is the only
- * thing that can tell a file with no JSX from one whose JSX is all
- * unrecognised.
+ * The same rule the compiler applies per tag, available to a backend that
+ * has to reason about what came *out* of it. The Native transform refuses
+ * a `<Button>` that survived lowering, because Hozo's Button is a semantic
+ * primitive and React Native's takes a `title` and renders no children --
+ * neither works carried. But `@expo/ui` exports a `Button` too, and a
+ * carried one of those is the correct outcome rather than a failure.
  */
-export function decideSources(source: string, allowed: readonly string[]): SourceDecision {
-  const foreign = primitiveImports(source).filter((entry) => !allowed.includes(entry.module))
-  return { compilable: foreign.length === 0, foreign }
-}
-
-/**
- * The message for a file Hozo declined to lower.
- *
- * Names the modules rather than the tags: the tag is `View` in both the
- * case that works and the case that doesn't, so it carries no information
- * about which this is.
- */
-export function foreignSourceMessage(
-  file: string,
-  foreign: { local: string; module: string }[],
-  allowed: readonly string[],
-): string {
-  const names = [...new Set(foreign.map((entry) => `\`${entry.local}\` from \`${entry.module}\``))]
-  return (
-    `${file} imports ${names.join(', ')}, and Hozo only lowers primitives from ` +
-    `${allowed.map((name) => `\`${name}\``).join(', ')}. The file is left as written, which is ` +
-    `correct if that is a different component with the same name -- and if it is a re-export of ` +
-    `one Hozo does understand, add its module to the \`sources\` option.`
+export function foreignPrimitives(source: string, allowed: readonly string[]): Set<string> {
+  return new Set(
+    primitiveImports(source)
+      .filter((entry) => !allowed.includes(entry.module))
+      .map((entry) => entry.local),
   )
 }

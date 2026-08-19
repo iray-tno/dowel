@@ -89,11 +89,44 @@ pub fn module_imports(source_text: &str, module: &str) -> Vec<String> {
 /// Parses TSX source into Hozo IR node trees, one per top-level JSX
 /// element found (e.g. one per component's returned JSX).
 pub fn parse_tsx(source_text: &str) -> ParseOutput {
+    parse_tsx_with(source_text, None)
+}
+
+/// Parses TSX, lowering only primitives imported from `sources`.
+///
+/// `None` trusts every module, which is what a caller with no project
+/// configuration to consult wants -- and what `parse_tsx` has always done.
+///
+/// The list is per *tag*, not per file. A real Expo app has
+/// `<View className="p-4">` from `react-native` and `<Button label="Save">`
+/// from `@expo/ui` in the same tree, and those names are the same names:
+/// `@expo/ui` exports `Text`, `Button`, `List`, `ListItem`, `ScrollView`
+/// and `TextInput`, every one a native platform component sharing nothing
+/// with the Hozo primitive but its spelling. Refusing the whole file would
+/// leave the half Hozo does understand uncompiled; lowering the whole file
+/// would replace someone's SwiftUI button with a `<div>`. So a foreign tag
+/// becomes `Child::Verbatim` -- carried, exactly like any other component
+/// the compiler does not model -- and the tree around it compiles.
+pub fn parse_tsx_with(source_text: &str, sources: Option<&[String]>) -> ParseOutput {
     let allocator = Allocator::default();
     let source_type = SourceType::from_extension("tsx").expect("\"tsx\" is a known extension");
     let ret = Parser::new(&allocator, source_text, source_type).parse();
 
-    let mut collector = JsxCollector::new(&ret.module_record);
+    let foreign: std::collections::HashSet<String> = match sources {
+        None => std::collections::HashSet::new(),
+        Some(sources) => ret
+            .module_record
+            .import_entries
+            .iter()
+            .filter(|entry| !entry.is_type)
+            .filter(|entry| jsx::is_primitive_name(entry.local_name.name.as_str()))
+            .filter(|entry| !sources.iter().any(|s| s == entry.module_request.name.as_str()))
+            .map(|entry| entry.local_name.name.to_string())
+            .collect(),
+    };
+    let scope = jsx::Scope { module_record: &ret.module_record, foreign };
+
+    let mut collector = JsxCollector::new(&scope);
     collector.visit_program(&ret.program);
 
     ParseOutput {

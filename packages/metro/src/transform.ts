@@ -16,7 +16,7 @@
 
 import { compileNative, moduleImports, type CompiledNativeComponent, type Theme } from '@hozo/compiler'
 import { reportDiagnostics } from '@hozo/compiler/diagnostics'
-import { DEFAULT_PRIMITIVE_SOURCES, decideSources, foreignSourceMessage } from '@hozo/compiler/sources'
+import { DEFAULT_PRIMITIVE_SOURCES, foreignPrimitives } from '@hozo/compiler/sources'
 import { importSpecifier } from '@hozo/compiler/project'
 import { candidateModulePath } from './project.ts'
 
@@ -52,8 +52,7 @@ function mergeStyleObjects(blocks: string[]): string {
 
 /**
  * Returns the rewritten source, or `null` if there's nothing for Hozo to
- * do: not a `.tsx` file, no primitives from a module the project trusts,
- * or primitives from one it doesn't.
+ * do: not a `.tsx` file, or no primitives from a module the project trusts.
  */
 export function transformHozoSource(
   code: string,
@@ -69,20 +68,12 @@ export function transformHozoSource(
   if (!sources.some((module) => code.includes(module))) {
     return null
   }
-  // This was `code.includes('@hozo/core')`, which skipped every Expo and
-  // React Native project on the grounds that it had not been rewritten --
-  // while the compiler underneath had always handled `react-native`
-  // imports and produced identical output for them. See
-  // `@hozo/compiler/sources` for why the gate has to know the module and
-  // not just the tag.
-  const decision = decideSources(code, sources)
-  if (!decision.compilable) {
-    // eslint-disable-next-line no-console
-    console.warn(`[hozo] PRIMITIVE_FROM_UNKNOWN_MODULE: ${foreignSourceMessage(filename, decision.foreign, sources)}`)
-    return null
-  }
-
-  const components = compileNative(code, theme)
+  // `sources` reaches the compiler rather than gating the file here. It
+  // was `code.includes('@hozo/core')`, which skipped every Expo and React
+  // Native project on the grounds that it had not been rewritten -- while
+  // the compiler underneath had always handled `react-native` imports and
+  // produced identical output for them. See `@hozo/compiler/sources`.
+  const components = compileNative(code, theme, sources)
   if (components.length === 0) {
     return null
   }
@@ -100,11 +91,21 @@ export function transformHozoSource(
     (message) => console.warn(message),
   )
 
+  // Names this file imports from a module the project does not trust, so
+  // the guards below can tell a component Hozo declined from one it failed
+  // to lower.
+  const foreign = foreignPrimitives(code, sources)
   const usedTags = new Set<string>()
   const styleBlocks: string[] = []
   components.forEach((component: CompiledNativeComponent, index: number) => {
     styleBlocks.push(namespaceHozoIdentifiers(component.styles, index))
     for (const tag of RN_PRIMITIVE_TAGS) {
+      // A foreign tag of the same name is not one of these. `@expo/ui`
+      // exports `Text`, and importing React Native's beside it is
+      // `Identifier 'Text' has already been declared` -- the file already
+      // binds that name to a different component, which is the whole
+      // reason the compiler carried the tag instead of lowering it.
+      if (foreign.has(tag)) continue
       if (new RegExp(`<${tag}[\\s/>]`).test(component.jsx)) {
         usedTags.add(tag)
       }
@@ -119,7 +120,12 @@ export function transformHozoSource(
     // takes a `title` prop and renders no children. Neither that nor
     // `@hozo/core`'s Web `<button>` fallback works on a device, so this is
     // refused rather than silently mis-rendered.
-    if (/<Button[\s/>]/.test(component.jsx)) {
+    //
+    // Unless the `Button` is somebody else's. `@expo/ui` exports one too,
+    // and a carried `@expo/ui` Button is the correct outcome rather than a
+    // failure -- the compiler declined to lower it on purpose, because it
+    // is a native SwiftUI control and not a primitive at all.
+    if (/<Button[\s/>]/.test(component.jsx) && !foreign.has('Button')) {
       throw new Error(
         `[hozo] ${filename}: a <Button> is inside an expression the compiler can't read, so it ` +
           `can't be lowered -- and React Native's own Button is a different component with a ` +

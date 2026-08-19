@@ -104,16 +104,27 @@ export interface Theme {
   colors: { token: string; oklch: string; hex: string }[]
 }
 
-export function compile(source: string, theme?: Theme): CompiledComponent[] {
-  return loadNative().compile(source, theme)
+export function compile(
+  source: string,
+  theme?: Theme,
+  sources?: readonly string[],
+): CompiledComponent[] {
+  // `sources` is per *tag*: a name imported from a module not on the list
+  // is carried verbatim instead of lowered. Left out, every module is
+  // trusted, which is what a caller with no project configuration wants.
+  return loadNative().compile(source, theme, sources ? [...sources] : undefined)
 }
 
 // Not yet wired into a Metro transformer (@hozo/vite's Metro
 // counterpart doesn't exist yet -- Native was deliberately validated after
 // Web, per the A-phase decision). Exposed now so the binding layer mirrors
 // both backends; the transformer-side integration is separate future work.
-export function compileNative(source: string, theme?: Theme): CompiledNativeComponent[] {
-  return loadNative().compileNative(source, theme)
+export function compileNative(
+  source: string,
+  theme?: Theme,
+  sources?: readonly string[],
+): CompiledNativeComponent[] {
+  return loadNative().compileNative(source, theme, sources ? [...sources] : undefined)
 }
 
 export function openCandidateCache(path?: string): CandidateCache {

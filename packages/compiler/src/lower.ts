@@ -15,7 +15,7 @@
 import path from 'node:path'
 
 import { compile, type CompileDiagnostic, type Theme } from './index.ts'
-import { DEFAULT_PRIMITIVE_SOURCES, decideSources, foreignSourceMessage } from './sources.ts'
+import { DEFAULT_PRIMITIVE_SOURCES } from './sources.ts'
 
 const HOZO_CORE_IMPORT_RE = /import\s*\{[^}]*\}\s*from\s*['"]@hozo\/core['"]\s*\n?/
 
@@ -160,27 +160,13 @@ export function lowerModule(
   // that. The real decision needs the AST and comes next.
   if (!allowed.some((module) => code.includes(module))) return undefined
 
-  const decision = decideSources(code, allowed)
-  if (!decision.compilable) {
-    return {
-      code,
-      css: '',
-      cssFileName: '',
-      cssPath: '',
-      diagnostics: [
-        {
-          code: 'PRIMITIVE_FROM_UNKNOWN_MODULE',
-          severity: 'warning',
-          message: foreignSourceMessage(file, decision.foreign, allowed),
-          spanStart: 0,
-          spanEnd: 0,
-        },
-      ],
-      lowered: false,
-    }
-  }
-
-  const components = compile(code, theme)
+  // Per tag, not per file. A file mixing `react-native` with `@expo/ui`
+  // is ordinary in an Expo app, and both export `Text`, `Button`, `List`,
+  // `ListItem`, `ScrollView` and `TextInput` -- so refusing the whole file
+  // left the half Hozo understands uncompiled, and accepting it would have
+  // replaced a native SwiftUI button with a `<div>`. The compiler carries
+  // a foreign tag verbatim and lowers the tree around it.
+  const components = compile(code, theme, allowed)
   if (components.length === 0) return undefined
 
   let next = code

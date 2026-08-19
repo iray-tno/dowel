@@ -58,6 +58,25 @@ fn accessibility_role_from_value(value: &Option<JSXAttributeValue>) -> Option<Ac
     }
 }
 
+/// What the walk needs to know about the module it is reading.
+///
+/// `module_record` was threaded through every builder already;
+/// `foreign` rides with it because it answers the same kind of question --
+/// which bindings this file actually has and where they came from.
+pub(crate) struct Scope<'r, 'a> {
+    pub module_record: &'r ModuleRecord<'a>,
+    /// Primitive-named locals imported from a module the project does not
+    /// trust.
+    ///
+    /// A tag naming one of these is carried verbatim rather than lowered,
+    /// which is the whole of `@expo/ui` support: that package exports
+    /// `Text`, `Button`, `List`, `ListItem`, `ScrollView` and
+    /// `TextInput`, and every one of them is a native platform component
+    /// with nothing in common with the Hozo primitive of the same name
+    /// beyond the spelling.
+    pub foreign: std::collections::HashSet<String>,
+}
+
 /// Finds and lowers Hozo primitives nested inside something the compiler
 /// is only carrying, not reading -- an expression container, or an
 /// unmodeled component's children.
@@ -70,7 +89,7 @@ fn accessibility_role_from_value(value: &Option<JSXAttributeValue>) -> Option<Ac
 /// the borrow the walk hands out doesn't outlive it, and threading the
 /// build through the visitor is simpler than any way of extending it.
 struct PrimitiveFinder<'r, 'a, 'd> {
-    module_record: &'r ModuleRecord<'a>,
+    scope: &'r Scope<'r, 'a>,
     diagnostics: &'d mut Vec<Diagnostic>,
     consumed: &'d mut Vec<SourceSpan>,
     nested: Vec<NestedNode>,
@@ -79,8 +98,12 @@ struct PrimitiveFinder<'r, 'a, 'd> {
 impl<'r, 'a, 'd> Visit<'a> for PrimitiveFinder<'r, 'a, 'd> {
     fn visit_jsx_element(&mut self, it: &JSXElement<'a>) {
         if let JSXElementName::IdentifierReference(ident) = &it.opening_element.name {
-            if let Some(name) = primitive_name(ident.name.as_str()) {
-                match build_node(it, self.module_record, self.diagnostics, self.consumed) {
+            if self.scope.foreign.contains(ident.name.as_str()) {
+                // Carried, not lowered -- and its own children are visited
+                // by the walk that continues below, so a Hozo primitive
+                // inside a foreign component still compiles.
+            } else if let Some(name) = primitive_name(ident.name.as_str()) {
+                match build_node(it, self.scope, self.diagnostics, self.consumed) {
                     Some(node) => {
                         self.nested.push(NestedNode { span: to_span(it.span()), node })
                     }
@@ -186,12 +209,12 @@ fn primitive_name(name: &str) -> Option<&'static str> {
 fn carry_verbatim(
     child: &JSXChild,
     span: Span,
-    module_record: &ModuleRecord,
+    scope: &Scope,
     diagnostics: &mut Vec<Diagnostic>,
     consumed: &mut Vec<SourceSpan>,
 ) -> Child {
     let mut finder = PrimitiveFinder {
-        module_record,
+        scope,
         diagnostics,
         consumed,
         nested: Vec::new(),
@@ -202,12 +225,12 @@ fn carry_verbatim(
 
 fn passthrough_prop(
     attr: &JSXAttribute,
-    module_record: &ModuleRecord,
+    scope: &Scope,
     diagnostics: &mut Vec<Diagnostic>,
     consumed: &mut Vec<SourceSpan>,
 ) -> PassthroughProp {
     let mut finder = PrimitiveFinder {
-        module_record,
+        scope,
         diagnostics,
         consumed,
         nested: Vec::new(),
@@ -231,7 +254,7 @@ fn capture_prop_expr(
     attr: &JSXAttribute,
     target: &mut Option<ExprRef>,
     passthrough: &mut Vec<PassthroughProp>,
-    module_record: &ModuleRecord,
+    scope: &Scope,
     diagnostics: &mut Vec<Diagnostic>,
     consumed: &mut Vec<SourceSpan>,
 ) {
@@ -241,7 +264,7 @@ fn capture_prop_expr(
         }
         Some(JSXAttributeValue::StringLiteral(literal)) => Some(to_expr_ref(literal.span)),
         _ => {
-            passthrough.push(passthrough_prop(attr, module_record, diagnostics, consumed));
+            passthrough.push(passthrough_prop(attr, scope, diagnostics, consumed));
             None
         }
     };
@@ -275,13 +298,20 @@ fn primitive_for_name(name: &str) -> Option<Primitive> {
 /// components, intrinsic HTML tags, namespaced/member-expression names).
 fn build_node(
     el: &JSXElement,
-    module_record: &ModuleRecord,
+    scope: &Scope,
     diagnostics: &mut Vec<Diagnostic>,
     consumed: &mut Vec<SourceSpan>,
 ) -> Option<Node> {
     let JSXElementName::IdentifierReference(ident) = &el.opening_element.name else {
         return None;
     };
+    // A name the project's own components own. Declining here is what
+    // turns it into a `Child::Verbatim` at the call site -- carried and
+    // re-emitted from source, the same treatment any unmodeled component
+    // gets -- so the tree around it still compiles.
+    if scope.foreign.contains(ident.name.as_str()) {
+        return None;
+    }
     let primitive = primitive_for_name(ident.name.as_str())?;
 
     let mut style: Vec<StyleDeclaration> = Vec::new();
@@ -323,7 +353,7 @@ fn build_node(
             // still survive to output rather than being dropped.
             props
                 .passthrough
-                .push(passthrough_prop(attr, module_record, diagnostics, consumed));
+                .push(passthrough_prop(attr, scope, diagnostics, consumed));
             continue;
         };
         match attr_name.name.as_str() {
@@ -375,7 +405,7 @@ fn build_node(
                     }
                     Some(JSXAttributeValue::ExpressionContainer(container)) => {
                         let decomposed =
-                            dynamic_class::decompose_class_name(&container.expression, module_record);
+                            dynamic_class::decompose_class_name(&container.expression, scope.module_record);
                         style.extend(decomposed.declarations);
                         class_name_fallback.extend(decomposed.fallback);
                         consumed.extend(decomposed.consumed);
@@ -393,34 +423,34 @@ fn build_node(
                 }
                 _ => props
                     .passthrough
-                    .push(passthrough_prop(attr, module_record, diagnostics, consumed)),
+                    .push(passthrough_prop(attr, scope, diagnostics, consumed)),
             },
-            "onStartShouldSetResponder" if matches!(primitive, Primitive::View | Primitive::Pressable) => capture_prop_expr(attr, &mut props.on_start_should_set_responder, &mut props.passthrough, module_record, diagnostics, consumed),
-            "onStartShouldSetResponderCapture" if matches!(primitive, Primitive::View | Primitive::Pressable) => capture_prop_expr(attr, &mut props.on_start_should_set_responder_capture, &mut props.passthrough, module_record, diagnostics, consumed),
-            "onMoveShouldSetResponder" if matches!(primitive, Primitive::View | Primitive::Pressable) => capture_prop_expr(attr, &mut props.on_move_should_set_responder, &mut props.passthrough, module_record, diagnostics, consumed),
-            "onMoveShouldSetResponderCapture" if matches!(primitive, Primitive::View | Primitive::Pressable) => capture_prop_expr(attr, &mut props.on_move_should_set_responder_capture, &mut props.passthrough, module_record, diagnostics, consumed),
-            "onResponderGrant" if matches!(primitive, Primitive::View | Primitive::Pressable) => capture_prop_expr(attr, &mut props.on_responder_grant, &mut props.passthrough, module_record, diagnostics, consumed),
-            "onResponderStart" if matches!(primitive, Primitive::View | Primitive::Pressable) => capture_prop_expr(attr, &mut props.on_responder_start, &mut props.passthrough, module_record, diagnostics, consumed),
-            "onResponderMove" if matches!(primitive, Primitive::View | Primitive::Pressable) => capture_prop_expr(attr, &mut props.on_responder_move, &mut props.passthrough, module_record, diagnostics, consumed),
-            "onResponderEnd" if matches!(primitive, Primitive::View | Primitive::Pressable) => capture_prop_expr(attr, &mut props.on_responder_end, &mut props.passthrough, module_record, diagnostics, consumed),
-            "onResponderRelease" if matches!(primitive, Primitive::View | Primitive::Pressable) => capture_prop_expr(attr, &mut props.on_responder_release, &mut props.passthrough, module_record, diagnostics, consumed),
-            "onResponderReject" if matches!(primitive, Primitive::View | Primitive::Pressable) => capture_prop_expr(attr, &mut props.on_responder_reject, &mut props.passthrough, module_record, diagnostics, consumed),
-            "onResponderTerminate" if matches!(primitive, Primitive::View | Primitive::Pressable) => capture_prop_expr(attr, &mut props.on_responder_terminate, &mut props.passthrough, module_record, diagnostics, consumed),
-            "onResponderTerminationRequest" if matches!(primitive, Primitive::View | Primitive::Pressable) => capture_prop_expr(attr, &mut props.on_responder_termination_request, &mut props.passthrough, module_record, diagnostics, consumed),
-            "testID" => capture_prop_expr(attr, &mut props.test_id, &mut props.passthrough, module_record, diagnostics, consumed),
-            "nativeID" => capture_prop_expr(attr, &mut props.native_id, &mut props.passthrough, module_record, diagnostics, consumed),
-            "pointerEvents" => capture_prop_expr(attr, &mut props.pointer_events, &mut props.passthrough, module_record, diagnostics, consumed),
-            "accessibilityState" => capture_prop_expr(attr, &mut props.accessibility_state, &mut props.passthrough, module_record, diagnostics, consumed),
-            "accessibilityValue" => capture_prop_expr(attr, &mut props.accessibility_value, &mut props.passthrough, module_record, diagnostics, consumed),
-            "accessibilityLiveRegion" => capture_prop_expr(attr, &mut props.accessibility_live_region, &mut props.passthrough, module_record, diagnostics, consumed),
-            "onLayout" => capture_prop_expr(attr, &mut props.on_layout, &mut props.passthrough, module_record, diagnostics, consumed),
+            "onStartShouldSetResponder" if matches!(primitive, Primitive::View | Primitive::Pressable) => capture_prop_expr(attr, &mut props.on_start_should_set_responder, &mut props.passthrough, scope, diagnostics, consumed),
+            "onStartShouldSetResponderCapture" if matches!(primitive, Primitive::View | Primitive::Pressable) => capture_prop_expr(attr, &mut props.on_start_should_set_responder_capture, &mut props.passthrough, scope, diagnostics, consumed),
+            "onMoveShouldSetResponder" if matches!(primitive, Primitive::View | Primitive::Pressable) => capture_prop_expr(attr, &mut props.on_move_should_set_responder, &mut props.passthrough, scope, diagnostics, consumed),
+            "onMoveShouldSetResponderCapture" if matches!(primitive, Primitive::View | Primitive::Pressable) => capture_prop_expr(attr, &mut props.on_move_should_set_responder_capture, &mut props.passthrough, scope, diagnostics, consumed),
+            "onResponderGrant" if matches!(primitive, Primitive::View | Primitive::Pressable) => capture_prop_expr(attr, &mut props.on_responder_grant, &mut props.passthrough, scope, diagnostics, consumed),
+            "onResponderStart" if matches!(primitive, Primitive::View | Primitive::Pressable) => capture_prop_expr(attr, &mut props.on_responder_start, &mut props.passthrough, scope, diagnostics, consumed),
+            "onResponderMove" if matches!(primitive, Primitive::View | Primitive::Pressable) => capture_prop_expr(attr, &mut props.on_responder_move, &mut props.passthrough, scope, diagnostics, consumed),
+            "onResponderEnd" if matches!(primitive, Primitive::View | Primitive::Pressable) => capture_prop_expr(attr, &mut props.on_responder_end, &mut props.passthrough, scope, diagnostics, consumed),
+            "onResponderRelease" if matches!(primitive, Primitive::View | Primitive::Pressable) => capture_prop_expr(attr, &mut props.on_responder_release, &mut props.passthrough, scope, diagnostics, consumed),
+            "onResponderReject" if matches!(primitive, Primitive::View | Primitive::Pressable) => capture_prop_expr(attr, &mut props.on_responder_reject, &mut props.passthrough, scope, diagnostics, consumed),
+            "onResponderTerminate" if matches!(primitive, Primitive::View | Primitive::Pressable) => capture_prop_expr(attr, &mut props.on_responder_terminate, &mut props.passthrough, scope, diagnostics, consumed),
+            "onResponderTerminationRequest" if matches!(primitive, Primitive::View | Primitive::Pressable) => capture_prop_expr(attr, &mut props.on_responder_termination_request, &mut props.passthrough, scope, diagnostics, consumed),
+            "testID" => capture_prop_expr(attr, &mut props.test_id, &mut props.passthrough, scope, diagnostics, consumed),
+            "nativeID" => capture_prop_expr(attr, &mut props.native_id, &mut props.passthrough, scope, diagnostics, consumed),
+            "pointerEvents" => capture_prop_expr(attr, &mut props.pointer_events, &mut props.passthrough, scope, diagnostics, consumed),
+            "accessibilityState" => capture_prop_expr(attr, &mut props.accessibility_state, &mut props.passthrough, scope, diagnostics, consumed),
+            "accessibilityValue" => capture_prop_expr(attr, &mut props.accessibility_value, &mut props.passthrough, scope, diagnostics, consumed),
+            "accessibilityLiveRegion" => capture_prop_expr(attr, &mut props.accessibility_live_region, &mut props.passthrough, scope, diagnostics, consumed),
+            "onLayout" => capture_prop_expr(attr, &mut props.on_layout, &mut props.passthrough, scope, diagnostics, consumed),
             "level" if primitive == Primitive::Heading => match &attr.value {
                 Some(JSXAttributeValue::StringLiteral(literal)) => {
                     props.heading_level = literal.value.parse::<u8>().ok()
                         .filter(|level| (1..=6).contains(level))
                         .map(HeadingLevel::Static);
                     if props.heading_level.is_none() {
-                        props.passthrough.push(passthrough_prop(attr, module_record, diagnostics, consumed));
+                        props.passthrough.push(passthrough_prop(attr, scope, diagnostics, consumed));
                     }
                 }
                 Some(JSXAttributeValue::ExpressionContainer(container)) => {
@@ -431,20 +461,20 @@ fn build_node(
                         _ => Some(HeadingLevel::Dynamic(to_expr_ref(container.expression.span()))),
                     };
                 }
-                _ => props.passthrough.push(passthrough_prop(attr, module_record, diagnostics, consumed)),
+                _ => props.passthrough.push(passthrough_prop(attr, scope, diagnostics, consumed)),
             },
             "ordered" if primitive == Primitive::List => match &attr.value {
                 None => props.list_ordered = Some(ConditionExpr::Static(true)),
                 Some(JSXAttributeValue::ExpressionContainer(container)) => {
                     props.list_ordered = Some(ConditionExpr::Ref(to_expr_ref(container.expression.span())));
                 }
-                _ => props.passthrough.push(passthrough_prop(attr, module_record, diagnostics, consumed)),
+                _ => props.passthrough.push(passthrough_prop(attr, scope, diagnostics, consumed)),
             },
             "onScroll" if matches!(primitive, Primitive::ScrollView | Primitive::FlatList) => {
-                capture_prop_expr(attr, &mut props.on_scroll, &mut props.passthrough, module_record, diagnostics, consumed)
+                capture_prop_expr(attr, &mut props.on_scroll, &mut props.passthrough, scope, diagnostics, consumed)
             }
             "scrollEventThrottle" if matches!(primitive, Primitive::ScrollView | Primitive::FlatList) => {
-                capture_prop_expr(attr, &mut props.scroll_event_throttle, &mut props.passthrough, module_record, diagnostics, consumed)
+                capture_prop_expr(attr, &mut props.scroll_event_throttle, &mut props.passthrough, scope, diagnostics, consumed)
             }
             "disabled" => match &attr.value {
                 None => props.disabled = Some(ConditionExpr::Static(true)),
@@ -453,7 +483,7 @@ fn build_node(
                 }
                 _ => props
                     .passthrough
-                    .push(passthrough_prop(attr, module_record, diagnostics, consumed)),
+                    .push(passthrough_prop(attr, scope, diagnostics, consumed)),
             },
             "horizontal" if matches!(primitive, Primitive::ScrollView | Primitive::FlatList) => match &attr.value {
                 None => props.scroll_horizontal = Some(ConditionExpr::Static(true)),
@@ -462,7 +492,7 @@ fn build_node(
                 }
                 _ => props
                     .passthrough
-                    .push(passthrough_prop(attr, module_record, diagnostics, consumed)),
+                    .push(passthrough_prop(attr, scope, diagnostics, consumed)),
             },
             "refreshing" if matches!(primitive, Primitive::ScrollView | Primitive::FlatList) => match &attr.value {
                 None => props.refreshing = Some(ConditionExpr::Static(true)),
@@ -471,7 +501,7 @@ fn build_node(
                 }
                 _ => props
                     .passthrough
-                    .push(passthrough_prop(attr, module_record, diagnostics, consumed)),
+                    .push(passthrough_prop(attr, scope, diagnostics, consumed)),
             },
             "onRefresh" if matches!(primitive, Primitive::ScrollView | Primitive::FlatList) => match &attr.value {
                 Some(JSXAttributeValue::ExpressionContainer(container)) => {
@@ -479,7 +509,7 @@ fn build_node(
                 }
                 _ => props
                     .passthrough
-                    .push(passthrough_prop(attr, module_record, diagnostics, consumed)),
+                    .push(passthrough_prop(attr, scope, diagnostics, consumed)),
             },
             "keyboardShouldPersistTaps" if matches!(primitive, Primitive::ScrollView | Primitive::FlatList) => match &attr.value {
                 Some(JSXAttributeValue::ExpressionContainer(container)) => {
@@ -490,7 +520,7 @@ fn build_node(
                 }
                 _ => props
                     .passthrough
-                    .push(passthrough_prop(attr, module_record, diagnostics, consumed)),
+                    .push(passthrough_prop(attr, scope, diagnostics, consumed)),
             },
             "showsVerticalScrollIndicator" if matches!(primitive, Primitive::ScrollView | Primitive::FlatList) => match &attr.value {
                 None => props.shows_vertical_scroll_indicator = Some(ConditionExpr::Static(true)),
@@ -499,7 +529,7 @@ fn build_node(
                 }
                 _ => props
                     .passthrough
-                    .push(passthrough_prop(attr, module_record, diagnostics, consumed)),
+                    .push(passthrough_prop(attr, scope, diagnostics, consumed)),
             },
             "showsHorizontalScrollIndicator" if matches!(primitive, Primitive::ScrollView | Primitive::FlatList) => match &attr.value {
                 None => props.shows_horizontal_scroll_indicator = Some(ConditionExpr::Static(true)),
@@ -508,7 +538,7 @@ fn build_node(
                 }
                 _ => props
                     .passthrough
-                    .push(passthrough_prop(attr, module_record, diagnostics, consumed)),
+                    .push(passthrough_prop(attr, scope, diagnostics, consumed)),
             },
             // Both spellings are accepted and neither is passed through:
             // the two platforms name this prop differently, so the value is
@@ -532,7 +562,7 @@ fn build_node(
                 }
                 _ => props
                     .passthrough
-                    .push(passthrough_prop(attr, module_record, diagnostics, consumed)),
+                    .push(passthrough_prop(attr, scope, diagnostics, consumed)),
             },
             "accessibilityHint" | "aria-description" => match &attr.value {
                 Some(JSXAttributeValue::ExpressionContainer(container)) => {
@@ -543,7 +573,7 @@ fn build_node(
                 }
                 _ => props
                     .passthrough
-                    .push(passthrough_prop(attr, module_record, diagnostics, consumed)),
+                    .push(passthrough_prop(attr, scope, diagnostics, consumed)),
             },
             "src" if primitive == Primitive::Image => match &attr.value {
                 Some(JSXAttributeValue::ExpressionContainer(container)) => {
@@ -554,10 +584,10 @@ fn build_node(
                 }
                 _ => props
                     .passthrough
-                    .push(passthrough_prop(attr, module_record, diagnostics, consumed)),
+                    .push(passthrough_prop(attr, scope, diagnostics, consumed)),
             },
             "defaultSource" if primitive == Primitive::Image => {
-                capture_prop_expr(attr, &mut props.image_default_source, &mut props.passthrough, module_record, diagnostics, consumed)
+                capture_prop_expr(attr, &mut props.image_default_source, &mut props.passthrough, scope, diagnostics, consumed)
             }
             "alt" if primitive == Primitive::Image => match &attr.value {
                 Some(JSXAttributeValue::ExpressionContainer(container)) => {
@@ -568,7 +598,7 @@ fn build_node(
                 }
                 _ => props
                     .passthrough
-                    .push(passthrough_prop(attr, module_record, diagnostics, consumed)),
+                    .push(passthrough_prop(attr, scope, diagnostics, consumed)),
             },
             "open" => match &attr.value {
                 Some(JSXAttributeValue::ExpressionContainer(container)) => {
@@ -576,19 +606,19 @@ fn build_node(
                 }
                 _ => props
                     .passthrough
-                    .push(passthrough_prop(attr, module_record, diagnostics, consumed)),
+                    .push(passthrough_prop(attr, scope, diagnostics, consumed)),
             },
             "onClose" => {
                 props.has_on_close = true;
                 props
                     .passthrough
-                    .push(passthrough_prop(attr, module_record, diagnostics, consumed));
+                    .push(passthrough_prop(attr, scope, diagnostics, consumed));
             }
             "placeholder" => {
                 props.has_placeholder = true;
                 props
                     .passthrough
-                    .push(passthrough_prop(attr, module_record, diagnostics, consumed));
+                    .push(passthrough_prop(attr, scope, diagnostics, consumed));
             }
             "accessibilityRole" => {
                 props.accessibility_role = accessibility_role_from_value(&attr.value);
@@ -598,12 +628,12 @@ fn build_node(
                     // *reason* about it, not to emit it.
                     props
                         .passthrough
-                        .push(passthrough_prop(attr, module_record, diagnostics, consumed));
+                        .push(passthrough_prop(attr, scope, diagnostics, consumed));
                 }
             }
             _ => props
                 .passthrough
-                    .push(passthrough_prop(attr, module_record, diagnostics, consumed)),
+                    .push(passthrough_prop(attr, scope, diagnostics, consumed)),
         }
     }
 
@@ -615,14 +645,14 @@ fn build_node(
     for child in &el.children {
         match child {
             JSXChild::Element(child_el) => {
-                match build_node(child_el, module_record, diagnostics, consumed) {
+                match build_node(child_el, scope, diagnostics, consumed) {
                     Some(child_node) => children.push(Child::Node(child_node)),
                     // A component Hozo doesn't model still renders, and
                     // still occupies a position among its siblings.
                     None => children.push(carry_verbatim(
                         child,
                         child_el.span(),
-                        module_record,
+                        scope,
                         diagnostics,
                         consumed,
                     )),
@@ -637,7 +667,7 @@ fn build_node(
             other => children.push(carry_verbatim(
                 other,
                 other.span(),
-                module_record,
+                scope,
                 diagnostics,
                 consumed,
             )),
@@ -723,17 +753,17 @@ pub struct JsxCollector<'r, 'a> {
     /// The innermost enclosing function body's insertion point, maintained
     /// as the walk descends. See `Root::hook_slot`.
     hook_slot: Option<u32>,
-    module_record: &'r ModuleRecord<'a>,
+    scope: &'r Scope<'r, 'a>,
 }
 
 impl<'r, 'a> JsxCollector<'r, 'a> {
-    pub fn new(module_record: &'r ModuleRecord<'a>) -> Self {
+    pub fn new(scope: &'r Scope<'r, 'a>) -> Self {
         Self {
             roots: Vec::new(),
             diagnostics: Vec::new(),
             consumed: Vec::new(),
             hook_slot: None,
-            module_record,
+            scope,
         }
     }
 
@@ -755,7 +785,7 @@ impl<'r, 'a> Visit<'a> for JsxCollector<'r, 'a> {
         // already recurses into children itself, so falling through to the
         // generic walker here would visit (and re-collect) nested elements
         // a second time.
-        if let Some(node) = build_node(it, self.module_record, &mut self.diagnostics, &mut self.consumed) {
+        if let Some(node) = build_node(it, self.scope, &mut self.diagnostics, &mut self.consumed) {
             self.roots.push(Root { node, hook_slot: self.hook_slot });
         }
     }

@@ -84,9 +84,13 @@ fn parser_diagnostics_for(
 /// per component's returned JSX, see `hozo_parser::parse_tsx`) to Web
 /// output. Returns one `CompiledComponent` per root found, in source order.
 #[napi]
-pub fn compile(source: String, theme: Option<JsTheme>) -> Vec<CompiledComponent> {
+pub fn compile(
+    source: String,
+    theme: Option<JsTheme>,
+    sources: Option<Vec<String>>,
+) -> Vec<CompiledComponent> {
     let theme = to_theme(theme);
-    let parsed = hozo_parser::parse_tsx(&source);
+    let parsed = hozo_parser::parse_tsx_with(&source, sources.as_deref());
     parsed
         .roots
         .iter()
@@ -227,9 +231,13 @@ pub struct CompiledNativeComponent {
 /// docs for the current Phase 0 scope/limitations (non-Always conditions
 /// aren't wired into the rendered `style` prop yet).
 #[napi]
-pub fn compile_native(source: String, theme: Option<JsTheme>) -> Vec<CompiledNativeComponent> {
+pub fn compile_native(
+    source: String,
+    theme: Option<JsTheme>,
+    sources: Option<Vec<String>>,
+) -> Vec<CompiledNativeComponent> {
     let theme = to_theme(theme);
-    let parsed = hozo_parser::parse_tsx(&source);
+    let parsed = hozo_parser::parse_tsx_with(&source, sources.as_deref());
     parsed
         .roots
         .iter()

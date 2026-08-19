@@ -91,3 +91,39 @@ modules outside that list is left alone silently — a project whose own
 components are named `View` is not doing anything wrong. A file mixing the
 two is left alone *with* a warning, because there its author has every
 reason to expect lowering.
+
+## @expo/ui and other component libraries
+
+`@expo/ui` exports `Text`, `Button`, `List`, `ListItem`, `ScrollView` and
+`TextInput` — every one a native SwiftUI or Jetpack Compose control that
+shares nothing with the Hozo primitive of the same name but its spelling.
+A compiler matching on tag names alone cannot tell them apart.
+
+So the module list travels into the compiler and resolution happens **per
+tag**. This file compiles:
+
+```tsx
+import { View } from 'react-native'
+import { Button, Host } from '@expo/ui/swift-ui'
+
+export function Screen() {
+  return (
+    <View className="p-4">
+      <Host><Button label="Save" /></Host>
+    </View>
+  )
+}
+```
+
+The `View` lowers and gets its styles; the `<Host><Button/></Host>` is
+carried verbatim, the same treatment any component Hozo does not model
+already gets. Refusing the whole file would have left the half Hozo
+understands uncompiled; accepting it would have turned a SwiftUI button
+into a `Pressable`.
+
+Two Native-side guards had to learn the same distinction: a carried
+`<Button>` is normally a build error, because Hozo's Button is a semantic
+primitive and React Native's takes a `title` and renders no children — but
+a carried `@expo/ui` Button is the correct outcome. And the generated
+`react-native` import skips any name the file already binds to something
+else.

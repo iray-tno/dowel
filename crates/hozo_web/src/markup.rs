@@ -14,6 +14,11 @@ use hozo_ir::{AccessibilityRole, Diagnostic, DiagnosticCode, HeadingLevel, Node,
 /// warns about, so that diagnostic is emitted here rather than silently
 /// shipping an inaccessible interactive `<div>`.
 pub fn element_shape(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'static str, Vec<(&'static str, String)>) {
+    let (component, attrs) = element_shape_inner(node, diagnostics);
+    (component, apply_authored_role(node, attrs, diagnostics))
+}
+
+fn element_shape_inner(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'static str, Vec<(&'static str, String)>) {
     match node.primitive {
         Primitive::View if node.props.on_layout.is_some() || node.props.has_responder_handlers() => ("View", Vec::new()),
         Primitive::View => ("div", Vec::new()),
@@ -58,9 +63,19 @@ pub fn element_shape(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'stati
         Primitive::FlatList => ("FlatList", Vec::new()),
         Primitive::Pressable => {
             let mut attrs = Vec::new();
-            match node.props.accessibility_role {
+            match &node.props.accessibility_role {
                 Some(AccessibilityRole::Button) => attrs.push((if node.props.has_responder_handlers() { "accessibilityRole" } else { "role" }, "button".to_string())),
                 Some(AccessibilityRole::Link) => attrs.push((if node.props.has_responder_handlers() { "accessibilityRole" } else { "role" }, "link".to_string())),
+                // Any other ARIA role goes through as written. Hozo does
+                // not have an opinion about `combobox` beyond carrying it
+                // to the platform that understands it.
+                Some(AccessibilityRole::Aria(role)) => attrs.push(("role", role.clone())),
+                // A React Native container role. The DOM has nothing that
+                // means it, and inventing the nearest ARIA role would be
+                // announcing something the author did not write -- so it
+                // is reported by `role_diagnostics` and no attribute is
+                // emitted.
+                Some(AccessibilityRole::NativeOnly(_)) => {}
                 None => {
                     if node.props.on_press.is_some() {
                         diagnostics.push(Diagnostic {
@@ -291,4 +306,47 @@ mod tests {
         assert!(attrs.iter().any(|(k, v)| *k == "role" && v == "button"));
         assert!(diagnostics.is_empty());
     }
+}
+
+/// Applies an author-written role over the primitive's own.
+///
+/// `role` and `accessibilityRole` are two spellings of one concept, so a
+/// primitive that supplies its own must not also emit it when the author
+/// has said otherwise -- `<List role="menu">` is a menu built on a list,
+/// and announcing both is announcing neither.
+///
+/// The author's role is never dropped for being redundant. `<ul role="list">`
+/// looks redundant and is a deliberate, documented workaround: Safari
+/// removes list semantics from a `<ul>` styled `list-style: none`, and the
+/// explicit role is what puts them back.
+fn apply_authored_role(
+    node: &Node,
+    mut attrs: Vec<(&'static str, String)>,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> Vec<(&'static str, String)> {
+    let Some(role) = &node.props.accessibility_role else { return attrs };
+    attrs.retain(|(key, _)| *key != "role" && *key != "accessibilityRole");
+    // An element carrying responder handlers is rendered by a runtime
+    // component that takes React Native's prop names, not by a DOM element
+    // -- so the role has to keep the spelling that component reads.
+    let key = if node.props.has_responder_handlers() { "accessibilityRole" } else { "role" };
+    match role {
+        AccessibilityRole::Button => attrs.push((key, "button".to_string())),
+        AccessibilityRole::Link => attrs.push((key, "link".to_string())),
+        AccessibilityRole::Aria(name) => attrs.push((key, name.clone())),
+        // The DOM has nothing that means a React Native container role,
+        // and the nearest ARIA one would be announcing something the
+        // author did not write.
+        AccessibilityRole::NativeOnly(name) => diagnostics.push(Diagnostic {
+            code: DiagnosticCode::RoleHasNoWebEquivalent,
+            severity: Severity::Warning,
+            message: if hozo_parser::aria::is_abstract_role(name) {
+                format!("`{name}` is one of ARIA's abstract roles, which describe the ontology rather than any element -- the specification says not to write one. Nothing is emitted here, so the element is announced as whatever its tag says.")
+            } else {
+                format!("`{name}` is not a role ARIA defines, so nothing is emitted here and the element is announced as whatever its tag says. React Native has its own role vocabulary with names like this one; the two overlap for most roles and not for this.")
+            },
+            span: node.span,
+        }),
+    }
+    attrs
 }

@@ -51,6 +51,13 @@ pub enum Severity {
 pub enum DiagnosticCode {
     /// Interactive Pressable/Button with no accessible role (proposal §10.2).
     A11yInteractiveWithoutRole,
+    /// A role only React Native has, on a target that is the DOM.
+    ///
+    /// React Native's own vocabulary carries Android container names --
+    /// `drawerlayout`, `viewgroup`, `pager`, `keyboardkey` -- that ARIA
+    /// has no word for. Guessing the nearest one would announce something
+    /// the author never wrote, so the attribute is dropped and named.
+    RoleHasNoWebEquivalent,
     /// A `Dialog` that can't be dismissed (proposal §10.3).
     ///
     /// Escape on Web and the hardware back button on Android both arrive
@@ -396,10 +403,30 @@ pub enum HeadingLevel {
     Dynamic(ExprRef),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AccessibilityRole {
+    /// The two that decide an element, not just an attribute: a Pressable
+    /// with one of these becomes a `<button>` or an `<a>` on Web.
     Button,
     Link,
+    /// Any other ARIA role, as written.
+    ///
+    /// ARIA is the vocabulary because it is already the cross-platform
+    /// one: React Native has taken `role` with ARIA values since 0.71,
+    /// and the DOM has always had it. Translating React Native's older
+    /// `accessibilityRole` vocabulary into ARIA would be a step *down* --
+    /// its list has no `listbox`, `option`, `tree` or `tabpanel`, so a
+    /// design-styled select box built out of plain elements cannot be
+    /// described in it at all.
+    Aria(String),
+    /// A React Native role with no ARIA meaning: `drawerlayout`,
+    /// `keyboardkey`, `viewgroup`, `pager` and the rest of the
+    /// Android-specific container names.
+    ///
+    /// Kept rather than dropped at parse time so each backend can answer
+    /// for itself -- React Native understands these and the DOM does not,
+    /// which is a difference to report rather than to erase.
+    NativeOnly(String),
 }
 
 // ---------------------------------------------------------------------------

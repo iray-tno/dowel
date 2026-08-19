@@ -76,7 +76,9 @@ export const A11Y_CONTEXTUAL_CASES: A11yContextualCase[] = [
     purpose: 'a generic interaction stays focusable and explicitly named',
     source: '<Pressable onPress={go} accessibilityRole="link" accessibilityLabel="Account">Account</Pressable>',
     web: ['<div', 'role="link"', 'tabIndex="0"', 'aria-label={"Account"}', 'onClick={go}'],
-    native: ['<Pressable', 'accessibilityRole="link"', 'accessibilityLabel={"Account"}', 'onPress={go}'],
+    // `role`, not `accessibilityRole`: React Native has taken the ARIA
+    // spelling since 0.71, so the two platforms now write the same word.
+    native: ['<Pressable', 'role="link"', 'accessibilityLabel={"Account"}', 'onPress={go}'],
   },
   {
     name: 'named TextInput',

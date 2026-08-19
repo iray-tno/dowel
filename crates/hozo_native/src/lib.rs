@@ -3430,12 +3430,10 @@ export const C = () => <FlatList accessibilityRole=\"list\" data={[]} renderItem
 ";
         let parsed = hozo_parser::parse_tsx(source);
         let output = lower(&parsed.roots[0].node, source, &Theme::default());
-        assert_eq!(
-            output.jsx.matches("accessibilityRole").count(),
-            1,
-            "{}",
-            output.jsx
-        );
+        // One role, in ARIA's spelling: React Native has taken `role`
+        // since 0.71, and it is the vocabulary both platforms share.
+        assert_eq!(output.jsx.matches("role=").count(), 1, "{}", output.jsx);
+        assert!(output.jsx.contains(r#"role="list""#), "{}", output.jsx);
     }
 
     #[test]
@@ -3448,8 +3446,8 @@ export const C = () => <List accessibilityRole=\"menu\">x</List>
 ";
         let parsed = hozo_parser::parse_tsx(source);
         let output = lower(&parsed.roots[0].node, source, &Theme::default());
-        assert!(output.jsx.contains(r#"accessibilityRole="menu""#), "{}", output.jsx);
-        assert!(!output.jsx.contains(r#"accessibilityRole="list""#), "{}", output.jsx);
+        assert!(output.jsx.contains(r#"role="menu""#), "{}", output.jsx);
+        assert!(!output.jsx.contains(r#""list""#), "{}", output.jsx);
     }
 
     #[test]
@@ -4263,7 +4261,7 @@ export const C = (p) => <List {...p}>x</List>
         let parsed_with_role = hozo_parser::parse_tsx(source_with_role);
         let output_with_role = lower(&parsed_with_role.roots[0].node, source_with_role, &Theme::default());
         assert!(output_with_role.diagnostics.is_empty());
-        assert!(output_with_role.jsx.contains(r#"accessibilityRole="button""#));
+        assert!(output_with_role.jsx.contains(r#"role="button""#));
     }
 
     #[test]

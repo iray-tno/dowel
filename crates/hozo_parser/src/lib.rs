@@ -1,6 +1,7 @@
 //! TSX analysis and Style IR construction.
 
 mod arbitrary;
+pub mod aria;
 mod dynamic_class;
 mod jsx;
 mod scan;

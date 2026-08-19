@@ -15,6 +15,11 @@ use hozo_ir::{AccessibilityRole, Diagnostic, DiagnosticCode, Node, Primitive, Se
 /// props). `Pressable` gets the same interactive-without-role diagnostic as
 /// the Web backend, using RN's actual accessibility prop names.
 pub fn native_component(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'static str, Vec<(&'static str, String)>) {
+    let (component, attrs) = native_component_inner(node, diagnostics);
+    (component, apply_authored_role(node, attrs))
+}
+
+fn native_component_inner(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'static str, Vec<(&'static str, String)>) {
     match node.primitive {
         Primitive::View => ("View", Vec::new()),
         Primitive::Text => ("Text", Vec::new()),
@@ -32,12 +37,22 @@ pub fn native_component(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'st
         Primitive::FlatList => ("FlatList", vec![("accessibilityRole", "list".to_string())]),
         Primitive::Pressable => {
             let mut props = Vec::new();
-            match node.props.accessibility_role {
+            match &node.props.accessibility_role {
                 Some(AccessibilityRole::Button) => {
                     props.push(("accessibilityRole", "button".to_string()));
                 }
                 Some(AccessibilityRole::Link) => {
                     props.push(("accessibilityRole", "link".to_string()));
+                }
+                // `role` rather than `accessibilityRole`: React Native has
+                // taken the ARIA spelling since 0.71, and it is the one
+                // vocabulary both platforms share.
+                Some(AccessibilityRole::Aria(role)) => {
+                    props.push(("role", role.clone()));
+                }
+                // Its own vocabulary, which only this platform has.
+                Some(AccessibilityRole::NativeOnly(role)) => {
+                    props.push(("accessibilityRole", role.clone()));
                 }
                 None => {
                     if node.props.on_press.is_some() {
@@ -198,4 +213,33 @@ mod tests {
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].code, DiagnosticCode::A11yInteractiveWithoutRole);
     }
+}
+
+/// Applies an author-written role over the primitive's own.
+///
+/// `role` and `accessibilityRole` are two spellings of one concept, so a
+/// primitive that supplies its own must not also emit it when the author
+/// has said otherwise -- `<List role="menu">` is a menu built on a list,
+/// and announcing both is announcing neither.
+///
+/// The author's role is never dropped for being redundant. `<ul role="list">`
+/// looks redundant and is a deliberate, documented workaround: Safari
+/// removes list semantics from a `<ul>` styled `list-style: none`, and the
+/// explicit role is what puts them back.
+fn apply_authored_role(
+    node: &Node,
+    mut attrs: Vec<(&'static str, String)>,
+) -> Vec<(&'static str, String)> {
+    let Some(role) = &node.props.accessibility_role else { return attrs };
+    attrs.retain(|(key, _)| *key != "role" && *key != "accessibilityRole");
+    match role {
+        AccessibilityRole::Button => attrs.push(("role", "button".to_string())),
+        AccessibilityRole::Link => attrs.push(("role", "link".to_string())),
+        AccessibilityRole::Aria(name) => attrs.push(("role", name.clone())),
+        // Its own vocabulary, which only this platform has.
+        AccessibilityRole::NativeOnly(name) => {
+            attrs.push(("accessibilityRole", name.clone()))
+        }
+    }
+    attrs
 }

@@ -34,6 +34,16 @@ const checks = [
   // Tier three: a class only a runtime expression produces is covered by
   // the project-wide scan, which under Next runs at config time.
   [output.includes('.bg-emerald-500'), 'candidate stylesheet did not reach the build'],
+  // And that stylesheet was rendered *with* the project theme. `bg-brand`
+  // is the only class in `variants.ts` that cannot resolve without
+  // `src/theme.css`, which is what makes this checkable at all: while they
+  // were all default-palette colours, a theme-less candidate sheet looked
+  // exactly like a correct one. It was theme-less on any warm cache, and
+  // `bg-brand` compiled to a CSS variable nothing defines.
+  [
+    !/--hozo-color-brand/.test(output),
+    'the candidate stylesheet was rendered without the project theme',
+  ],
   // Nothing of the authoring layer is left in the bundle.
   [!output.includes('@hozo/core'), 'Next.js output still imports @hozo/core'],
 ]

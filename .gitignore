@@ -9,6 +9,9 @@ storybook-static/
 artifacts/
 .next/
 next-env.d.ts
+# Next 16 writes these into the app on dev startup.
+examples/*/AGENTS.md
+examples/*/CLAUDE.md
 .turbo/
 *.log
 

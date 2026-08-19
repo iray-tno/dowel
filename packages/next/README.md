@@ -58,3 +58,15 @@ exactly `HozoProjectOptions` and add nothing:
 
 An error-severity diagnostic fails the build in all four, and prints the
 same way.
+
+## Dev mode
+
+`next dev` runs the same loader the build does, verified against a running
+server: the page lowers, the candidate stylesheet is written, and editing a
+`className` updates the CSS without a restart.
+
+The candidate stylesheet has an ordering to it that is worth knowing.
+`withHozo` writes it synchronously while `next.config.ts` is evaluated — it
+has to exist before the first module imports it — and a theme cannot be
+read synchronously, so that first write has none. The loader rewrites it
+once the theme resolves, before compiling anything.

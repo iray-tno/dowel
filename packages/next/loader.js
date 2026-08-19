@@ -28,12 +28,28 @@ const projects = new Map()
 function projectState(options) {
   let state = projects.get(options.root)
   if (!state) {
+    const cache = openCandidateCache(path.join(options.root, CACHE_DIR, 'candidates.json'))
+    const theme = loadProjectTheme(options.root, {
+      css: options.css,
+      warn: (message) => console.warn(`[hozo] ${message}`),
+    })
     state = {
-      theme: loadProjectTheme(options.root, {
-        css: options.css,
-        warn: (message) => console.warn(`[hozo] ${message}`),
+      cache,
+      // Rewritten once the theme resolves, unconditionally.
+      //
+      // `withHozo` writes this file synchronously while `next.config.ts`
+      // is evaluated -- it has to exist before the first module imports
+      // it -- and a theme cannot be read synchronously, so that first
+      // write has none. The per-file rescan below then only rewrites when
+      // the candidate set *changed*, which on a warm cache is never. So
+      // the theme-less version survived, and a project token in a dynamic
+      // className compiled to `var(--hozo-color-brand)` with nothing
+      // defining it: no error, no warning, just no colour. Found by
+      // reading what `next dev` actually served.
+      theme: theme.then((resolved) => {
+        writeFileIfChanged(options.candidateCssPath, cache.renderCss(resolved))
+        return resolved
       }),
-      cache: openCandidateCache(path.join(options.root, CACHE_DIR, 'candidates.json')),
     }
     projects.set(options.root, state)
   }

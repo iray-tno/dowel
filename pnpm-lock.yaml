@@ -286,8 +286,12 @@ importers:
       '@hozo/tailwind':
         specifier: workspace:^
         version: link:../tailwind
+    devDependencies:
+      react:
+        specifier: ^19.2.8
+        version: 19.2.8
       vite:
-        specifier: '>=5'
+        specifier: ^8.2.1
         version: 8.2.1(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.50.0)
 
 packages:

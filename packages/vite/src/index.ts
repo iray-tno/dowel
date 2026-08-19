@@ -11,6 +11,15 @@
 // module is a reasonable thing to move to once this needs to survive
 // production builds cleanly.
 //
+// One consequence, measured against a running dev server rather than
+// reasoned about: the companion stylesheet is written *during* the source
+// module's transform, so a style-only edit reaches the browser in two
+// rounds. The `.tsx` change triggers the first, that transform writes the
+// CSS, and the watcher seeing the new CSS triggers the second. It
+// converges because `writeFileIfChanged` refuses to rewrite identical
+// bytes -- without that, each transform would invalidate the stylesheet it
+// had just written and the two would take turns forever.
+//
 // Alongside that, one project-wide stylesheet covers the classes the
 // compiler *couldn't* read (proposal §7's third tier). Those come from a
 // byte scan of every source file rather than from the AST, so this plugin

@@ -12,5 +12,12 @@
   },
   "peerDependencies": {
     "vite": ">=5"
+  },
+  "scripts": {
+    "test": "node --test src/*.test.ts"
+  },
+  "devDependencies": {
+    "react": "^19.2.8",
+    "vite": "^8.2.1"
   }
 }

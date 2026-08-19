@@ -210,11 +210,22 @@ export function transformHozoSource(
   // beside it is a SyntaxError: `Identifier 'View' has already been
   // declared`.
   const alreadyImported = new Set(moduleImports(next, 'react-native'))
-  const needed = [...usedTags, 'StyleSheet'].filter((name) => !alreadyImported.has(name))
   const mergedStyles = mergeStyleObjects(styleBlocks)
+  // No styles means no declaration, and no `StyleSheet` import to go with
+  // it. A React Native file with no Tailwind classes still reaches this --
+  // Hozo may have semantic props to add to it -- and it was getting a
+  // `const hozoStyles = StyleSheet.create({})` for its trouble, in every
+  // such file in the project.
+  const hasStyles = mergedStyles.replace(/\s/g, '') !== '{}'
+  const needed = [...usedTags, ...(hasStyles ? ['StyleSheet'] : [])].filter(
+    (name) => !alreadyImported.has(name),
+  )
   const rnImport =
     needed.length > 0 ? `import { ${needed.join(', ')} } from 'react-native'\n` : ''
-  next = `${rnImport}const hozoStyles = StyleSheet.create(${mergedStyles})\n${next}`
+  const styleDeclaration = hasStyles
+    ? `const hozoStyles = StyleSheet.create(${mergedStyles})\n`
+    : ''
+  next = `${rnImport}${styleDeclaration}${next}`
   if (runtimeImports.size > 0) {
     next = `import { ${[...runtimeImports].join(', ')} } from '@hozo/runtime'\n${next}`
   }

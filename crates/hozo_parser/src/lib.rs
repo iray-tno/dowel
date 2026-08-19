@@ -86,6 +86,46 @@ pub fn module_imports(source_text: &str, module: &str) -> Vec<String> {
         .collect()
 }
 
+/// Names a *trusted* module exports that are not the primitive Hozo means.
+///
+/// One entry, and it matters: React Native's `Button` takes a `title` and
+/// renders no children, while Hozo's is a semantic primitive that lowers to
+/// a Pressable wrapping its children. Trusting `react-native` wholesale
+/// turned an ordinary `<Button title="Go" onPress={f} />` into
+/// `<Pressable accessibilityRole="button" onPress={f} title="Go"></Pressable>`
+/// -- a control that renders nothing at all, in a file the author never
+/// asked Hozo to change.
+///
+/// Every other name React Native and Hozo share -- `View`, `Text`,
+/// `Image`, `ScrollView`, `FlatList`, `Pressable`, `TextInput` -- is the
+/// same component, which is why the rest of `react-native` is trusted.
+const INCOMPATIBLE_PRIMITIVES: &[(&str, &str)] = &[("react-native", "Button")];
+
+/// Primitive-named bindings that must not be lowered: imported from a
+/// module the project doesn't trust, or named on the incompatibility list.
+pub fn foreign_primitives(
+    source_text: &str,
+    sources: &[String],
+) -> std::collections::HashSet<String> {
+    let allocator = Allocator::default();
+    let source_type = SourceType::from_extension("tsx").expect("\"tsx\" is a known extension");
+    let ret = Parser::new(&allocator, source_text, source_type).parse();
+
+    ret.module_record
+        .import_entries
+        .iter()
+        .filter(|entry| !entry.is_type)
+        .filter(|entry| jsx::is_primitive_name(entry.local_name.name.as_str()))
+        .filter(|entry| {
+            let module = entry.module_request.name.as_str();
+            let local = entry.local_name.name.as_str();
+            !sources.iter().any(|s| s == module)
+                || INCOMPATIBLE_PRIMITIVES.contains(&(module, local))
+        })
+        .map(|entry| entry.local_name.name.to_string())
+        .collect()
+}
+
 /// Parses TSX source into Hozo IR node trees, one per top-level JSX
 /// element found (e.g. one per component's returned JSX).
 pub fn parse_tsx(source_text: &str) -> ParseOutput {
@@ -112,17 +152,9 @@ pub fn parse_tsx_with(source_text: &str, sources: Option<&[String]>) -> ParseOut
     let source_type = SourceType::from_extension("tsx").expect("\"tsx\" is a known extension");
     let ret = Parser::new(&allocator, source_text, source_type).parse();
 
-    let foreign: std::collections::HashSet<String> = match sources {
+    let foreign = match sources {
         None => std::collections::HashSet::new(),
-        Some(sources) => ret
-            .module_record
-            .import_entries
-            .iter()
-            .filter(|entry| !entry.is_type)
-            .filter(|entry| jsx::is_primitive_name(entry.local_name.name.as_str()))
-            .filter(|entry| !sources.iter().any(|s| s == entry.module_request.name.as_str()))
-            .map(|entry| entry.local_name.name.to_string())
-            .collect(),
+        Some(sources) => foreign_primitives(source_text, sources),
     };
     let scope = jsx::Scope { module_record: &ret.module_record, foreign };
 
@@ -348,5 +380,38 @@ mod import_tests {
     #[test]
     fn ordinary_imports_are_not_primitives() {
         assert!(primitive_imports("import { useState } from 'react'\n").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod incompatibility_tests {
+    use super::*;
+
+    #[test]
+    fn react_natives_button_is_not_hozos() {
+        // Trusting `react-native` wholesale turned an ordinary
+        // `<Button title="Go" onPress={f} />` into
+        // `<Pressable onPress={f} title="Go"></Pressable>` -- a control
+        // that renders nothing at all, in a file nobody asked Hozo to
+        // change. The two components share a name and no API.
+        let sources = vec!["react-native".to_string(), "@hozo/core".to_string()];
+        let foreign = foreign_primitives("import { Button, View } from 'react-native'\n", &sources);
+        assert!(foreign.contains("Button"));
+        assert!(!foreign.contains("View"), "the rest of react-native is the same component");
+    }
+
+    #[test]
+    fn hozos_own_button_is_lowered() {
+        let sources = vec!["react-native".to_string(), "@hozo/core".to_string()];
+        let foreign = foreign_primitives("import { Button } from '@hozo/core'\n", &sources);
+        assert!(foreign.is_empty());
+    }
+
+    #[test]
+    fn an_untrusted_module_is_foreign_whatever_it_exports() {
+        let sources = vec!["react-native".to_string()];
+        let foreign = foreign_primitives("import { Text, Button } from '@expo/ui/swift-ui'\n", &sources);
+        assert!(foreign.contains("Text"));
+        assert!(foreign.contains("Button"));
     }
 }

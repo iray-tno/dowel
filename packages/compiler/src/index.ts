@@ -160,3 +160,14 @@ export function primitiveImports(source: string): PrimitiveImport[] {
 export function moduleImports(source: string, module: string): string[] {
   return loadNative().moduleImports(source, module)
 }
+
+/**
+ * Primitive-named bindings this file must not have lowered.
+ *
+ * One implementation of the rule, in the compiler: a module the project
+ * doesn't trust, or a name a trusted module spells the same and means
+ * differently. See `./sources.ts`.
+ */
+export function foreignPrimitiveNames(source: string, sources: readonly string[]): string[] {
+  return loadNative().foreignPrimitives(source, [...sources])
+}

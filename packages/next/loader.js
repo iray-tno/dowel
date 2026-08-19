@@ -73,13 +73,6 @@ export default function hozoLoader(source) {
         for (const diagnostic of lowered.diagnostics) {
           this.emitWarning(hozoWarning(diagnostic))
         }
-        // Declined rather than compiled: the file keeps its own
-        // primitives and must not gain an import for a stylesheet that
-        // was never written.
-        if (!lowered.lowered) {
-          callback(null, source)
-          return
-        }
         writeFileIfChanged(lowered.cssPath, lowered.css)
         // Both stylesheets are imported from the module itself rather than
         // from one designated entry: the candidate sheet has to be present

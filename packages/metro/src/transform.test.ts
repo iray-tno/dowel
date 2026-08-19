@@ -43,7 +43,10 @@ test('maps the cross-platform PanResponder value to React Native', () => {
     'Drag.tsx',
   )
   assert.ok(output)
-  assert.match(output, /import \{[^}]*View[^}]*PanResponder[^}]*StyleSheet[^}]*\} from 'react-native'/)
+  // No `StyleSheet`: this component has no classes, so nothing generated a
+  // style object for it to create.
+  assert.match(output, /import \{[^}]*View[^}]*PanResponder[^}]*\} from 'react-native'/)
+  assert.ok(!output.includes('StyleSheet'), output)
   assert.match(output, /<View \{\.\.\.pan\.panHandlers\}/)
   assert.doesNotMatch(output, /@hozo\/core/)
 })
@@ -343,4 +346,33 @@ test('does not import React Native’s component when the name is somebody else�
   assert.match(output, /import \{ StyleSheet \} from 'react-native'/)
   assert.ok(!/import \{[^}]*\bText\b[^}]*\} from 'react-native'/.test(output), output)
   assert.match(output, /<Text>hi<\/Text>/, 'the @expo/ui Text must survive')
+})
+
+test('leaves React Native’s own Button alone', () => {
+  // The two share a name and no API: React Native's takes a `title` and
+  // renders no children, Hozo's is a semantic primitive that lowers to a
+  // Pressable wrapping its children. Trusting `react-native` wholesale
+  // turned `<Button title="Go" onPress={f} />` into
+  // `<Pressable onPress={f} title="Go"></Pressable>` -- a control that
+  // renders nothing, in a file nobody asked Hozo to change.
+  const source =
+    "import { Button, View } from 'react-native'\n" +
+    'export function S() { return <View><Button title="Go" onPress={f} /></View> }\n'
+  assert.equal(transformHozoSource(source, 'S.tsx'), source, 'the file should come back untouched')
+})
+
+test('writes no StyleSheet for a file that produced no styles', () => {
+  // Reached by every React Native file with no Tailwind classes, which in
+  // a partly-migrated app is most of them. They were each getting a
+  // `const hozoStyles = StyleSheet.create({})` for their trouble.
+  const output = transformHozoSource(
+    "import { FlatList } from 'react-native'\n" +
+      'export function S() { return <FlatList data={[]} renderItem={() => null} /> }\n',
+    'S.tsx',
+  )
+  assert.ok(output)
+  assert.ok(!output.includes('StyleSheet'), output)
+  // The semantic contribution still happens -- that is why the file is
+  // rewritten at all.
+  assert.match(output, /accessibilityRole="list"/)
 })

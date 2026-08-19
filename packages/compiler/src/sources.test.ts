@@ -13,7 +13,7 @@ test('a plain React Native file compiles', () => {
   // false of every integration until the gate stopped being a
   // `code.includes('@hozo/core')` substring test.
   const lowered = lowerModule(rn + card, 'Card.tsx', 'Card.tsx', undefined)
-  assert.ok(lowered?.lowered)
+  assert.ok(lowered)
   assert.match(lowered.code, /<div/)
   assert.match(lowered.css, /padding-top: 16px/)
 })
@@ -40,7 +40,7 @@ test('a mixed Expo file lowers one half and carries the other', () => {
     '}\n'
   const lowered = lowerModule(source, 'Screen.tsx', 'Screen.tsx', undefined)
 
-  assert.ok(lowered?.lowered)
+  assert.ok(lowered)
   assert.match(lowered.code, /<div className="hozo-view hozo-r0-0">/, 'the View should have lowered')
   assert.match(lowered.code, /<Host><Button label="Save" \/><\/Host>/, 'the @expo/ui half must survive untouched')
   assert.match(lowered.css, /padding-top: 16px/)
@@ -57,7 +57,7 @@ test('the same name resolves differently in the same file', () => {
     '  return (<View><Text className="font-bold">a</Text><NativeText>b</NativeText></View>)\n' +
     '}\n'
   const lowered = lowerModule(source, 'Screen.tsx', 'Screen.tsx', undefined)
-  assert.ok(lowered?.lowered)
+  assert.ok(lowered)
   assert.match(lowered.code, /<span className="hozo-r0-1">a<\/span>/)
   assert.match(lowered.code, /<NativeText>b<\/NativeText>/)
 })
@@ -71,7 +71,7 @@ test('a project can add its own module to the trusted list', () => {
   const lowered = lowerModule(source, 'Card.tsx', 'Card.tsx', undefined, {
     sources: [...DEFAULT_PRIMITIVE_SOURCES, './ui'],
   })
-  assert.ok(lowered?.lowered)
+  assert.ok(lowered)
   assert.match(lowered.code, /<div/)
 })
 

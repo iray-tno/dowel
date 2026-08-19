@@ -338,3 +338,15 @@ pub fn primitive_imports(source: String) -> Vec<PrimitiveImport> {
 pub fn module_imports(source: String, module: String) -> Vec<String> {
     hozo_parser::module_imports(&source, &module)
 }
+
+/// Primitive-named bindings a file must not have lowered.
+///
+/// One implementation of the rule, shared with the backends: the Native
+/// transform has its own guards that need to tell a component Hozo
+/// declined from one it failed to lower.
+#[napi]
+pub fn foreign_primitives(source: String, sources: Vec<String>) -> Vec<String> {
+    let mut names: Vec<String> = hozo_parser::foreign_primitives(&source, &sources).into_iter().collect();
+    names.sort();
+    names
+}

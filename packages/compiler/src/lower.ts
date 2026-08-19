@@ -128,14 +128,6 @@ export interface LoweredModule {
   /** Its absolute path, next to the source file. */
   cssPath: string
   diagnostics: CompileDiagnostic[]
-  /**
-   * Whether anything was actually lowered.
-   *
-   * `false` carries diagnostics and the untouched source: the file has
-   * primitives Hozo declined, and the caller should report why rather than
-   * splice a stylesheet import into a module with no stylesheet.
-   */
-  lowered: boolean
 }
 
 /**
@@ -202,6 +194,5 @@ export function lowerModule(
     cssFileName,
     cssPath: path.join(path.dirname(file), cssFileName),
     diagnostics: components.flatMap((component) => component.diagnostics),
-    lowered: true,
   }
 }

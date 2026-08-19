@@ -31,7 +31,7 @@
 // `code.includes('@hozo/core')` substring test. That skipped every Expo and
 // React Native project on the grounds that they had not been rewritten.
 
-import { primitiveImports } from './index.ts'
+import { foreignPrimitiveNames } from './index.ts'
 
 /**
  * Modules whose primitives Hozo lowers unless a project says otherwise.
@@ -54,9 +54,5 @@ export const DEFAULT_PRIMITIVE_SOURCES = ['@hozo/core', 'react-native'] as const
  * carried one of those is the correct outcome rather than a failure.
  */
 export function foreignPrimitives(source: string, allowed: readonly string[]): Set<string> {
-  return new Set(
-    primitiveImports(source)
-      .filter((entry) => !allowed.includes(entry.module))
-      .map((entry) => entry.local),
-  )
+  return new Set(foreignPrimitiveNames(source, allowed))
 }

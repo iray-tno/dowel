@@ -141,10 +141,6 @@ export function hozo(options: HozoOptions = {}): Plugin {
       // can emit today comes from the Native backend, so this had simply
       // never been handed one.
       reportDiagnostics(lowered.diagnostics, file, (message) => this.warn(message))
-      // Declined rather than compiled: the file keeps its own primitives
-      // and must not gain an import for a stylesheet that was never
-      // written.
-      if (!lowered.lowered) return
 
       let next = lowered.code
       writeFileIfChanged(lowered.cssPath, lowered.css)

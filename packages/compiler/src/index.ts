@@ -131,25 +131,6 @@ export function openCandidateCache(path?: string): CandidateCache {
   return new (loadNative().CandidateCache)(path)
 }
 
-/** One imported binding whose local name is a Hozo primitive tag. */
-export interface PrimitiveImport {
-  local: string
-  module: string
-}
-
-/**
- * Where a file's primitive-named bindings come from.
- *
- * The compiler matches on the JSX tag name and never asks where the name
- * came from. That is what lets a plain React Native file compile without
- * changing a line of it -- and equally what would let a `<View>` from some
- * other component library be lowered to a `<div>`. See
- * `@hozo/compiler/sources` for the policy built on this.
- */
-export function primitiveImports(source: string): PrimitiveImport[] {
-  return loadNative().primitiveImports(source)
-}
-
 /**
  * Every binding a source file imports from one module, by local name.
  *

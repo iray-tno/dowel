@@ -1,6 +1,6 @@
 import { Button, Heading, Paragraph, Section, View } from '@hozo/core'
 
-import { accentFor } from '../variants.ts'
+import { accentFor } from '../variants'
 
 export default function Home() {
   return (

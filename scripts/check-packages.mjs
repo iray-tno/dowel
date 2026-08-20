@@ -13,7 +13,7 @@
 //
 //   node scripts/check-packages.mjs
 
-import { execFileSync } from 'node:child_process'
+import { execSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -29,11 +29,15 @@ function fail(pkg, message) {
 
 /** The paths `npm pack` would put in the tarball, relative and slash-separated. */
 function packedFiles(dir) {
-  const output = execFileSync('npm', ['pack', '--dry-run', '--json'], {
+  // `execSync` with one command string rather than `execFileSync` with an
+  // argument array. Node 25 refuses to spawn a `.cmd` without a shell, so
+  // Windows needs one either way, and passing an array alongside `shell:
+  // true` earns a deprecation warning -- the shell concatenates arguments
+  // instead of escaping them. There is nothing to escape here.
+  const output = execSync('npm pack --dry-run --json', {
     cwd: dir,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'ignore'],
-    shell: process.platform === 'win32',
   })
   return new Set(JSON.parse(output)[0].files.map((file) => file.path.replaceAll('\\', '/')))
 }

@@ -319,11 +319,17 @@ export function HozoPressable({
             })
           : style
         if (!hozoTransition) return resolved
+        // Cast because `Animated.createAnimatedComponent` types its
+        // `style` callback as returning a plain resolved ViewStyle, while
+        // the whole point of an animated component is that the style may
+        // hold `Animated.Value`s. React Native accepts them here at
+        // runtime -- they are what it interpolates -- but its own types
+        // have no way to say so.
         return [resolved, {
           ...(hozoTransition.opacity ? { opacity } : null),
           ...(hozoTransition.transform ? { transform: animatedTransform } : null),
           ...(hozoTransition.colors ? animatedColors : null),
-        }]
+        }] as unknown as StyleProp<ViewStyle>
       }}
     />
     </InteractionContext.Provider>
@@ -370,7 +376,12 @@ export function HozoText({ style, ...props }: HozoTextProps) {
       easing: easingFor(context.transition.easing),
       useNativeDriver: false,
     }).start()
-  }, [context.transition, pending, progress])
+    // `context?`, not `context`: the context defaults to null, and this
+    // component is explicitly written to work without one -- see the
+    // `if (!context ...)` below. A dependency array is evaluated on every
+    // render, before any of them, so `context.transition` threw for a
+    // HozoText used outside a HozoPressable.
+  }, [context?.transition, pending, progress])
   const animatedColor = context?.transition?.colors && range.current.from
     ? progress.interpolate({ inputRange: [0, 1], outputRange: [range.current.from, range.current.to] })
     : undefined

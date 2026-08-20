@@ -119,9 +119,9 @@ function readSpacing(design: {
     if (name !== '--spacing') continue
     const value = String(entry.value).trim()
     const rem = /^(-?[\d.]+)rem$/.exec(value)
-    if (rem) return parseFloat(rem[1]) * ROOT_FONT_SIZE_PX
+    if (rem) return parseFloat(rem[1]!) * ROOT_FONT_SIZE_PX
     const px = /^(-?[\d.]+)px$/.exec(value)
-    if (px) return parseFloat(px[1])
+    if (px) return parseFloat(px[1]!)
     // Anything else -- a `calc()`, a custom property chain -- is left to
     // the default rather than guessed at. Guessing here would scale every
     // spacing utility in the project by a number nobody chose.

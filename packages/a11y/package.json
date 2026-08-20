@@ -1,12 +1,48 @@
 {
   "name": "@hozo/a11y",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
   "description": "Complex accessibility primitives (Dialog, etc.) with runtime-managed focus and keyboard behavior.",
+  "keywords": [
+    "react-native",
+    "accessibility",
+    "a11y",
+    "aria",
+    "dialog"
+  ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/iray-tno/dowel.git",
+    "directory": "packages/a11y"
+  },
+  "homepage": "https://github.com/iray-tno/dowel/tree/main/packages/a11y#readme",
+  "bugs": {
+    "url": "https://github.com/iray-tno/dowel/issues"
+  },
   "type": "module",
-  "main": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "react-native": "./dist/index.native.js",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "!src/**/*.test.ts",
+    "!src/**/*.test.tsx"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
+    "build": "tsc -p .",
+    "typecheck": "tsc -p . --noEmit",
     "test": "node --test src/*.test.ts"
   },
   "peerDependencies": {
@@ -19,6 +55,7 @@
     }
   },
   "devDependencies": {
+    "@types/react": "^19.2.18",
     "react": "^19.2.8",
     "react-native": "^0.87.0"
   }

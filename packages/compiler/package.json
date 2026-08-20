@@ -1,24 +1,71 @@
 {
   "name": "@hozo/compiler",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
   "description": "JS-facing entry point for the Hozo Rust compiler (TSX analysis, Hozo IR, Web/Native lowering, diagnostics).",
+  "keywords": [
+    "react-native",
+    "compiler",
+    "rust",
+    "napi",
+    "tailwind"
+  ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/iray-tno/dowel.git",
+    "directory": "packages/compiler"
+  },
+  "homepage": "https://github.com/iray-tno/dowel/tree/main/packages/compiler#readme",
+  "bugs": {
+    "url": "https://github.com/iray-tno/dowel/issues"
+  },
   "type": "module",
-  "main": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./project": "./src/project.ts",
-    "./lower": "./src/lower.ts",
-    "./diagnostics": "./src/diagnostics.ts",
-    "./sources": "./src/sources.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./project": {
+      "types": "./dist/project.d.ts",
+      "default": "./dist/project.js"
+    },
+    "./lower": {
+      "types": "./dist/lower.d.ts",
+      "default": "./dist/lower.js"
+    },
+    "./diagnostics": {
+      "types": "./dist/diagnostics.d.ts",
+      "default": "./dist/diagnostics.js"
+    },
+    "./sources": {
+      "types": "./dist/sources.d.ts",
+      "default": "./dist/sources.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "!src/**/*.test.ts",
+    "!src/**/*.test.tsx"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc -p .",
+    "typecheck": "tsc -p . --noEmit",
+    "build:native": "node scripts/build-native.mjs",
+    "test": "node --test src/*.test.ts",
+    "pack:native": "node scripts/pack-native.mjs"
   },
   "dependencies": {
     "globby": "^14.1.0"
   },
-  "scripts": {
-    "build:native": "node scripts/build-native.mjs",
-    "test": "node --test src/*.test.ts",
-    "pack:native": "node scripts/pack-native.mjs"
+  "devDependencies": {
+    "@types/node": "26.2.0"
   }
 }

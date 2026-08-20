@@ -32,3 +32,4 @@ target/
 .tsx-*/
 .theme-test-*/
 .probe-*/
+.test-build/

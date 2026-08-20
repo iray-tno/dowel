@@ -18,7 +18,7 @@
 //   so `./focus.ts`'s restore rule has no work here -- the screen reader
 //   returns to where it was when the modal is dismissed.
 
-import { Modal, View } from 'react-native'
+import { Modal, View, type StyleProp, type ViewStyle } from 'react-native'
 import type { ReactNode } from 'react'
 
 export interface HozoDialogProps {
@@ -49,7 +49,10 @@ export function HozoDialog({
       onRequestClose={onClose}
     >
       <View
-        style={style}
+        // `HozoDialogProps.style` is `unknown` because the same shape
+        // serves the web build, where it is a CSS object. The cast is the
+        // one place the two platforms' style types have to be told apart.
+        style={style as StyleProp<ViewStyle>}
         accessible
         accessibilityViewIsModal
         accessibilityRole="none"

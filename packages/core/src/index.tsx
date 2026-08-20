@@ -47,6 +47,20 @@ export interface UniversalProps {
   onLayout?: (event: HozoLayoutEvent) => void
 }
 
+/**
+ * The universal props every primitive accepts, as DOM attributes.
+ *
+ * Spread this *before* any attribute a component writes explicitly. Every
+ * key here is named unconditionally, so a prop the component destructured
+ * out of `universal` arrives as `undefined` rather than absent -- and a
+ * later spread of `undefined` erases what came before it.
+ *
+ * ScrollView and FlatList had it the other way round, and so rendered
+ * without the `aria-label`, `aria-description` and `aria-busy` they were
+ * explicitly given. Nothing caught it because nothing type-checked; the
+ * first `tsc` run over this package reported all six as
+ * "specified more than once, so this usage will be overwritten".
+ */
 function universalDomProps(props: UniversalProps) {
   const state = props.accessibilityState
   const value = props.accessibilityValue
@@ -294,11 +308,13 @@ export function ScrollView({
     <div
       ref={containerRef}
       className={className}
+      // Spread before the three below rather than after: see the note on
+      // `universalDomProps`.
+      {...universalDomProps(universal)}
       aria-label={accessibilityLabel}
       aria-description={accessibilityHint}
       aria-busy={refreshing || undefined}
       onScroll={handleScroll}
-      {...universalDomProps(universal)}
       style={horizontal
         ? { overflowX: 'auto', overflowY: 'hidden', scrollbarWidth: showIndicator ? 'auto' : 'none' }
         : { overflowX: 'hidden', overflowY: 'auto', scrollbarWidth: showIndicator ? 'auto' : 'none' }}
@@ -394,11 +410,13 @@ export function FlatList<T>({
     <div
       ref={containerRef}
       className={className}
+      // Spread before the three below rather than after: see the note on
+      // `universalDomProps`.
+      {...universalDomProps(universal)}
       aria-label={accessibilityLabel}
       aria-description={accessibilityHint}
       aria-busy={refreshing || undefined}
       onScroll={handleScroll}
-      {...universalDomProps(universal)}
       style={horizontal
         ? { overflowX: 'auto', overflowY: 'hidden', scrollbarWidth: showIndicator ? 'auto' : 'none' }
         : { overflowX: 'hidden', overflowY: 'auto', scrollbarWidth: showIndicator ? 'auto' : 'none' }}

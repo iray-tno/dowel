@@ -1,23 +1,54 @@
 {
   "name": "@hozo/storybook",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
   "description": "Zero-config Storybook Vite preset for Hozo.",
+  "keywords": [
+    "storybook",
+    "storybook-addon",
+    "react-native",
+    "vite"
+  ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/iray-tno/dowel.git",
+    "directory": "packages/storybook"
+  },
+  "homepage": "https://github.com/iray-tno/dowel/tree/main/packages/storybook#readme",
+  "bugs": {
+    "url": "https://github.com/iray-tno/dowel/issues"
+  },
   "type": "module",
   "main": "./preset.js",
   "exports": {
     ".": "./preset.js",
-    "./preset": "./preset.js"
+    "./preset": "./preset.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "preset.js",
+    "src",
+    "!src/**/*.test.ts",
+    "!src/**/*.test.tsx"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   },
   "scripts": {
+    "build": "tsc -p .",
+    "typecheck": "tsc -p . --noEmit",
     "test": "node --test src/*.test.ts"
   },
   "dependencies": {
-    "@hozo/vite": "workspace:*"
+    "@hozo/vite": "workspace:^"
   },
   "peerDependencies": {
     "storybook": ">=8.5",
     "vite": ">=5"
+  },
+  "devDependencies": {
+    "@types/node": "26.2.0"
   }
 }

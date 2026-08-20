@@ -1,23 +1,59 @@
 {
   "name": "@hozo/next",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
   "description": "Next.js integration for the Hozo compiler (Web lowering backend).",
+  "keywords": [
+    "nextjs",
+    "next",
+    "webpack",
+    "turbopack",
+    "react-native-web"
+  ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/iray-tno/dowel.git",
+    "directory": "packages/next"
+  },
+  "homepage": "https://github.com/iray-tno/dowel/tree/main/packages/next#readme",
+  "bugs": {
+    "url": "https://github.com/iray-tno/dowel/issues"
+  },
   "type": "module",
-  "main": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./loader": "./loader.js"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./loader": "./loader.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "loader.js",
+    "src",
+    "!src/**/*.test.ts",
+    "!src/**/*.test.tsx"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   },
   "scripts": {
+    "build": "tsc -p .",
+    "typecheck": "tsc -p . --noEmit",
     "test": "node --test src/*.test.ts"
   },
   "dependencies": {
-    "@hozo/compiler": "workspace:*",
+    "@hozo/compiler": "workspace:^",
     "@hozo/tailwind": "workspace:^"
   },
   "peerDependencies": {
     "next": ">=15"
+  },
+  "devDependencies": {
+    "@types/node": "26.2.0"
   }
 }

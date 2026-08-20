@@ -60,8 +60,8 @@ export function gridLayout(items: readonly GridItemPlacement[], columnCount: num
       }
     }
     for (let y = row; y < row + rowSpan; y += 1) {
-      occupied[y] ??= []
-      for (let x = column; x < column + columnSpan; x += 1) occupied[y][x] = true
+      const cells = (occupied[y] ??= [])
+      for (let x = column; x < column + columnSpan; x += 1) cells[x] = true
     }
     placed.push({ child, column, columnSpan, row, rowSpan })
     cursorRow = row
@@ -81,18 +81,21 @@ export function gridRows(items: readonly GridItemPlacement[], tracks: readonly G
   const rowCount = Math.max(0, ...layout.map((item) => item.row + item.rowSpan))
   const rows: GridCell[][] = Array.from({ length: rowCount }, () => [])
   for (let row = 0; row < rowCount; row += 1) {
+    // Read once: `rows` was built with exactly `rowCount` entries, so this
+    // index is in range by construction.
+    const cells = rows[row]!
     let column = 0
     const starts = layout.filter((item) => item.row === row).sort((a, b) => a.column - b.column)
     for (const item of starts) {
       while (column < item.column) {
-        rows[row].push({ child: null, tracks: tracks.slice(column, column + 1) })
+        cells.push({ child: null, tracks: tracks.slice(column, column + 1) })
         column += 1
       }
-      rows[row].push({ child: item.child, tracks: tracks.slice(column, column + item.columnSpan) })
+      cells.push({ child: item.child, tracks: tracks.slice(column, column + item.columnSpan) })
       column += item.columnSpan
     }
     while (column < tracks.length) {
-      rows[row].push({ child: null, tracks: tracks.slice(column, column + 1) })
+      cells.push({ child: null, tracks: tracks.slice(column, column + 1) })
       column += 1
     }
   }
@@ -149,14 +152,14 @@ export function gridRowSizes(
     const unit = intrinsic / factor
     if (track?.kind === 'fr' || track?.kind === 'minmax') {
       for (let row = 0; row < explicitTracks.length; row += 1) {
-        const candidate = explicitTracks[row]
-        if (candidate.kind === 'fr') rows[row] = Math.max(rows[row], unit * candidate.value)
+        const candidate = explicitTracks[row]!
+        if (candidate.kind === 'fr') rows[row] = Math.max(rows[row]!, unit * candidate.value)
         if (candidate.kind === 'minmax') {
-          rows[row] = Math.max(rows[row], candidate.min + unit * candidate.value)
+          rows[row] = Math.max(rows[row]!, candidate.min + unit * candidate.value)
         }
       }
     } else {
-      rows[item.row] = Math.max(rows[item.row], measuredHeights[item.child] ?? 0)
+      rows[item.row] = Math.max(rows[item.row] ?? 0, measuredHeights[item.child] ?? 0)
     }
   }
   for (const item of [...layout].sort((a, b) => a.rowSpan - b.rowSpan)) {
@@ -168,7 +171,7 @@ export function gridRowSizes(
       .filter((row) => explicitTracks[row]?.kind !== 'points')
     const targets = flexible.length > 0 ? flexible : []
     for (const row of targets) {
-      rows[row] += deficit / targets.length
+      rows[row] = (rows[row] ?? 0) + deficit / targets.length
     }
   }
   return rows

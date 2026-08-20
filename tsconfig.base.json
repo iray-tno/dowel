@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+
+  // Shared by every publishable package. `tsc` rather than a bundler, and
+  // deliberately: bundling would collapse the per-file output, and the
+  // per-file output is what carries the `.native.ts` suffix scheme Metro
+  // resolves platform variants by. One file in, one file out.
+  "compilerOptions": {
+    "target": "es2023",
+    // DOM everywhere rather than only in the web-facing packages. Hozo
+    // compiles *to* the DOM, so its vocabulary shows up in the Node-side
+    // packages too -- and `@types/react` assumes it regardless.
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+
+    // The source writes `from './project.ts'` in 77 places. That is the
+    // spelling Node's own type stripping wants -- the runtime never
+    // rewrites a specifier, so the extension has to be the real one. On
+    // the way to `dist` the extension becomes `.js`, which is the file
+    // that will actually be there.
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+
+    "jsx": "react-jsx",
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  }
+}

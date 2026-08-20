@@ -1,0 +1,15 @@
+{
+  // A second, test-only build. `@hozo/core` is the one package whose
+  // sources are `.tsx`, and Node's type stripping does not transform JSX
+  // -- so unlike every other package here, its tests cannot simply be run
+  // from source. They are compiled to `.test-build` and run from there.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./.test-build",
+    "types": ["react", "node"],
+    "declaration": false,
+    "declarationMap": false
+  },
+  "include": ["src/**/*"]
+}

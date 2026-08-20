@@ -1,15 +1,58 @@
 {
   "name": "@hozo/core",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
   "description": "Canonical primitives and semantic components for new Hozo projects.",
+  "keywords": [
+    "react-native",
+    "react",
+    "components",
+    "accessibility",
+    "universal"
+  ],
   "license": "MIT",
-  "dependencies": {
-    "@hozo/a11y": "workspace:*"
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/iray-tno/dowel.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/iray-tno/dowel/tree/main/packages/core#readme",
+  "bugs": {
+    "url": "https://github.com/iray-tno/dowel/issues"
   },
   "type": "module",
-  "main": "./src/index.tsx",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "!src/**/*.test.ts",
+    "!src/**/*.test.tsx"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc -p .",
+    "typecheck": "tsc -p . --noEmit",
+    "test": "tsc -p tsconfig.test.json && node --test .test-build/*.test.js"
+  },
+  "dependencies": {
+    "@hozo/a11y": "workspace:^"
+  },
   "peerDependencies": {
     "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "react-dom": "^19.2.8"
   }
 }

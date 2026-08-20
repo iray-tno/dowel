@@ -9,10 +9,13 @@
     "build": "turbo run build",
     "dev": "turbo run dev",
     "lint": "turbo run lint",
-    "test": "turbo run test"
+    "test": "turbo run test && node scripts/check-packages.mjs",
+    "typecheck": "turbo run typecheck"
   },
   "devDependencies": {
+    "@types/node": "26.2.0",
     "aria-query": "^5.3.2",
-    "turbo": "^2.3.0"
+    "turbo": "^2.3.0",
+    "typescript": "^7.0.2"
   }
 }

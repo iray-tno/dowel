@@ -8,7 +8,7 @@
 // hand.
 
 import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
-import { Animated, Appearance, Dimensions, Easing } from 'react-native'
+import { Animated, Appearance, Dimensions, Easing, type ScaledSize } from 'react-native'
 
 import {
   bucketFor,
@@ -39,7 +39,7 @@ const breakpointStore = createStore(bucketFor(Dimensions.get('window').width))
 // must not re-render on every resize that doesn't cross a breakpoint, and
 // it wouldn't if these shared one snapshot.
 const viewportStore = createStore(viewportOf(Dimensions.get('window')), sameViewport)
-Dimensions.addEventListener('change', ({ window }) => {
+Dimensions.addEventListener('change', ({ window }: { window: ScaledSize }) => {
   breakpointStore.set(bucketFor(window.width))
   viewportStore.set(viewportOf(window))
 })

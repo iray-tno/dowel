@@ -44,7 +44,7 @@ function namespaceHozoIdentifiers(text: string, rootIndex: number): string {
 
 function mergeStyleObjects(blocks: string[]): string {
   if (blocks.length === 1) {
-    return blocks[0]
+    return blocks[0]!
   }
   const inner = blocks.map((block) => block.trim().replace(/^\{/, '').replace(/\}$/, '').trim()).join('\n')
   return `{\n${inner}\n}`

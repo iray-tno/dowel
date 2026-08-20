@@ -1,19 +1,55 @@
 {
   "name": "@hozo/tailwind",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
   "description": "Tailwind integration for Hozo's Style IR.",
+  "keywords": [
+    "tailwindcss",
+    "theme",
+    "design-tokens",
+    "react-native"
+  ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/iray-tno/dowel.git",
+    "directory": "packages/tailwind"
+  },
+  "homepage": "https://github.com/iray-tno/dowel/tree/main/packages/tailwind#readme",
+  "bugs": {
+    "url": "https://github.com/iray-tno/dowel/issues"
+  },
   "type": "module",
-  "main": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "!src/**/*.test.ts",
+    "!src/**/*.test.tsx"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc -p .",
+    "typecheck": "tsc -p . --noEmit",
+    "test": "node --test src/*.test.ts"
+  },
   "dependencies": {
     "culori": "^4.0.2",
     "tailwindcss": "^4.3.3"
   },
-  "scripts": {
-    "test": "node --test src/*.test.ts"
-  },
   "devDependencies": {
-    "@hozo/compiler": "workspace:*"
+    "@hozo/compiler": "workspace:^",
+    "@types/culori": "^4.0.1",
+    "@types/node": "26.2.0"
   }
 }

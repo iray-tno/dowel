@@ -75,9 +75,32 @@ interface CandidateCacheConstructor {
   new (path?: string): CandidateCache
 }
 
+/**
+ * The addon's surface, as `crates/hozo_napi` actually exports it.
+ *
+ * Hand-written, and therefore capable of drifting -- which it had. This
+ * said `compile(source)` while every caller passed three arguments, and
+ * omitted `moduleImports` and `foreignPrimitives` entirely, because
+ * nothing in the repository had ever type-checked. It went unnoticed for
+ * as long as it did because a wrong type here costs nothing at runtime:
+ * the calls were always correct, only their description was not.
+ *
+ * napi-rs can generate this from the Rust, which is the better answer and
+ * the one to move to when `pack:native` grows up into its CLI.
+ */
 interface NativeBinding {
-  compile(source: string): CompiledComponent[]
-  compileNative(source: string): CompiledNativeComponent[]
+  compile(
+    source: string,
+    theme: Theme | undefined,
+    sources: string[] | undefined,
+  ): CompiledComponent[]
+  compileNative(
+    source: string,
+    theme: Theme | undefined,
+    sources: string[] | undefined,
+  ): CompiledNativeComponent[]
+  moduleImports(source: string, module: string): string[]
+  foreignPrimitives(source: string, sources: string[]): string[]
   CandidateCache: CandidateCacheConstructor
 }
 

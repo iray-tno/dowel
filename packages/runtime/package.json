@@ -1,13 +1,51 @@
 {
   "name": "@hozo/runtime",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
   "description": "Runtime fallback for genuinely dynamic styles, interactive behavior, and accessibility behavior.",
+  "keywords": [
+    "react-native",
+    "runtime",
+    "styles",
+    "animation"
+  ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/iray-tno/dowel.git",
+    "directory": "packages/runtime"
+  },
+  "homepage": "https://github.com/iray-tno/dowel/tree/main/packages/runtime#readme",
+  "bugs": {
+    "url": "https://github.com/iray-tno/dowel/issues"
+  },
   "type": "module",
-  "main": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "react-native": "./dist/index.native.js",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "!src/**/*.test.ts",
+    "!src/**/*.test.tsx"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
+    "build": "tsc -p .",
+    "typecheck": "tsc -p . --noEmit",
     "test": "node --test src/*.test.ts"
+  },
+  "dependencies": {
+    "@hozo/a11y": "workspace:^"
   },
   "peerDependencies": {
     "react": "^19.0.0",
@@ -19,10 +57,8 @@
     }
   },
   "devDependencies": {
+    "@types/react": "^19.2.18",
     "react": "^19.2.8",
     "react-native": "^0.87.0"
-  },
-  "dependencies": {
-    "@hozo/a11y": "workspace:^"
   }
 }

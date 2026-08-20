@@ -194,7 +194,7 @@ function responderEvent(event: ReactPointerEvent<HTMLElement>, ended = false): H
     touchHistory: {
       touchBank,
       numberActiveTouches: activePointers.size,
-      indexOfSingleActiveTouch: activeIndices.length === 1 ? activeIndices[0] : -1,
+      indexOfSingleActiveTouch: activeIndices.length === 1 ? activeIndices[0]! : -1,
       mostRecentTimeStamp: touchBank.reduce(
         (latest, track) => Math.max(latest, track.currentTimeStamp),
         0,

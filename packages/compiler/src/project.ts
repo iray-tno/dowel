@@ -123,7 +123,9 @@ export function discoverSources(root: string, options: ContentOptions = {}): str
 /** The real file behind a bundler module id, if Hozo should inspect it. */
 export function scannableFile(id: string): string | undefined {
   if (id.startsWith('\0') || id.includes('node_modules')) return undefined
-  const file = id.split('?')[0]
+  //  always yields a first element; the fallback is for the type.
+  // `split` always yields a first element; the fallback is for the type.
+  const file = id.split('?')[0] ?? id ?? id
   return SCANNABLE.has(path.extname(file)) ? file : undefined
 }
 

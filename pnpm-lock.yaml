@@ -8,12 +8,18 @@ importers:
 
   .:
     devDependencies:
+      '@types/node':
+        specifier: 26.2.0
+        version: 26.2.0
       aria-query:
         specifier: ^5.3.2
         version: 5.3.2
       turbo:
         specifier: ^2.3.0
         version: 2.10.9
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
 
   examples/login-demo:
     dependencies:
@@ -113,7 +119,7 @@ importers:
         version: link:../../packages/storybook
       '@storybook/react-vite':
         specifier: ^10.5.9
-        version: 10.5.9(@types/react@19.2.18)(esbuild@0.28.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(storybook@10.5.9(@types/react@19.2.18)(prettier@3.9.6)(react@19.2.8))(typescript@7.0.2)(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.50.0))
+        version: 10.5.9(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(esbuild@0.28.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(storybook@10.5.9(@types/react@19.2.18)(prettier@3.9.6)(react@19.2.8))(typescript@7.0.2)(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.50.0))
       storybook:
         specifier: ^10.5.9
         version: 10.5.9(@types/react@19.2.18)(prettier@3.9.6)(react@19.2.8)
@@ -154,6 +160,9 @@ importers:
 
   packages/a11y:
     devDependencies:
+      '@types/react':
+        specifier: ^19.2.18
+        version: 19.2.18
       react:
         specifier: ^19.2.8
         version: 19.2.8
@@ -166,23 +175,37 @@ importers:
       globby:
         specifier: ^14.1.0
         version: 14.1.0
+    devDependencies:
+      '@types/node':
+        specifier: 26.2.0
+        version: 26.2.0
 
   packages/core:
     dependencies:
       '@hozo/a11y':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../a11y
       react:
         specifier: ^19.0.0
         version: 19.2.8
+    devDependencies:
+      '@types/react':
+        specifier: ^19.2.18
+        version: 19.2.18
+      '@types/react-dom':
+        specifier: ^19.2.4
+        version: 19.2.4(@types/react@19.2.18)
+      react-dom:
+        specifier: ^19.2.8
+        version: 19.2.8(react@19.2.8)
 
   packages/metro:
     dependencies:
       '@hozo/compiler':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../compiler
       '@hozo/runtime':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../runtime
       '@hozo/tailwind':
         specifier: workspace:^
@@ -190,11 +213,15 @@ importers:
       '@react-native/metro-babel-transformer':
         specifier: '*'
         version: 0.87.0(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1)
+    devDependencies:
+      '@types/node':
+        specifier: 26.2.0
+        version: 26.2.0
 
   packages/next:
     dependencies:
       '@hozo/compiler':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../compiler
       '@hozo/tailwind':
         specifier: workspace:^
@@ -202,6 +229,10 @@ importers:
       next:
         specifier: '>=15'
         version: 16.3.1(@babel/core@7.29.7(supports-color@8.1.1))(@types/node@26.2.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+    devDependencies:
+      '@types/node':
+        specifier: 26.2.0
+        version: 26.2.0
 
   packages/runtime:
     dependencies:
@@ -209,6 +240,9 @@ importers:
         specifier: workspace:^
         version: link:../a11y
     devDependencies:
+      '@types/react':
+        specifier: ^19.2.18
+        version: 19.2.18
       react:
         specifier: ^19.2.8
         version: 19.2.8
@@ -219,7 +253,7 @@ importers:
   packages/storybook:
     dependencies:
       '@hozo/vite':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../vite
       storybook:
         specifier: '>=8.5'
@@ -227,6 +261,10 @@ importers:
       vite:
         specifier: '>=5'
         version: 8.2.1(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.50.0)
+    devDependencies:
+      '@types/node':
+        specifier: 26.2.0
+        version: 26.2.0
 
   packages/tailwind:
     dependencies:
@@ -238,8 +276,14 @@ importers:
         version: 4.3.3
     devDependencies:
       '@hozo/compiler':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../compiler
+      '@types/culori':
+        specifier: ^4.0.1
+        version: 4.0.1
+      '@types/node':
+        specifier: 26.2.0
+        version: 26.2.0
 
   packages/tailwind-conformance:
     dependencies:
@@ -281,12 +325,15 @@ importers:
   packages/vite:
     dependencies:
       '@hozo/compiler':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../compiler
       '@hozo/tailwind':
         specifier: workspace:^
         version: link:../tailwind
     devDependencies:
+      '@types/node':
+        specifier: 26.2.0
+        version: 26.2.0
       react:
         specifier: ^19.2.8
         version: 19.2.8
@@ -1776,6 +1823,9 @@ packages:
   '@types/chai@5.2.3':
     resolution: {integrity: sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA==}
 
+  '@types/culori@4.0.1':
+    resolution: {integrity: sha512-43M51r/22CjhbOXyGT361GZ9vncSVQ39u62x5eJdBQFviI8zWp2X5jzqg7k4M6PVgDQAClpy2bUe2dtwEgEDVQ==}
+
   '@types/deep-eql@4.0.2':
     resolution: {integrity: sha512-c9h9dVVMigMPc4bwTvC5dxqtqJZwQPePsWjPlpSOnojbor6pGqdk541lfA7AqFQr5pB1BRdq0juY9db81BwyFw==}
 
@@ -1796,6 +1846,11 @@ packages:
 
   '@types/node@26.2.0':
     resolution: {integrity: sha512-5IviulTZeRNp2vAJ514cc/HUlY5nZ9fCbq9DMyC52BrhFZACo3nI0R7qBxhQmo/d27NFe96ur/b7Wwxklda+kg==}
+
+  '@types/react-dom@19.2.4':
+    resolution: {integrity: sha512-Bsc+QHgp+P/F02XDzNCY9jnZNCUuLki36KT7VKrTXXLdHf+vHMNZnW1rVu5DNW/rCK+fya3DATySbLM4yhtKUw==}
+    peerDependencies:
+      '@types/react': ^19.2.0
 
   '@types/react@19.2.18':
     resolution: {integrity: sha512-AnzbBERsrLKtk2XSfTbYRLjQPdy116Sty4q+T+Bp3IC4l6jNBvreVPAHmpq9qhXQM7CXZPjLVmGMw9sy+hxQ3w==}
@@ -4731,20 +4786,21 @@ snapshots:
     dependencies:
       react: 19.2.8
 
-  '@storybook/react-dom-shim@10.5.9(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(storybook@10.5.9(@types/react@19.2.18)(prettier@3.9.6)(react@19.2.8))':
+  '@storybook/react-dom-shim@10.5.9(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(storybook@10.5.9(@types/react@19.2.18)(prettier@3.9.6)(react@19.2.8))':
     dependencies:
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
       storybook: 10.5.9(@types/react@19.2.18)(prettier@3.9.6)(react@19.2.8)
     optionalDependencies:
       '@types/react': 19.2.18
+      '@types/react-dom': 19.2.4(@types/react@19.2.18)
 
-  '@storybook/react-vite@10.5.9(@types/react@19.2.18)(esbuild@0.28.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(storybook@10.5.9(@types/react@19.2.18)(prettier@3.9.6)(react@19.2.8))(typescript@7.0.2)(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.50.0))':
+  '@storybook/react-vite@10.5.9(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(esbuild@0.28.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(storybook@10.5.9(@types/react@19.2.18)(prettier@3.9.6)(react@19.2.8))(typescript@7.0.2)(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.50.0))':
     dependencies:
       '@joshwooding/vite-plugin-react-docgen-typescript': 0.7.0(typescript@7.0.2)(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.50.0))
       '@rollup/pluginutils': 5.4.0
       '@storybook/builder-vite': 10.5.9(esbuild@0.28.2)(storybook@10.5.9(@types/react@19.2.18)(prettier@3.9.6)(react@19.2.8))(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.50.0))
-      '@storybook/react': 10.5.9(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(storybook@10.5.9(@types/react@19.2.18)(prettier@3.9.6)(react@19.2.8))(typescript@7.0.2)
+      '@storybook/react': 10.5.9(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(storybook@10.5.9(@types/react@19.2.18)(prettier@3.9.6)(react@19.2.8))(typescript@7.0.2)
       empathic: 2.0.1
       magic-string: 0.30.21
       react: 19.2.8
@@ -4764,10 +4820,10 @@ snapshots:
       - supports-color
       - webpack
 
-  '@storybook/react@10.5.9(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(storybook@10.5.9(@types/react@19.2.18)(prettier@3.9.6)(react@19.2.8))(typescript@7.0.2)':
+  '@storybook/react@10.5.9(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(storybook@10.5.9(@types/react@19.2.18)(prettier@3.9.6)(react@19.2.8))(typescript@7.0.2)':
     dependencies:
       '@storybook/global': 5.0.0
-      '@storybook/react-dom-shim': 10.5.9(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(storybook@10.5.9(@types/react@19.2.18)(prettier@3.9.6)(react@19.2.8))
+      '@storybook/react-dom-shim': 10.5.9(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(storybook@10.5.9(@types/react@19.2.18)(prettier@3.9.6)(react@19.2.8))
       react: 19.2.8
       react-docgen: 8.0.3
       react-docgen-typescript: 2.4.0(typescript@7.0.2)
@@ -4775,6 +4831,7 @@ snapshots:
       storybook: 10.5.9(@types/react@19.2.18)(prettier@3.9.6)(react@19.2.8)
     optionalDependencies:
       '@types/react': 19.2.18
+      '@types/react-dom': 19.2.4(@types/react@19.2.18)
       typescript: 7.0.2
     transitivePeerDependencies:
       - supports-color
@@ -5073,6 +5130,8 @@ snapshots:
       '@types/deep-eql': 4.0.2
       assertion-error: 2.0.1
 
+  '@types/culori@4.0.1': {}
+
   '@types/deep-eql@4.0.2': {}
 
   '@types/doctrine@0.0.9': {}
@@ -5092,6 +5151,10 @@ snapshots:
   '@types/node@26.2.0':
     dependencies:
       undici-types: 8.3.0
+
+  '@types/react-dom@19.2.4(@types/react@19.2.18)':
+    dependencies:
+      '@types/react': 19.2.18
 
   '@types/react@19.2.18':
     dependencies:

@@ -1,22 +1,57 @@
 {
   "name": "@hozo/vite",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
   "description": "Vite integration for the Hozo compiler (Web lowering backend).",
+  "keywords": [
+    "vite",
+    "vite-plugin",
+    "react-native",
+    "react-native-web"
+  ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/iray-tno/dowel.git",
+    "directory": "packages/vite"
+  },
+  "homepage": "https://github.com/iray-tno/dowel/tree/main/packages/vite#readme",
+  "bugs": {
+    "url": "https://github.com/iray-tno/dowel/issues"
+  },
   "type": "module",
-  "main": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "!src/**/*.test.ts",
+    "!src/**/*.test.tsx"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc -p .",
+    "typecheck": "tsc -p . --noEmit",
+    "test": "node --test src/*.test.ts"
+  },
   "dependencies": {
-    "@hozo/compiler": "workspace:*",
+    "@hozo/compiler": "workspace:^",
     "@hozo/tailwind": "workspace:^"
   },
   "peerDependencies": {
     "vite": ">=5"
   },
-  "scripts": {
-    "test": "node --test src/*.test.ts"
-  },
   "devDependencies": {
+    "@types/node": "26.2.0",
     "react": "^19.2.8",
     "vite": "^8.2.1"
   }

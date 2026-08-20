@@ -147,6 +147,47 @@ mod tests {
         }
     }
 
+    #[test]
+    fn a_component_the_compiler_does_not_model_is_a_boundary_not_a_wall() {
+        // `<Card><View/></Card>` compiled to nothing at all. The outermost
+        // element is someone else's component, so no root was collected --
+        // and the walk stopped there rather than looking inside, so every
+        // primitive under any wrapper the author wrote fell back to the
+        // runtime components with no diagnostic. Passing children into
+        // your own component is ordinary React.
+        let source = r#"
+            import { View, Text } from '@hozo/core'
+            import { Card, Panel } from 'some-lib'
+            const el = (
+              <Card>
+                <Panel><View className="p-4"><Text>deep</Text></View></Panel>
+                <View className="p-8">sibling</View>
+              </Card>
+            )
+            "#;
+        let parsed = parse_tsx(source);
+        // One root per primitive found, however deep the wrappers went.
+        assert_eq!(parsed.roots.len(), 2);
+        assert_eq!(parsed.roots[0].node.primitive, Primitive::View);
+        assert_eq!(parsed.roots[1].node.primitive, Primitive::View);
+        // And the tree under each is still built, not flattened.
+        assert_eq!(node(&parsed.roots[0].node.children[0]).primitive, Primitive::Text);
+    }
+
+    #[test]
+    fn a_primitive_under_a_known_root_is_not_collected_twice() {
+        // The other half of the same branch: when a node *was* built, its
+        // children came with it, so walking again would collect them a
+        // second time and splice the same span twice.
+        let source = r#"
+            import { View, Text } from '@hozo/core'
+            const el = <View className="p-4"><Text>once</Text></View>
+            "#;
+        let parsed = parse_tsx(source);
+        assert_eq!(parsed.roots.len(), 1);
+        assert_eq!(node(&parsed.roots[0].node.children[0]).primitive, Primitive::Text);
+    }
+
     const LOGIN_EXAMPLE: &str = r#"
 import { View, Text, Button } from '@hozo/core'
 

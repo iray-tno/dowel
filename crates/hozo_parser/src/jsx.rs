@@ -18,7 +18,7 @@ use oxc_ast::ast::{
     ArrowFunctionExpression, Function, JSXAttribute, JSXAttributeItem, JSXAttributeName, JSXAttributeValue,
     JSXChild, JSXElement, JSXElementName, JSXExpression, ObjectPropertyKind, PropertyKey,
 };
-use oxc_ast_visit::walk::{walk_arrow_function_expression, walk_function};
+use oxc_ast_visit::walk::{walk_arrow_function_expression, walk_function, walk_jsx_element};
 use oxc_ast_visit::Visit;
 use oxc_syntax::scope::ScopeFlags;
 use oxc_span::{GetSpan, Span};
@@ -854,12 +854,28 @@ impl<'r, 'a> JsxCollector<'r, 'a> {
 
 impl<'r, 'a> Visit<'a> for JsxCollector<'r, 'a> {
     fn visit_jsx_element(&mut self, it: &JSXElement<'a>) {
-        // Deliberately does not call `walk_jsx_element` -- `build_node`
-        // already recurses into children itself, so falling through to the
-        // generic walker here would visit (and re-collect) nested elements
-        // a second time.
         if let Some(node) = build_node(it, self.scope, &mut self.diagnostics, &mut self.consumed) {
+            // Deliberately does not walk: `build_node` already recursed
+            // into the children itself, so falling through to the generic
+            // walker would visit (and re-collect) them a second time.
             self.roots.push(Root { node, hook_slot: self.hook_slot });
+        } else {
+            // But when nothing was built, nothing was visited either -- and
+            // an element Hozo does not model is a boundary, not a wall.
+            //
+            // `<Card><View className="p-4"/></Card>` used to compile to
+            // nothing at all: the outermost element is someone else's
+            // component, so no root was collected, and the walk stopped
+            // there rather than looking inside. Every Hozo primitive under
+            // any wrapper the author wrote silently fell back to the
+            // runtime components -- working, but with the compiler's whole
+            // contribution quietly absent. Passing children into your own
+            // component is ordinary React, not an edge case.
+            //
+            // The sibling form already worked (`<><Card/><View/></>`
+            // collects the View), which is the same behaviour this gives
+            // the nested one.
+            walk_jsx_element(self, it);
         }
     }
 

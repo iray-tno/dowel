@@ -31,7 +31,7 @@ pub struct LowerOutput {
 /// the author's `onClick`, which also means the author's handler still
 /// receives a real MouseEvent rather than a keyboard one it isn't typed
 /// for), so a stable reference costs nothing and allocates nothing.
-const KEY_ACTIVATION_IMPORTS: &[&str] = &["hozoActivateKeyDown", "hozoActivateKeyUp"];
+const KEY_ACTIVATION_IMPORTS: &[&str] = &["hozoInteractive"];
 
 /// `accessibilityState`'s keys, and the ARIA attribute each becomes.
 ///
@@ -299,6 +299,37 @@ fn render_node(
             }
         }
     }
+    // An element Hozo made into a control itself: a `<div>` it put in the
+    // tab order, rather than a `<button>` the browser already knows about.
+    // Everything a control needs then has to be supplied too, and has to
+    // agree -- which is what `hozoInteractive` is for.
+    let synthesized_control =
+        node.props.on_press.is_some() && extra_attrs.iter().any(|(key, _)| *key == "tabIndex");
+
+    // The one expression that decides `disabled`, whichever way it was
+    // spelled. React Native folds them together -- `aria-disabled` and
+    // `accessibilityState.disabled` are one state, and `Pressable.js`
+    // merges the `disabled` prop into it -- so Hozo does too, rather than
+    // emitting `aria-disabled` twice and letting the later one win by
+    // accident, which is what writing both used to do.
+    let state_disabled = node
+        .props
+        .accessibility_state
+        .filter(|_| {
+            node.props
+                .accessibility_state_keys
+                .as_ref()
+                .is_none_or(|keys| keys.iter().any(|key| key == "disabled"))
+        })
+        .map(|value| format!("({}).disabled", source_text(source, value)));
+    let disabled_expr = match (node.props.disabled.as_ref(), state_disabled) {
+        (Some(flag), Some(state)) => {
+            Some(format!("({}) || {state}", render_condition_expr(source, flag)))
+        }
+        (Some(flag), None) => Some(render_condition_expr(source, flag)),
+        (None, state) => state,
+    };
+
     let is_hozo_component = tag.starts_with("Hozo")
         || matches!(tag, "View" | "Text" | "Paragraph" | "Heading" | "Section" | "Article" | "Nav" | "List" | "ListItem" | "Image" | "ScrollView" | "FlatList" | "Pressable");
 
@@ -359,7 +390,9 @@ fn render_node(
         format!(" className={{[{}].filter(Boolean).join(' ')}}", parts.join(", "))
     };
     for (key, value) in &extra_attrs {
-        if tag == "Pressable" && *key == "tabIndex" {
+        // `hozoInteractive` supplies it, together with everything else it
+        // has to agree with.
+        if (tag == "Pressable" || synthesized_control) && *key == "tabIndex" {
             continue;
         }
         let key = if tag == "Pressable" && *key == "role" { "accessibilityRole" } else { key };
@@ -400,6 +433,12 @@ fn render_node(
             // spread). Reading any of the five off that is fine: React
             // Native's `AccessibilityState` declares all of them optional.
             for (attr_name, key) in ARIA_STATE_ATTRS {
+                // `disabled` folds into `hozoInteractive` when there is
+                // one; emitting it here too put `aria-disabled` on the
+                // element twice and let the later win by accident.
+                if synthesized_control && *key == "disabled" {
+                    continue;
+                }
                 let written = node
                     .props
                     .accessibility_state_keys
@@ -555,20 +594,31 @@ fn render_node(
     }
     if let Some(on_press) = node.props.on_press {
         let name = if tag == "Pressable" { "onPress" } else { "onClick" };
-        attrs.push_str(&format!(" {name}={{{}}}", source_text(source, on_press)));
-        // If Hozo put this element in the tab order, Hozo owes it keyboard
-        // activation. A `<button>` gets Enter and Space from the browser; a
-        // `<div role="button">` gets nothing, and a control a keyboard user
-        // can reach but not operate fails WCAG 2.1.1. This emitted
-        // `tabIndex` and `onClick` and no key handling at all, so every
-        // compiled Pressable was exactly that.
-        //
-        // Keyed off `tabIndex` being present rather than off the primitive:
-        // that attribute *is* the statement that Hozo made this focusable
-        // itself, so the two can never drift apart.
-        if extra_attrs.iter().any(|(key, _)| *key == "tabIndex") {
-            attrs.push_str(" onKeyDown={hozoActivateKeyDown} onKeyUp={hozoActivateKeyUp}");
+        // Keyed off `tabIndex` being in the emitted attributes rather than
+        // off the primitive: that attribute *is* the statement that Hozo
+        // made this element focusable itself, so "Hozo put it in the tab
+        // order" and "Hozo owes it the rest of being a control" cannot
+        // drift apart.
+        if synthesized_control {
+            // One call, not five expressions. `disabled` means five things
+            // at once (see docs/decisions/001) and emitting them
+            // separately is how they came apart: this announced
+            // `aria-disabled` and then ran the handler anyway, and once
+            // keyboard activation existed it ran on Enter and Space too.
+            //
+            // It also means the guard expression is evaluated once rather
+            // than once per thing it decides.
+            attrs.push_str(&format!(
+                " {{...hozoInteractive({}{})}}",
+                source_text(source, on_press),
+                disabled_expr
+                    .as_ref()
+                    .map(|expr| format!(", {expr}"))
+                    .unwrap_or_default(),
+            ));
             *uses_key_activation = true;
+        } else {
+            attrs.push_str(&format!(" {name}={{{}}}", source_text(source, on_press)));
         }
     }
     for (name, value) in [
@@ -589,7 +639,7 @@ fn render_node(
             attrs.push_str(&format!(" {name}={{{}}}", source_text(source, value)));
         }
     }
-    if let Some(disabled) = &node.props.disabled {
+    if let Some(disabled) = node.props.disabled.as_ref().filter(|_| !synthesized_control) {
         // `disabled` is a real, React-boolean-aware HTML attribute only on
         // actual form controls (<button> here) -- react omits it entirely
         // when the value is falsy. Everything else Hozo maps to a <div>
@@ -1346,8 +1396,11 @@ export function Login() {
         assert_eq!(output.diagnostics.len(), 1);
         assert_eq!(output.diagnostics[0].code, hozo_ir::DiagnosticCode::A11yInteractiveWithoutRole);
         assert!(!output.jsx.contains("role="));
-        // onPress -> onClick is wired regardless of the diagnostic.
-        assert!(output.jsx.contains("onClick={handleTap}"));
+        // The press is wired regardless of the diagnostic -- warning about
+        // a missing role is not a reason to drop the handler. It goes
+        // through `hozoInteractive` because Hozo still had to synthesize
+        // the control, role or no role.
+        assert!(output.jsx.contains("{...hozoInteractive(handleTap)}"), "{}", output.jsx);
     }
 
     #[test]
@@ -1468,9 +1521,59 @@ export function Login() {
             "#;
         let parsed = hozo_parser::parse_tsx(source);
         let output = lower(&parsed.roots[0].node, source, &Theme::default());
-        assert!(output.jsx.contains("onKeyDown={hozoActivateKeyDown}"), "{}", output.jsx);
-        assert!(output.jsx.contains("onKeyUp={hozoActivateKeyUp}"), "{}", output.jsx);
+        assert!(output.jsx.contains("{...hozoInteractive(save)}"), "{}", output.jsx);
         assert_eq!(output.runtime_imports, KEY_ACTIVATION_IMPORTS);
+        // Not separately: the helper supplies it, together with everything
+        // it has to agree with.
+        assert!(!output.jsx.contains("tabIndex"), "{}", output.jsx);
+    }
+
+    #[test]
+    fn a_disabled_control_is_inoperable_not_merely_announced() {
+        // The bug this whole line of work started from: `aria-disabled`
+        // went out and the handler ran anyway. Once keyboard activation
+        // existed it ran on Enter and Space as well.
+        let source = r#"
+            import { Pressable } from '@hozo/core'
+            const el = <Pressable disabled={busy} accessibilityRole="button" onPress={save}>S</Pressable>
+            "#;
+        let parsed = hozo_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+        assert!(output.jsx.contains("{...hozoInteractive(save, busy)}"), "{}", output.jsx);
+        // One statement of the state, not two that can disagree.
+        assert_eq!(output.jsx.matches("aria-disabled").count(), 0, "{}", output.jsx);
+    }
+
+    #[test]
+    fn both_spellings_of_disabled_fold_into_one_guard() {
+        // React Native merges them; emitting both put `aria-disabled` on
+        // the element twice and let the later one win by accident.
+        let source = r#"
+            import { Pressable } from '@hozo/core'
+            const el = <Pressable disabled={a} accessibilityState={{ disabled: b }} accessibilityRole="button" onPress={save}>S</Pressable>
+            "#;
+        let parsed = hozo_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+        assert!(
+            output.jsx.contains("{...hozoInteractive(save, (a) || ({ disabled: b }).disabled)}"),
+            "{}",
+            output.jsx
+        );
+    }
+
+    #[test]
+    fn a_disabled_element_that_is_not_a_control_is_only_announced() {
+        // Rule 5: dimming a whole disabled region is a real pattern, and
+        // it neither gains nor loses a tab stop.
+        let source = r#"
+            import { View } from '@hozo/core'
+            const el = <View disabled={busy} className="p-4">S</View>
+            "#;
+        let parsed = hozo_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+        assert!(output.jsx.contains("aria-disabled={busy}"), "{}", output.jsx);
+        assert!(!output.jsx.contains("hozoInteractive"), "{}", output.jsx);
+        assert!(output.runtime_imports.is_empty(), "{}", output.jsx);
     }
 
     #[test]

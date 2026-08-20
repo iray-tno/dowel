@@ -6,7 +6,7 @@
 // to make them required.
 
 import { useEffect, useRef, useState, type MouseEventHandler, type ReactNode, type UIEventHandler } from 'react'
-import { hozoActivateKeyDown, hozoActivateKeyUp } from '@hozo/runtime'
+import { hozoInteractive } from '@hozo/runtime'
 
 import { useResponderDomProps, type ResponderProps } from './responder.ts'
 
@@ -475,6 +475,12 @@ export function Pressable({
 }: PressableProps) {
   const ref = useRef<HTMLDivElement>(null)
   const responder = useResponderDomProps(ref, responderProps, !disabled)
+  // Without an `onPress` this is not a control, so it gets no tab stop and
+  // no key handlers -- only the announcement, which a disabled region is
+  // still entitled to.
+  const interaction = onPress
+    ? hozoInteractive(onPress, disabled)
+    : { 'aria-disabled': disabled || undefined }
   return (
     <div
       ref={ref}
@@ -482,17 +488,14 @@ export function Pressable({
       role={accessibilityRole}
       aria-label={accessibilityLabel}
       aria-description={accessibilityHint}
-      aria-disabled={disabled || undefined}
-      tabIndex={onPress && !disabled ? 0 : undefined}
-      onClick={disabled ? undefined : onPress}
-      // Whatever puts this in the tab order owes it keyboard activation.
-      // A `<div role="button">` gets no Enter or Space from the browser,
-      // and a control a keyboard user can reach but not operate fails
-      // WCAG 2.1.1 -- which is what this rendered before. The compiled
-      // path emits the same two handlers; see `@hozo/runtime`'s
-      // `activate.ts` for why they are module-level constants.
-      onKeyDown={onPress && !disabled ? hozoActivateKeyDown : undefined}
-      onKeyUp={onPress && !disabled ? hozoActivateKeyUp : undefined}
+      // The same call the compiled path makes, so the two cannot answer
+      // differently. Everything `disabled` means is in there: see
+      // `@hozo/runtime`'s `interactive.ts` and docs/decisions/001.
+      //
+      // Written out here, this had already drifted twice -- it suppressed
+      // the click but not the keyboard, and the compiled path suppressed
+      // neither.
+      {...interaction}
       {...responder}
     >
       {children}

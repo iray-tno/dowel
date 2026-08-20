@@ -77,20 +77,12 @@ export const A11Y_CONTEXTUAL_CASES: A11yContextualCase[] = [
     name: 'role-bearing Pressable',
     purpose: 'a generic interaction stays focusable and explicitly named',
     source: '<Pressable onPress={go} accessibilityRole="link" accessibilityLabel="Account">Account</Pressable>',
-    // `tabIndex={0}`, not `tabIndex="0"`. This expectation held the string
-    // form until `typecheck-web.test.ts` existed, which is to say the test
-    // was pinning the bug: React types `tabIndex` as a `number`, and Hozo's
-    // output lands in the author's own `.tsx` where their `tsc` sees it.
-    web: [
-      '<div',
-      'role="link"',
-      'tabIndex={0}',
-      'aria-label={"Account"}',
-      'onClick={go}',
-      // Hozo put this in the tab order, so Hozo owes it Enter and Space.
-      'onKeyDown={hozoActivateKeyDown}',
-      'onKeyUp={hozoActivateKeyUp}',
-    ],
+    // The tab stop, the click, the keyboard activation and the disabled
+    // state all come from one call. They are five things that have to
+    // agree, and spelling them out separately is how they stopped:
+    // `aria-disabled` went out while the handler still ran. See
+    // docs/decisions/001 and `@hozo/runtime`'s `interactive.ts`.
+    web: ['<div', 'role="link"', 'aria-label={"Account"}', '{...hozoInteractive(go)}'],
     // `role`, not `accessibilityRole`: React Native has taken the ARIA
     // spelling since 0.71, so the two platforms now write the same word.
     native: ['<Pressable', 'role="link"', 'accessibilityLabel={"Account"}', 'onPress={go}'],

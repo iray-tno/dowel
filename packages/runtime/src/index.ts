@@ -6,6 +6,10 @@
 // the generated candidate stylesheet by itself. Native has nothing to hand
 // the string to, so this closes that one gap and nothing else.
 //
+// One exception, added later: a `<div role="button">` that Hozo put in the
+// tab order needs Enter and Space wired up, and only script can do that.
+// See `./activate.ts`.
+//
 // Compare `react-native-css`, which implements a genuine CSS engine in JS:
 // specificity sorting, media/container query evaluation, CSS variables, a
 // reactive observable graph. It needs all of that because it accepts
@@ -88,3 +92,5 @@ export function createClassResolver(
     return resolved
   }
 }
+
+export { hozoActivateKeyDown, hozoActivateKeyUp } from './activate.ts'

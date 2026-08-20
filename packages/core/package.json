@@ -45,7 +45,8 @@
     "test": "tsc -p tsconfig.test.json && node --test .test-build/*.test.js"
   },
   "dependencies": {
-    "@hozo/a11y": "workspace:^"
+    "@hozo/a11y": "workspace:^",
+    "@hozo/runtime": "workspace:^"
   },
   "peerDependencies": {
     "react": "^19.0.0"

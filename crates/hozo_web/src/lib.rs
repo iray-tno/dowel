@@ -14,11 +14,25 @@ use hozo_ir::{Diagnostic, Node, Primitive, Theme};
 pub struct LowerOutput {
     pub jsx: String,
     pub css: String,
+    /// Named imports `jsx` needs from `@hozo/runtime`.
+    ///
+    /// The Web backend's first, and it exists for one reason: a
+    /// `<div role="button">` that Hozo put in the tab order has to be
+    /// activatable from the keyboard, and only script can do that. The
+    /// Native backend has carried the same field since it needed hooks.
+    pub runtime_imports: Vec<&'static str>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
-/// The proposal §8.1 "hozo-view" shared base style: applied to every
-/// `View`, emitted once as a shared rule rather than duplicated per node.
+/// What a synthesized interactive element imports from `@hozo/runtime`.
+///
+/// Two module-level functions rather than one inline arrow per element:
+/// they close over nothing (`event.currentTarget.click()` is how they reach
+/// the author's `onClick`, which also means the author's handler still
+/// receives a real MouseEvent rather than a keyboard one it isn't typed
+/// for), so a stable reference costs nothing and allocates nothing.
+const KEY_ACTIVATION_IMPORTS: &[&str] = &["hozoActivateKeyDown", "hozoActivateKeyUp"];
+
 /// `accessibilityState`'s keys, and the ARIA attribute each becomes.
 ///
 /// The names come from React Native's `AccessibilityState`; the mapping is
@@ -35,6 +49,8 @@ const ARIA_STATE_ATTRS: &[(&str, &str)] = &[
     ("aria-expanded", "expanded"),
 ];
 
+/// The proposal §8.1 "hozo-view" shared base style: applied to every
+/// `View`, emitted once as a shared rule rather than duplicated per node.
 const VIEW_BASE_CSS: &str = ".hozo-view {\n  \
     display: flex;\n  \
     flex-direction: column;\n  \
@@ -91,6 +107,7 @@ pub fn lower(root: &Node, source: &str, theme: &Theme) -> LowerOutput {
     let mut rules = String::new();
     let mut diagnostics = Vec::new();
     let mut uses_view_base = false;
+    let mut uses_key_activation = false;
 
     let jsx = render_node(
         root,
@@ -100,6 +117,7 @@ pub fn lower(root: &Node, source: &str, theme: &Theme) -> LowerOutput {
         &mut rules,
         &mut diagnostics,
         &mut uses_view_base,
+        &mut uses_key_activation,
     );
 
     let mut css = String::new();
@@ -121,7 +139,12 @@ pub fn lower(root: &Node, source: &str, theme: &Theme) -> LowerOutput {
     }
     css.push_str(&rules);
 
-    LowerOutput { jsx, css, diagnostics }
+    let runtime_imports = if uses_key_activation {
+        KEY_ACTIVATION_IMPORTS.to_vec()
+    } else {
+        Vec::new()
+    };
+    LowerOutput { jsx, css, runtime_imports, diagnostics }
 }
 
 /// One stylesheet for every candidate class in the project, written under
@@ -239,6 +262,7 @@ fn render_node(
     rules: &mut String,
     diagnostics: &mut Vec<Diagnostic>,
     uses_view_base: &mut bool,
+    uses_key_activation: &mut bool,
 ) -> String {
     let class_name = allocator.alloc();
 
@@ -532,6 +556,20 @@ fn render_node(
     if let Some(on_press) = node.props.on_press {
         let name = if tag == "Pressable" { "onPress" } else { "onClick" };
         attrs.push_str(&format!(" {name}={{{}}}", source_text(source, on_press)));
+        // If Hozo put this element in the tab order, Hozo owes it keyboard
+        // activation. A `<button>` gets Enter and Space from the browser; a
+        // `<div role="button">` gets nothing, and a control a keyboard user
+        // can reach but not operate fails WCAG 2.1.1. This emitted
+        // `tabIndex` and `onClick` and no key handling at all, so every
+        // compiled Pressable was exactly that.
+        //
+        // Keyed off `tabIndex` being present rather than off the primitive:
+        // that attribute *is* the statement that Hozo made this focusable
+        // itself, so the two can never drift apart.
+        if extra_attrs.iter().any(|(key, _)| *key == "tabIndex") {
+            attrs.push_str(" onKeyDown={hozoActivateKeyDown} onKeyUp={hozoActivateKeyUp}");
+            *uses_key_activation = true;
+        }
     }
     for (name, value) in [
         ("onStartShouldSetResponder", node.props.on_start_should_set_responder),
@@ -588,6 +626,7 @@ fn render_node(
             rules,
             diagnostics,
             uses_view_base,
+            uses_key_activation,
         ));
     }
 
@@ -600,7 +639,7 @@ fn render_node(
         .iter()
         .map(|child| match child {
             hozo_ir::Child::Node(child_node) => {
-                render_node(child_node, source, theme, allocator, rules, diagnostics, uses_view_base)
+                render_node(child_node, source, theme, allocator, rules, diagnostics, uses_view_base, uses_key_activation)
             }
             hozo_ir::Child::Text(text) => markup::html_escape(text),
             hozo_ir::Child::Verbatim { source: expr_ref, nested } => render_verbatim(
@@ -612,6 +651,7 @@ fn render_node(
                 rules,
                 diagnostics,
                 uses_view_base,
+                uses_key_activation,
             ),
         })
         .collect();
@@ -642,6 +682,7 @@ fn render_verbatim(
     rules: &mut String,
     diagnostics: &mut Vec<Diagnostic>,
     uses_view_base: &mut bool,
+    uses_key_activation: &mut bool,
 ) -> String {
     let start = expr_ref.0.start as usize;
     let mut out = String::new();
@@ -657,6 +698,7 @@ fn render_verbatim(
             rules,
             diagnostics,
             uses_view_base,
+            uses_key_activation,
         ));
         cursor = entry.span.end as usize;
     }
@@ -1413,6 +1455,44 @@ export function Login() {
         let parsed = hozo_parser::parse_tsx(source);
         let output = lower(&parsed.roots[0].node, source, &Theme::default());
         assert_eq!(output.jsx, "<article><h1>Title</h1><nav aria-label={\"Primary\"}></nav></article>");
+    }
+
+    #[test]
+    fn a_synthesized_interactive_element_gets_keyboard_activation() {
+        // A `<div role="button">` receives no Enter or Space from the
+        // browser. Emitting `tabIndex` without them produced a control a
+        // keyboard user could reach and not operate -- WCAG 2.1.1.
+        let source = r#"
+            import { Pressable } from '@hozo/core'
+            const el = <Pressable accessibilityRole="button" onPress={save}>Save</Pressable>
+            "#;
+        let parsed = hozo_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+        assert!(output.jsx.contains("onKeyDown={hozoActivateKeyDown}"), "{}", output.jsx);
+        assert!(output.jsx.contains("onKeyUp={hozoActivateKeyUp}"), "{}", output.jsx);
+        assert_eq!(output.runtime_imports, KEY_ACTIVATION_IMPORTS);
+    }
+
+    #[test]
+    fn an_element_the_browser_already_activates_gets_no_handlers() {
+        // `<button>` has Enter and Space natively, and a `<div>` with no
+        // press handler is not a control. Adding handlers to either would
+        // be runtime nobody asked for.
+        for source in [
+            r#"
+            import { Button } from '@hozo/core'
+            const el = <Button onPress={save}>Save</Button>
+            "#,
+            r#"
+            import { View } from '@hozo/core'
+            const el = <View className="p-4">Text</View>
+            "#,
+        ] {
+            let parsed = hozo_parser::parse_tsx(source);
+            let output = lower(&parsed.roots[0].node, source, &Theme::default());
+            assert!(!output.jsx.contains("onKeyDown"), "{}", output.jsx);
+            assert!(output.runtime_imports.is_empty(), "{}", output.jsx);
+        }
     }
 
     #[test]

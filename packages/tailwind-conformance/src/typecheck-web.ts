@@ -44,11 +44,23 @@ export interface TypeError {
  * The temp directory lives inside this package so that `react` and
  * `@types/react` resolve by walking up to its `node_modules`.
  */
-export function typeCheckWeb(components: Component[], freeNames: string[] = []): TypeError[] {
+export function typeCheckWeb(
+  components: Component[],
+  freeNames: string[] = [],
+  runtimeImports: string[] = [],
+): TypeError[] {
   const dir = mkdtempSync(path.join(packageRoot(), '.typecheck-'))
   try {
     const declarations = freeNames.map((name) => `declare const ${name}: any`).join('\n')
-    const source = `${declarations}\n${components
+    // A real import, not a declaration. The names Hozo reaches for are
+    // Hozo's own, so a stand-in would check nothing -- this is what
+    // establishes that `hozoActivateKeyDown` is genuinely assignable to
+    // React's `onKeyDown`, which is the only reason to emit it.
+    const imports =
+      runtimeImports.length > 0
+        ? `import { ${[...new Set(runtimeImports)].sort().join(', ')} } from '@hozo/runtime'\n`
+        : ''
+    const source = `${imports}${declarations}\n${components
       .map(({ name, jsx }) => `export function ${name}() { return ${jsx}; }`)
       .join('\n')}\n`
     writeFileSync(path.join(dir, 'input.tsx'), source)

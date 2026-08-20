@@ -13,11 +13,14 @@ import { typeCheckWeb } from './typecheck-web.ts'
 
 /** Compiles a source and type-checks every component it produced. */
 function check(source: string, freeNames: string[] = []) {
-  const components = compile(source).map((compiled, index) => ({
+  const compiled = compile(source)
+  const components = compiled.map((component, index) => ({
     name: `C${index}`,
-    jsx: compiled.jsx,
+    jsx: component.jsx,
   }))
-  return typeCheckWeb(components, freeNames)
+  // Whatever the compiler said this module needs, imported for real.
+  const runtimeImports = compiled.flatMap((component) => component.runtimeImports)
+  return typeCheckWeb(components, freeNames, runtimeImports)
 }
 
 function assertClean(source: string, freeNames: string[] = []) {

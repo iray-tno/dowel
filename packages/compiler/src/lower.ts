@@ -183,6 +183,15 @@ export function lowerModule(
     next = next.replace(HOZO_CORE_IMPORT_RE, '')
   }
 
+  // One import for the whole module, after the splicing so it lands at
+  // the top of the file rather than inside a span. Metro does the same for
+  // the Native backend's hooks; this is the Web half of that contract.
+  const runtimeImports = [...new Set(components.flatMap((component) => component.runtimeImports))]
+  if (runtimeImports.length > 0) {
+    next = `import { ${runtimeImports.sort().join(', ')} } from '@hozo/runtime'
+` + next
+  }
+
   const isDerivedModule = id.includes('?')
   const cssFileName = isDerivedModule
     ? `${path.basename(file)}.${moduleIdHash(id)}.hozo.css`

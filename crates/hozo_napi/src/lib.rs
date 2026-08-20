@@ -61,6 +61,10 @@ pub struct CompiledComponent {
     /// the actual splicing, since this binding doesn't touch source text.
     pub jsx: String,
     pub css: String,
+    /// Named imports `jsx` needs from `@hozo/runtime`, which the caller
+    /// splices at the top of the module. Same contract as the Native
+    /// backend's field of this name.
+    pub runtime_imports: Vec<String>,
     pub diagnostics: Vec<CompileDiagnostic>,
     pub span_start: u32,
     pub span_end: u32,
@@ -103,6 +107,11 @@ pub fn compile(
             CompiledComponent {
                 jsx: output.jsx,
                 css: output.css,
+                runtime_imports: output
+                    .runtime_imports
+                    .into_iter()
+                    .map(str::to_string)
+                    .collect(),
                 diagnostics,
                 span_start: root.node.span.start,
                 span_end: root.node.span.end,

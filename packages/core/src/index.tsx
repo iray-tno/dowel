@@ -6,6 +6,8 @@
 // to make them required.
 
 import { useEffect, useRef, useState, type MouseEventHandler, type ReactNode, type UIEventHandler } from 'react'
+import { hozoActivateKeyDown, hozoActivateKeyUp } from '@hozo/runtime'
+
 import { useResponderDomProps, type ResponderProps } from './responder.ts'
 
 export type {
@@ -483,6 +485,14 @@ export function Pressable({
       aria-disabled={disabled || undefined}
       tabIndex={onPress && !disabled ? 0 : undefined}
       onClick={disabled ? undefined : onPress}
+      // Whatever puts this in the tab order owes it keyboard activation.
+      // A `<div role="button">` gets no Enter or Space from the browser,
+      // and a control a keyboard user can reach but not operate fails
+      // WCAG 2.1.1 -- which is what this rendered before. The compiled
+      // path emits the same two handlers; see `@hozo/runtime`'s
+      // `activate.ts` for why they are module-level constants.
+      onKeyDown={onPress && !disabled ? hozoActivateKeyDown : undefined}
+      onKeyUp={onPress && !disabled ? hozoActivateKeyUp : undefined}
       {...responder}
     >
       {children}

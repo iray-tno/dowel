@@ -22,6 +22,11 @@ export interface CompileDiagnostic {
 export interface CompiledComponent {
   jsx: string
   css: string
+  /// Named imports `jsx` needs from `@hozo/runtime`. Empty for most
+  /// components; a synthesized interactive element needs the keyboard
+  /// activation handlers, since only script can give a `<div>` the Enter
+  /// and Space behaviour a `<button>` gets from the browser.
+  runtimeImports: string[]
   diagnostics: CompileDiagnostic[]
   spanStart: number
   spanEnd: number

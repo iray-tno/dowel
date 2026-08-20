@@ -79,7 +79,16 @@ export const A11Y_CONTEXTUAL_CASES: A11yContextualCase[] = [
     // form until `typecheck-web.test.ts` existed, which is to say the test
     // was pinning the bug: React types `tabIndex` as a `number`, and Hozo's
     // output lands in the author's own `.tsx` where their `tsc` sees it.
-    web: ['<div', 'role="link"', 'tabIndex={0}', 'aria-label={"Account"}', 'onClick={go}'],
+    web: [
+      '<div',
+      'role="link"',
+      'tabIndex={0}',
+      'aria-label={"Account"}',
+      'onClick={go}',
+      // Hozo put this in the tab order, so Hozo owes it Enter and Space.
+      'onKeyDown={hozoActivateKeyDown}',
+      'onKeyUp={hozoActivateKeyUp}',
+    ],
     // `role`, not `accessibilityRole`: React Native has taken the ARIA
     // spelling since 0.71, so the two platforms now write the same word.
     native: ['<Pressable', 'role="link"', 'accessibilityLabel={"Account"}', 'onPress={go}'],

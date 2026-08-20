@@ -62,7 +62,9 @@ export const A11Y_CONTEXTUAL_CASES: A11yContextualCase[] = [
     name: 'semantic Button',
     purpose: 'name, hint and disabled state retain native semantics on both platforms',
     source: '<Button disabled={busy} accessibilityLabel="Save" accessibilityHint="Saves the draft">Save</Button>',
-    web: ['<button', 'disabled={busy}', 'aria-label={"Save"}', 'aria-description={"Saves the draft"}'],
+    // `type="button"`: React Native has no forms, so a Button that
+    // happened to render inside one must not also submit it.
+    web: ['<button type="button"', 'disabled={busy}', 'aria-label={"Save"}', 'aria-description={"Saves the draft"}'],
     native: [
       '<Pressable',
       'accessibilityRole="button"',

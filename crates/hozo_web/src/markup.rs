@@ -70,7 +70,16 @@ fn element_shape_inner(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'sta
         Primitive::List => ("ul", Vec::new()),
         Primitive::ListItem if node.props.on_layout.is_some() => ("ListItem", Vec::new()),
         Primitive::ListItem => ("li", Vec::new()),
-        Primitive::Button => ("button", Vec::new()),
+        // `type="button"`, always. A `<button>` inside a `<form>` defaults
+        // to `type="submit"`, and React Native has no forms -- so a
+        // `<Button onPress={save} />` that happened to be rendered inside
+        // one submitted the form as well as calling `save`, which is not
+        // what any of its source says. Not an accessibility fix: the
+        // author's stated intent was being changed by its surroundings.
+        //
+        // A project that genuinely wants a submit button is expressing a
+        // Web-only idea, and can say so on a plain `<button>`.
+        Primitive::Button => ("button", vec![("type", AttrValue::text("button"))]),
         Primitive::Link => ("a", Vec::new()),
         Primitive::Image if node.props.on_layout.is_some() || node.props.image_default_source.is_some() =>
             ("Image", image_attrs(node, diagnostics)),
@@ -230,7 +239,9 @@ mod tests {
         let mut diagnostics = Vec::new();
         let (tag, attrs) = element_shape(&node, &mut diagnostics);
         assert_eq!(tag, "button");
-        assert!(attrs.is_empty());
+        // `type="button"` and nothing else: React Native has no forms, so
+        // a Button rendered inside one must not also submit it.
+        assert_eq!(attrs, vec![("type", AttrValue::text("button"))]);
         assert!(diagnostics.is_empty());
     }
 

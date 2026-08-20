@@ -519,6 +519,11 @@ export function Button({
 }: ButtonProps) {
   return (
     <button
+      // A `<button>` in a `<form>` defaults to `type="submit"`, and React
+      // Native has no forms -- so this submitted whatever it happened to
+      // be inside, on top of calling `onPress`. The compiled path emits
+      // the same attribute.
+      type="button"
       className={className}
       disabled={disabled}
       aria-label={accessibilityLabel}

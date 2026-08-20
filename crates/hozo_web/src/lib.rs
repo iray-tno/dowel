@@ -761,7 +761,7 @@ export function Login() {
 
         assert!(output.jsx.starts_with(r#"<div className="hozo-view hozo-0">"#));
         assert!(output.jsx.contains("<span className=\"hozo-1\">Welcome</span>"));
-        assert!(output.jsx.contains("<button className=\"hozo-2\">Continue</button>"));
+        assert!(output.jsx.contains("<button className=\"hozo-2\" type=\"button\">Continue</button>"));
 
         assert!(output.css.contains(".hozo-view {"));
         assert!(output.css.contains(".hozo-0 {"));

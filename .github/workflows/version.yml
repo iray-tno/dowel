@@ -1,0 +1,46 @@
+# Keeps a "Version Packages" pull request open whenever changesets are
+# pending, and nothing else. It does not publish.
+#
+# Splitting version from publish is deliberate. The usual Changesets setup
+# publishes the moment that pull request merges, which means one click
+# stands between a typo and a version number that can never be reused --
+# npm allows unpublishing for 72 hours and only while nothing depends on
+# it, and crates.io not at all. Here, merging the pull request bumps nine
+# versions and writes nine changelogs on `main`, and a human then pushes a
+# tag when they mean it. See `release.yml`.
+name: version
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: version
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - uses: changesets/action@v1
+        with:
+          # Version only. `publish` is deliberately unset.
+          version: pnpm run version
+          title: 'Version packages'
+          commit: 'Version packages'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

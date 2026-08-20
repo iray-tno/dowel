@@ -1,5 +1,12 @@
-# Builds the native binding for every platform Hozo claims, and publishes
-# one npm package per platform plus `@hozo/compiler` itself.
+# Publishes everything: the nine `@hozo/*` packages, plus one package per
+# platform carrying the native binding.
+#
+# Triggered by a tag, and only by a tag. `version.yml` keeps a "Version
+# Packages" pull request open; merging it bumps nine versions and writes
+# nine changelogs on `main` but publishes nothing. Pushing `v0.2.0` is the
+# separate, deliberate act that uploads. npm allows unpublishing for 72
+# hours and only while nothing depends on the package, so the step worth
+# making explicit is this one.
 #
 # The shape is napi-rs's, without its CLI: a package per platform declaring
 # `os`/`cpu`/`libc`, all of them optional dependencies of the real package,
@@ -101,13 +108,40 @@ jobs:
       - run: node scripts/check-artifacts.mjs
         working-directory: packages/compiler
 
+      # The nine packages ship compiled JavaScript and declarations, and
+      # `dist/` is not in the repository. Publishing without this step
+      # produces packages that install cleanly and import nothing.
+      # Packages only: the examples' builds want the native addon, and
+      # nothing here needs them.
+      - run: pnpm turbo run build --filter='./packages/*'
+
+      # Looks inside the tarballs rather than at the manifests describing
+      # them: every entry point present, no tests, no addon, a README and
+      # a LICENSE in each, and all nine on one version. Runs before
+      # `prepare-publish`, which is allowed to rewrite one of them.
+      - run: node scripts/check-packages.mjs
+
       - run: |
           for dir in artifacts/*/; do
             npm publish "$dir" --access public --provenance
           done
+
       # Writes the optional-dependency list, which is generated rather
       # than committed -- see scripts/prepare-publish.mjs.
       - run: node scripts/prepare-publish.mjs
         working-directory: packages/compiler
-      - run: npm publish --access public --provenance
-        working-directory: packages/compiler
+
+      # `pnpm publish`, not `npm publish`: these packages depend on each
+      # other through pnpm's `workspace:^` protocol, and only pnpm knows to
+      # replace it with the real range on the way out -- npm would upload
+      # the literal string. Verified against a real tarball:
+      # `"@hozo/compiler": "workspace:^"` leaves as `"^0.1.0"`. `-r` also
+      # puts them in dependency order.
+      #
+      # No `--provenance` flag: `pnpm publish --help` does not list one,
+      # and pnpm accepts it without complaint either way, which is the
+      # worst of both. Each package carries `publishConfig.provenance`
+      # instead, which is declarative and belongs with the package.
+      #
+      # `--no-git-checks` because `prepare-publish` just modified a file.
+      - run: pnpm publish -r --access public --no-git-checks

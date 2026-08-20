@@ -22,8 +22,18 @@ import { fileURLToPath } from 'node:url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
-/** The version every package publishes at. They release in lockstep. */
-export const VERSION = '0.1.0'
+/**
+ * The version every package publishes at. They release in lockstep.
+ *
+ * Read from a package rather than written here, because Changesets owns
+ * it: a release bumps all nine together (`.changeset/config.json` has them
+ * as a `fixed` group), and a constant in this file would be rewritten back
+ * over the bump on the next run. `check-packages.mjs` is what makes the
+ * lockstep an assertion rather than an intention.
+ */
+export const VERSION = JSON.parse(
+  readFileSync(path.join(root, 'packages', 'compiler', 'package.json'), 'utf8'),
+).version
 
 const REPOSITORY = 'https://github.com/iray-tno/dowel'
 

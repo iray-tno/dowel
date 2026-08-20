@@ -245,6 +245,7 @@ examples/
 
 docs/
   proposal.md      full design document
+  decisions/       settled questions, with the evidence behind them
 ```
 
 ## Development

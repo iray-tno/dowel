@@ -331,6 +331,16 @@ pub struct PropSet {
     pub native_id: Option<ExprRef>,
     pub pointer_events: Option<ExprRef>,
     pub accessibility_state: Option<ExprRef>,
+    /// The keys `accessibility_state`'s object literal writes, when it is
+    /// one this can be read statically.
+    ///
+    /// `None` means the expression is opaque -- a variable, a spread, a
+    /// computed key. The Web backend needs the difference: it turns
+    /// `accessibilityState` into one ARIA attribute per key, and reading a
+    /// key off an object literal that does not have it is a type error in
+    /// the author's own project. `{ expanded: open }` compiled to five
+    /// attributes, four of which did not type-check.
+    pub accessibility_state_keys: Option<Vec<String>>,
     pub accessibility_value: Option<ExprRef>,
     pub accessibility_live_region: Option<ExprRef>,
     pub on_layout: Option<ExprRef>,

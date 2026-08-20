@@ -3,6 +3,27 @@
 
 use hozo_ir::{AccessibilityRole, Diagnostic, DiagnosticCode, HeadingLevel, Node, Primitive, Severity};
 
+/// How an attribute's value is written into the generated JSX.
+///
+/// The distinction is not cosmetic. Hozo splices its output back into the
+/// author's own `.tsx`, so their `tsc` checks it -- and React types
+/// `tabIndex` as a `number`. Emitting every attribute as `name="text"`
+/// produced `tabIndex="0"`, which is a type error in any project that
+/// type-checks its build. `next build` does, by default.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AttrValue {
+    /// `name="text"`.
+    Text(String),
+    /// `name={expr}`, for props React does not type as a string.
+    Expression(String),
+}
+
+impl AttrValue {
+    pub fn text(value: impl Into<String>) -> Self {
+        AttrValue::Text(value.into())
+    }
+}
+
 /// `(tag, extra attributes beyond class)`.
 ///
 /// `Button` maps straight to `<button>` -- real semantic HTML beats an
@@ -13,12 +34,12 @@ use hozo_ir::{AccessibilityRole, Diagnostic, DiagnosticCode, HeadingLevel, Node,
 /// interactive) it's exactly the case proposal §10.2's diagnostic example
 /// warns about, so that diagnostic is emitted here rather than silently
 /// shipping an inaccessible interactive `<div>`.
-pub fn element_shape(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'static str, Vec<(&'static str, String)>) {
+pub fn element_shape(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'static str, Vec<(&'static str, AttrValue)>) {
     let (component, attrs) = element_shape_inner(node, diagnostics);
     (component, apply_authored_role(node, attrs, diagnostics))
 }
 
-fn element_shape_inner(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'static str, Vec<(&'static str, String)>) {
+fn element_shape_inner(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'static str, Vec<(&'static str, AttrValue)>) {
     match node.primitive {
         Primitive::View if node.props.on_layout.is_some() || node.props.has_responder_handlers() => ("View", Vec::new()),
         Primitive::View => ("div", Vec::new()),
@@ -64,12 +85,12 @@ fn element_shape_inner(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'sta
         Primitive::Pressable => {
             let mut attrs = Vec::new();
             match &node.props.accessibility_role {
-                Some(AccessibilityRole::Button) => attrs.push((if node.props.has_responder_handlers() { "accessibilityRole" } else { "role" }, "button".to_string())),
-                Some(AccessibilityRole::Link) => attrs.push((if node.props.has_responder_handlers() { "accessibilityRole" } else { "role" }, "link".to_string())),
+                Some(AccessibilityRole::Button) => attrs.push((if node.props.has_responder_handlers() { "accessibilityRole" } else { "role" }, AttrValue::text("button"))),
+                Some(AccessibilityRole::Link) => attrs.push((if node.props.has_responder_handlers() { "accessibilityRole" } else { "role" }, AttrValue::text("link"))),
                 // Any other ARIA role goes through as written. Hozo does
                 // not have an opinion about `combobox` beyond carrying it
                 // to the platform that understands it.
-                Some(AccessibilityRole::Aria(role)) => attrs.push(("role", role.clone())),
+                Some(AccessibilityRole::Aria(role)) => attrs.push(("role", AttrValue::text(role.clone()))),
                 // A React Native container role. The DOM has nothing that
                 // means it, and inventing the nearest ARIA role would be
                 // announcing something the author did not write -- so it
@@ -94,7 +115,7 @@ fn element_shape_inner(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'sta
                 // props take React's camelCase spellings (same reason the
                 // class attribute is emitted as `className`). React warns
                 // on the all-lowercase form and drops it.
-                attrs.push(("tabIndex", "0".to_string()));
+                attrs.push(("tabIndex", AttrValue::Expression("0".to_string())));
             }
             (if node.props.has_responder_handlers() { "Pressable" } else { "div" }, attrs)
         }
@@ -108,7 +129,7 @@ fn element_shape_inner(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> (&'sta
     }
 }
 
-fn image_attrs(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> Vec<(&'static str, String)> {
+fn image_attrs(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> Vec<(&'static str, AttrValue)> {
     if node.props.accessibility_label.is_none() {
         diagnostics.push(Diagnostic {
             code: DiagnosticCode::A11yMissingAccessibleName,
@@ -140,7 +161,7 @@ fn image_attrs(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> Vec<(&'static 
 /// no `onClose`" is a missing prop. Escape on Web and the hardware back
 /// button on Android both arrive there, so without it the modal ignores
 /// both and reads as a trap.
-fn dialog_attrs(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> Vec<(&'static str, String)> {
+fn dialog_attrs(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> Vec<(&'static str, AttrValue)> {
     if node.props.accessibility_label.is_none() {
         diagnostics.push(Diagnostic {
             code: DiagnosticCode::A11yMissingAccessibleName,
@@ -162,7 +183,7 @@ fn dialog_attrs(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> Vec<(&'static
     Vec::new()
 }
 
-fn missing_label(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> Vec<(&'static str, String)> {
+fn missing_label(node: &Node, diagnostics: &mut Vec<Diagnostic>) -> Vec<(&'static str, AttrValue)> {
     if node.props.accessibility_label.is_none() {
         diagnostics.push(Diagnostic {
             code: DiagnosticCode::A11yMissingAccessibleName,
@@ -256,7 +277,9 @@ mod tests {
         let mut diagnostics = Vec::new();
         let (tag, attrs) = element_shape(&node, &mut diagnostics);
         assert_eq!(tag, "div");
-        assert!(attrs.iter().any(|(k, v)| *k == "tabIndex" && v == "0"));
+        // `{0}`, not `"0"`: React types `tabIndex` as a number, so the
+        // string form is a type error in the author's own project.
+        assert!(attrs.iter().any(|(k, v)| *k == "tabIndex" && *v == AttrValue::Expression("0".to_string())));
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].code, DiagnosticCode::A11yInteractiveWithoutRole);
     }
@@ -303,7 +326,7 @@ mod tests {
         };
         let mut diagnostics = Vec::new();
         let (_, attrs) = element_shape(&node, &mut diagnostics);
-        assert!(attrs.iter().any(|(k, v)| *k == "role" && v == "button"));
+        assert!(attrs.iter().any(|(k, v)| *k == "role" && *v == AttrValue::text("button")));
         assert!(diagnostics.is_empty());
     }
 }
@@ -321,9 +344,9 @@ mod tests {
 /// explicit role is what puts them back.
 fn apply_authored_role(
     node: &Node,
-    mut attrs: Vec<(&'static str, String)>,
+    mut attrs: Vec<(&'static str, AttrValue)>,
     diagnostics: &mut Vec<Diagnostic>,
-) -> Vec<(&'static str, String)> {
+) -> Vec<(&'static str, AttrValue)> {
     let Some(role) = &node.props.accessibility_role else { return attrs };
     attrs.retain(|(key, _)| *key != "role" && *key != "accessibilityRole");
     // An element carrying responder handlers is rendered by a runtime
@@ -331,9 +354,9 @@ fn apply_authored_role(
     // -- so the role has to keep the spelling that component reads.
     let key = if node.props.has_responder_handlers() { "accessibilityRole" } else { "role" };
     match role {
-        AccessibilityRole::Button => attrs.push((key, "button".to_string())),
-        AccessibilityRole::Link => attrs.push((key, "link".to_string())),
-        AccessibilityRole::Aria(name) => attrs.push((key, name.clone())),
+        AccessibilityRole::Button => attrs.push((key, AttrValue::text("button"))),
+        AccessibilityRole::Link => attrs.push((key, AttrValue::text("link"))),
+        AccessibilityRole::Aria(name) => attrs.push((key, AttrValue::text(name.clone()))),
         // The DOM has nothing that means a React Native container role,
         // and the nearest ARIA one would be announcing something the
         // author did not write.

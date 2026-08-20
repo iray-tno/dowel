@@ -16,7 +16,7 @@ use hozo_ir::{
 };
 use oxc_ast::ast::{
     ArrowFunctionExpression, Function, JSXAttribute, JSXAttributeItem, JSXAttributeName, JSXAttributeValue,
-    JSXChild, JSXElement, JSXElementName, JSXExpression,
+    JSXChild, JSXElement, JSXElementName, JSXExpression, ObjectPropertyKind, PropertyKey,
 };
 use oxc_ast_visit::walk::{walk_arrow_function_expression, walk_function};
 use oxc_ast_visit::Visit;
@@ -308,6 +308,37 @@ fn capture_prop_expr(
     };
 }
 
+/// The property names an object-literal attribute writes, if all of them
+/// can be read from the source.
+///
+/// Returns `None` for anything that leaves the set open -- a spread, a
+/// computed key, or an expression that is not an object literal at all.
+/// Guessing there would be worse than not knowing: the caller uses this to
+/// decide which attributes are safe to read off the value.
+fn object_literal_keys(attr: &JSXAttribute) -> Option<Vec<String>> {
+    let Some(JSXAttributeValue::ExpressionContainer(container)) = &attr.value else {
+        return None;
+    };
+    let JSXExpression::ObjectExpression(object) = &container.expression else {
+        return None;
+    };
+    let mut keys = Vec::new();
+    for property in &object.properties {
+        let ObjectPropertyKind::ObjectProperty(property) = property else {
+            return None;
+        };
+        if property.computed {
+            return None;
+        }
+        match &property.key {
+            PropertyKey::StaticIdentifier(name) => keys.push(name.name.to_string()),
+            PropertyKey::StringLiteral(literal) => keys.push(literal.value.to_string()),
+            _ => return None,
+        }
+    }
+    Some(keys)
+}
+
 fn primitive_for_name(name: &str) -> Option<Primitive> {
     match name {
         "View" => Some(Primitive::View),
@@ -478,7 +509,10 @@ fn build_node(
             "testID" => capture_prop_expr(attr, &mut props.test_id, &mut props.passthrough, scope, diagnostics, consumed),
             "nativeID" => capture_prop_expr(attr, &mut props.native_id, &mut props.passthrough, scope, diagnostics, consumed),
             "pointerEvents" => capture_prop_expr(attr, &mut props.pointer_events, &mut props.passthrough, scope, diagnostics, consumed),
-            "accessibilityState" => capture_prop_expr(attr, &mut props.accessibility_state, &mut props.passthrough, scope, diagnostics, consumed),
+            "accessibilityState" => {
+                props.accessibility_state_keys = object_literal_keys(attr);
+                capture_prop_expr(attr, &mut props.accessibility_state, &mut props.passthrough, scope, diagnostics, consumed)
+            }
             "accessibilityValue" => capture_prop_expr(attr, &mut props.accessibility_value, &mut props.passthrough, scope, diagnostics, consumed),
             "accessibilityLiveRegion" => capture_prop_expr(attr, &mut props.accessibility_live_region, &mut props.passthrough, scope, diagnostics, consumed),
             "onLayout" => capture_prop_expr(attr, &mut props.on_layout, &mut props.passthrough, scope, diagnostics, consumed),

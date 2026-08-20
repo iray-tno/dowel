@@ -19,6 +19,22 @@ pub struct LowerOutput {
 
 /// The proposal §8.1 "hozo-view" shared base style: applied to every
 /// `View`, emitted once as a shared rule rather than duplicated per node.
+/// `accessibilityState`'s keys, and the ARIA attribute each becomes.
+///
+/// The names come from React Native's `AccessibilityState`; the mapping is
+/// one to one. Which of these a given `role` actually permits is a
+/// separate question -- `role="button"` allows only `aria-disabled`,
+/// `aria-busy` and `aria-expanded` -- and belongs with the ARIA validity
+/// diagnostics rather than here, where the author's stated intent is
+/// carried through.
+const ARIA_STATE_ATTRS: &[(&str, &str)] = &[
+    ("aria-disabled", "disabled"),
+    ("aria-selected", "selected"),
+    ("aria-checked", "checked"),
+    ("aria-busy", "busy"),
+    ("aria-expanded", "expanded"),
+];
+
 const VIEW_BASE_CSS: &str = ".hozo-view {\n  \
     display: flex;\n  \
     flex-direction: column;\n  \
@@ -323,7 +339,10 @@ fn render_node(
             continue;
         }
         let key = if tag == "Pressable" && *key == "role" { "accessibilityRole" } else { key };
-        attrs.push_str(&format!(r#" {key}="{value}""#));
+        match value {
+            markup::AttrValue::Text(text) => attrs.push_str(&format!(r#" {key}="{text}""#)),
+            markup::AttrValue::Expression(expr) => attrs.push_str(&format!(" {key}={{{expr}}}")),
+        }
     }
 
     if let Some(value) = node.props.test_id {
@@ -343,11 +362,29 @@ fn render_node(
         if is_hozo_component {
             attrs.push_str(&format!(" accessibilityState={{{value}}}"));
         } else {
-            attrs.push_str(&format!(" aria-disabled={{({value}).disabled}}"));
-            attrs.push_str(&format!(" aria-selected={{({value}).selected}}"));
-            attrs.push_str(&format!(" aria-checked={{({value}).checked}}"));
-            attrs.push_str(&format!(" aria-busy={{({value}).busy}}"));
-            attrs.push_str(&format!(" aria-expanded={{({value}).expanded}}"));
+            // Only the keys the author actually wrote.
+            //
+            // This used to emit all five unconditionally, which is a type
+            // error the moment the value is an object literal with fewer:
+            // `accessibilityState={{ expanded: open }}` produced
+            // `aria-disabled={({ expanded: open }).disabled}`, and
+            // `Property 'disabled' does not exist` -- four times, in the
+            // author's own build. A partial state object is the normal way
+            // to write one.
+            //
+            // `None` keys means the expression is opaque (a variable, a
+            // spread). Reading any of the five off that is fine: React
+            // Native's `AccessibilityState` declares all of them optional.
+            for (attr_name, key) in ARIA_STATE_ATTRS {
+                let written = node
+                    .props
+                    .accessibility_state_keys
+                    .as_ref()
+                    .is_none_or(|keys| keys.iter().any(|written| written == key));
+                if written {
+                    attrs.push_str(&format!(" {attr_name}={{({value}).{key}}}"));
+                }
+            }
         }
     }
     if let Some(value) = node.props.accessibility_value {

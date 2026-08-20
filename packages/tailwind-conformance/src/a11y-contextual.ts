@@ -75,7 +75,11 @@ export const A11Y_CONTEXTUAL_CASES: A11yContextualCase[] = [
     name: 'role-bearing Pressable',
     purpose: 'a generic interaction stays focusable and explicitly named',
     source: '<Pressable onPress={go} accessibilityRole="link" accessibilityLabel="Account">Account</Pressable>',
-    web: ['<div', 'role="link"', 'tabIndex="0"', 'aria-label={"Account"}', 'onClick={go}'],
+    // `tabIndex={0}`, not `tabIndex="0"`. This expectation held the string
+    // form until `typecheck-web.test.ts` existed, which is to say the test
+    // was pinning the bug: React types `tabIndex` as a `number`, and Hozo's
+    // output lands in the author's own `.tsx` where their `tsc` sees it.
+    web: ['<div', 'role="link"', 'tabIndex={0}', 'aria-label={"Account"}', 'onClick={go}'],
     // `role`, not `accessibilityRole`: React Native has taken the ARIA
     // spelling since 0.71, so the two platforms now write the same word.
     native: ['<Pressable', 'role="link"', 'accessibilityLabel={"Account"}', 'onPress={go}'],

@@ -35,6 +35,14 @@ const VARIANTS = [
   // Not implemented, and included on purpose: an unsupported variant
   // should read as an honest gap here rather than being absent from the
   // list that decides what "supported" means.
+  // Tailwind's own spelling for the ARIA states, which is what Hozo
+  // implements rather than a shorter name of its own: the selector here
+  // is compared against the one Tailwind actually emits.
+  'aria-checked',
+  'aria-expanded',
+  'aria-selected',
+  'aria-busy',
+  'aria-disabled',
   'last',
   'active',
   'focus-visible',
@@ -96,6 +104,25 @@ export async function buildVariantCatalog(): Promise<VariantCatalog> {
   return { cases, vars: new Map([...loadThemeVars(), ...oracle.registerDefaults]) }
 }
 
+/**
+ * A selector suffix with Hozo's one deliberate substitution undone.
+ *
+ * `disabled:` compiles to `[data-hozo-disabled]` rather than `:disabled`,
+ * because `:disabled` matches form controls and a `Pressable` is a `<div>`
+ * -- so the Tailwind class produced a rule that could never apply. The
+ * decision and its reasoning are in `docs/decisions/001-disabled-and-focus.md`
+ * and at the mapping in `crates/hozo_web/src/css.rs`.
+ *
+ * Folded here rather than left to show as a mismatch on every stacked
+ * `disabled:` combination. A comparison that reports a difference someone
+ * chose, every run, is one people learn to skim -- and this file exists to
+ * be read. Specificity is identical either way, which is what makes the
+ * substitution invisible to everything except the element it now reaches.
+ */
+function canonicalSuffix(suffix: string): string {
+  return suffix.replace('[data-hozo-disabled]', ':disabled')
+}
+
 export function compareVariant(entry: VariantCase, vars: Map<string, string>): VariantVerdict {
   const source =
     `import { View } from '@hozo/core'\n` +
@@ -113,7 +140,7 @@ export function compareVariant(entry: VariantCase, vars: Map<string, string>): V
       differences.push(`missing rule ${index + 1}`)
       continue
     }
-    if (want.suffix !== got.suffix) {
+    if (canonicalSuffix(want.suffix) !== canonicalSuffix(got.suffix)) {
       differences.push(`selector: expected \`&${want.suffix}\`, got \`&${got.suffix}\``)
     }
     const wantAt = want.atRules.map(canonicalAtRule).join(' ')

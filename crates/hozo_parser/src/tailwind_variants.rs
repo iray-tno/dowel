@@ -95,6 +95,23 @@ pub const TAILWIND_VARIANTS: &[&str] = &[
     "visited",
 ];
 
+/// The states `aria-…:` is written with, as Tailwind names them.
+///
+/// Every one is an ARIA attribute whose value is `"true"` or `"false"`,
+/// which is why a shortlist exists at all: `aria-sort` takes four words
+/// and has no boolean form, so it is written `aria-[sort=ascending]:`.
+pub const ARIA_VARIANT_STATES: &[&str] = &[
+    "busy",
+    "checked",
+    "disabled",
+    "expanded",
+    "hidden",
+    "pressed",
+    "readonly",
+    "required",
+    "selected",
+];
+
 /// Whether `name` is a variant Tailwind defines.
 ///
 /// Functional variants (`aria`, `data`, `group`, `peer`, `has`, `not`,

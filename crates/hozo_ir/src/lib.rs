@@ -2220,6 +2220,16 @@ pub enum Condition {
     Hover,
     Focus,
     Disabled,
+    /// Tailwind's `aria-checked:`, `aria-expanded:` and the rest, holding
+    /// the state name without its `aria-` prefix.
+    ///
+    /// On Web this is a plain attribute selector and needs nothing from
+    /// the element's props: `[aria-checked="true"]` matches whatever the
+    /// element actually carries, however it got there. Native has no
+    /// selector engine, so there it has to be read off
+    /// `accessibilityState` and become a runtime guard -- the same
+    /// division `Disabled` already has.
+    Aria(String),
     /// Tailwind's `pressed:` variant. Originally assumed this needed
     /// synthesized JS-tracked state (no CSS `:active` equivalent matches
     /// RN's touch semantics) and so should desugar into `Expr` -- wrong on

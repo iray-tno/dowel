@@ -1239,6 +1239,13 @@ pub fn condition_shape(condition: &Condition) -> (Vec<String>, String) {
         // the ARIA question and the CSS question stop being the same
         // question. Specificity is (0,1,0), exactly what `:disabled` was.
         Condition::Disabled => (Vec::new(), "&[data-hozo-disabled]".to_string()),
+        // Exactly what Tailwind generates, checked against it rather than
+        // recalled: `.aria-checked\:p-4[aria-checked="true"]`. Which means
+        // it needs nothing from the element's props -- the selector matches
+        // whatever the element actually carries, whether that came from
+        // `accessibilityState`, an `aria-checked` prop, or a spread the
+        // compiler never read.
+        Condition::Aria(state) => (Vec::new(), format!("&[aria-{state}=\"true\"]")),
         // Known gotcha, not fixed here: iOS Safari doesn't reliably fire
         // `:active` from a tap unless the element has some touch-event
         // listener attached (a long-documented WebKit quirk). Hozo's

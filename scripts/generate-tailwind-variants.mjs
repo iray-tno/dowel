@@ -26,10 +26,14 @@ const design = await __unstable__loadDesignSystem('@import "tailwindcss";', {
 
 // `getVariants()` is the same call the editor tooling makes, so this is
 // the list a Tailwind user's completions offer them.
-const names = design
-  .getVariants()
-  .map((variant) => variant.name)
-  .sort()
+const variants = design.getVariants()
+const names = variants.map((variant) => variant.name).sort()
+
+// `aria` is a functional variant with a named-value shortlist -- Tailwind
+// spells `aria-checked:` and `aria-[sort=ascending]:` from the same one.
+// The shortlist is what Hozo compiles, so it comes from Tailwind too
+// rather than from a set of names that looked complete.
+const ariaValues = (variants.find((variant) => variant.name === 'aria')?.values ?? []).slice().sort()
 
 writeFileSync(
   'crates/hozo_parser/src/tailwind_variants.rs',
@@ -46,6 +50,15 @@ writeFileSync(
 /// Every variant name Tailwind defines, sorted.
 pub const TAILWIND_VARIANTS: &[&str] = &[
 ${names.map((name) => `    ${JSON.stringify(name)},`).join('\n')}
+];
+
+/// The states \`aria-…:\` is written with, as Tailwind names them.
+///
+/// Every one is an ARIA attribute whose value is \`"true"\` or \`"false"\`,
+/// which is why a shortlist exists at all: \`aria-sort\` takes four words
+/// and has no boolean form, so it is written \`aria-[sort=ascending]:\`.
+pub const ARIA_VARIANT_STATES: &[&str] = &[
+${ariaValues.map((value) => `    ${JSON.stringify(value)},`).join('\n')}
 ];
 
 /// Whether \`name\` is a variant Tailwind defines.

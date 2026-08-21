@@ -2539,6 +2539,18 @@ fn parse_one_variant(token: &str) -> (Condition, &str) {
     if let Some(rest) = token.strip_prefix("focus-visible:") {
         return (Condition::FocusVisible, rest);
     }
+    // `aria-checked:`, `aria-expanded:` and the rest. The list of states
+    // comes from Tailwind rather than from a set of names that looked
+    // complete -- every one is an ARIA attribute with a `"true"`/`"false"`
+    // value, which is why there is a shortlist at all: `aria-sort` takes
+    // four words and is written `aria-[sort=ascending]:` instead.
+    if let Some(rest) = token.strip_prefix("aria-") {
+        if let Some((state, tail)) = rest.split_once(':') {
+            if crate::tailwind_variants::ARIA_VARIANT_STATES.contains(&state) {
+                return (Condition::Aria(state.to_string()), tail);
+            }
+        }
+    }
     // `pressed:` is Hozo's own name, kept because it is the one that
     // reads correctly on a device. `active:` is Tailwind's for the same
     // state, and refusing it would mean a Tailwind class that compiles

@@ -1948,6 +1948,7 @@ fn build_style_entries(
                         atom,
                         Condition::Always
                             | Condition::Disabled
+                            | Condition::Aria(_)
                             | Condition::Pressed
                             | Condition::Expr(_)
                             | Condition::Hover
@@ -1994,6 +1995,21 @@ fn build_style_entries(
                                         Severity::Error,
                                     ));
                                     applies = false;
+                                }
+                            }
+                            Condition::Aria(state) => {
+                                match aria_state_guard(node, source, state) {
+                                    Some(guard) => guards.push(format!("({guard})")),
+                                    None => {
+                                        diagnostics.push(unwired_variant(
+                                            node,
+                                            &format!(
+                                                "`aria-{state}:` in a stacked variant needs an                                                  `accessibilityState` on the same element to                                                  drive it on Native, and this one has none."
+                                            ),
+                                            Severity::Error,
+                                        ));
+                                        applies = false;
+                                    }
                                 }
                             }
                             Condition::Pressed => {
@@ -2110,6 +2126,22 @@ fn build_style_entries(
                          this one has none.",
                         Severity::Error,
                     ));
+                }
+            }
+            Condition::Aria(state) => {
+                match aria_state_guard(node, source, state) {
+                    Some(guard) => conditional_parts.extend(guarded(&format!("({guard}) && "))),
+                    // Web needs nothing from the props here -- the selector
+                    // matches whatever the element carries. Native has no
+                    // selector engine, so the state has to be readable as
+                    // an expression or the style has nowhere to go.
+                    None => diagnostics.push(unwired_variant(
+                        node,
+                        &format!(
+                            "`aria-{state}:` needs an `accessibilityState` on the same element                              to drive it on Native, and this one has none. On Web the same class                              works from the attribute alone."
+                        ),
+                        Severity::Error,
+                    )),
                 }
             }
             Condition::Pressed => pressed_parts.extend(guarded("pressed && ")),
@@ -2497,6 +2529,25 @@ fn truncation_only_reason(property: &StyleProperty) -> Option<String> {
     }
 }
 
+/// The runtime guard for `aria-<state>:` on Native.
+///
+/// Read off `accessibilityState`, which is the only place Hozo can see
+/// the value: the `aria-checked` prop React Native also accepts is
+/// carried through as a passthrough and never parsed. `None` when there
+/// is nothing to read.
+fn aria_state_guard(node: &Node, source: &str, state: &str) -> Option<String> {
+    let value = node.props.accessibility_state?;
+    // An object literal says which keys it has, so one that does not name
+    // this state cannot drive it. An opaque expression could carry
+    // anything and is taken at its word.
+    if let Some(keys) = node.props.accessibility_state_keys.as_ref() {
+        if !keys.iter().any(|key| key == state) {
+            return None;
+        }
+    }
+    Some(format!("({}).{state}", source_text(source, value)))
+}
+
 fn escape_jsx_text(text: &str) -> String {
     text.replace('{', "&#123;").replace('}', "&#125;")
 }
@@ -2517,6 +2568,7 @@ fn condition_suffix(condition: &Condition) -> Option<String> {
         Condition::FocusVisible => Some("focusvisible".to_string()),
         Condition::LastChild => Some("last".to_string()),
         Condition::Disabled => Some("disabled".to_string()),
+        Condition::Aria(state) => Some(format!("aria{state}")),
         Condition::Pressed => Some("pressed".to_string()),
         Condition::Dark => Some("dark".to_string()),
         Condition::FirstChild => Some("first".to_string()),

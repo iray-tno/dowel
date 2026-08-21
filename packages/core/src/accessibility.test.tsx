@@ -154,3 +154,20 @@ test('a Pressable disabled through accessibilityState is inoperable, not just an
   // could, this being a <div>.
   assert.match(html, /data-hozo-disabled=""/, 'the styling hook is missing')
 })
+
+// The contract the generated CSS depends on. `disabled:` and its family
+// compile to `[data-hozo-…]` selectors, which work on any element --
+// `:disabled` matches form controls only, and most of these are a `<div>`.
+// So a primitive rendering through this file has to carry the attribute or
+// the styles come off in the fallback path while working in the compiled
+// one, which is the least visible way for the two to disagree.
+test('every primitive carries the styling hook the generated CSS matches on', () => {
+  for (const [name, component] of PRIMITIVES) {
+    const html = render(component, { accessibilityState: { disabled: true } })
+    assert.match(html, /data-hozo-disabled=""/, `${name} dropped the disabled styling hook`)
+    // Presence, not a value: React renders `data-x={false}` as the string
+    // "false", which an attribute selector matches.
+    const enabled = render(component, { accessibilityState: { disabled: false } })
+    assert.doesNotMatch(enabled, /data-hozo-disabled/, `${name} marks an enabled element disabled`)
+  }
+})

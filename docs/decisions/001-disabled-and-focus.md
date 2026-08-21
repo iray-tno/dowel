@@ -108,6 +108,44 @@ user learns why — requires the author to supply a reason; without it, it is a
 tab stop that announces "dimmed" and then silently does nothing. The C
 reading's drawback appears only in one specific pattern.
 
+## What "focus-worthy" turned out to mean
+
+The rule that decides `tabIndex` when the author wrote no `focusable`, as
+built rather than as first sketched:
+
+> **Hozo makes an element focusable exactly when it also makes it
+> operable.**
+
+Which is one condition, not a list: a `Pressable` with an activation
+handler gets a tab stop, Enter and Space, and the disabled treatment, all
+from the same call. Everything else is the author's, through `focusable`.
+
+The first draft of this listed roles that "deserve focus" -- `tab`,
+`menuitem`, `switch`, `slider` -- and would have given
+`<Pressable accessibilityRole="tab">` a tab stop with no handler behind
+it. That is a focusable element that does nothing when activated, which is
+the failure this document rejected A over. Hozo has no way to make such an
+element operable, so it has no business making it focusable; a composite
+widget that manages its own keys says so with `focusable`.
+
+`ScrollView` was on that list too and came off it for its own reasons,
+above.
+
+## The fallback's half of the contract
+
+`disabled:` and its family compile to `[data-hozo-…]` selectors rather
+than to `:disabled`, so that one selector works on a `<div>`. That makes
+the attribute part of the interface: a primitive rendering through
+`@hozo/core` has to carry it, or the styles come off in the fallback path
+while working in the compiled one.
+
+Which they did. `<View accessibilityState={{ disabled }}>` announced the
+state and dropped the hook, so `disabled:opacity-50` applied to a compiled
+View and not to a fallback one -- the least visible way for the two paths
+to disagree, and the shape of most of what this document came out of.
+
+`universalDomProps` emits it now, and a test walks every primitive.
+
 ## Deferred: `@hozo/android-a11y`
 
 This will come up once there are users. It is worth doing, and the mechanism is

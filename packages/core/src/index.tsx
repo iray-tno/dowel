@@ -52,6 +52,14 @@ export interface UniversalProps {
 /**
  * The universal props every primitive accepts, as DOM attributes.
  *
+ * Includes the `data-hozo-*` attributes the generated CSS matches on, and
+ * that is a contract rather than an implementation detail: `disabled:` and
+ * the rest compile to `[data-hozo-…]` selectors, so a primitive rendering
+ * through this file has to carry them or the styles simply come off in the
+ * fallback path while working in the compiled one. Which they did --
+ * `<View accessibilityState={{ disabled }}>` announced the state and
+ * dropped the hook.
+ *
  * Spread this *before* any attribute a component writes explicitly. Every
  * key here is named unconditionally, so a prop the component destructured
  * out of `universal` arrives as `undefined` rather than absent -- and a
@@ -70,6 +78,9 @@ function universalDomProps(props: UniversalProps) {
     'data-testid': props.testID,
     id: props.nativeID,
     'data-hozo-pointer-events': props.pointerEvents,
+    // A presence attribute: React renders `data-x={false}` as the string
+    // "false", and `[data-hozo-disabled]` matches that.
+    'data-hozo-disabled': state?.disabled ? '' : undefined,
     'aria-disabled': state?.disabled,
     'aria-selected': state?.selected,
     'aria-checked': state?.checked,

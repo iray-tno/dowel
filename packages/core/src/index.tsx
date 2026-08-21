@@ -529,6 +529,12 @@ export function Button({
       type="button"
       className={className}
       disabled={disabled}
+      // `disabled:` compiles to `[data-hozo-disabled]` so that one
+      // selector works on every element -- `:disabled` matches form
+      // controls only, and a Pressable is a `<div>`. A real `<button>`
+      // still needs the attribute, or the rule stops matching here while
+      // it matches everywhere else.
+      data-hozo-disabled={disabled ? '' : undefined}
       aria-label={accessibilityLabel}
       aria-description={accessibilityHint}
       onClick={onPress}

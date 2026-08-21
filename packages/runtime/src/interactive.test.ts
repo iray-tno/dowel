@@ -34,6 +34,15 @@ test('a disabled control is operable by neither', () => {
   assert.equal(props['aria-disabled'], true)
 })
 
+test('the styling hook is a presence attribute, not a boolean', () => {
+  // React renders `data-x={false}` as the string "false" -- unlike
+  // `aria-*`, unlike `disabled` -- and `[data-hozo-disabled]` matches on
+  // presence, so a boolean here would leave every control looking
+  // permanently disabled. `undefined` is the only value React omits.
+  assert.equal(hozoInteractive(press, true)['data-hozo-disabled'], '')
+  assert.equal(hozoInteractive(press)['data-hozo-disabled'], undefined)
+})
+
 test('a disabled control leaves the tab order but stays reachable by focus()', () => {
   // `-1`, not absent: out of the tab order is the decision, while
   // `element.focus()` still works, which focus management and roving

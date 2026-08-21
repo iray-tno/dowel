@@ -38,6 +38,17 @@ export function hozoInteractive(onPress?: PressHandler, disabled?: unknown) {
   return disabled
     ? {
         'aria-disabled': true,
+        // The styling hook, kept separate from how the state is said.
+        // `disabled:opacity-50` compiles to `[data-hozo-disabled]`, which
+        // works on any element -- `:disabled` matches form controls only,
+        // so on the `<div>` a Pressable becomes it matched nothing.
+        //
+        // An empty string, not `true`: React renders `data-x={false}` as
+        // the string `"false"` (unlike `aria-*` and unlike known boolean
+        // attributes), and `[data-hozo-disabled]` matches on presence, so
+        // a boolean here would have made every control permanently
+        // disabled-looking. `undefined` is the only value React omits.
+        'data-hozo-disabled': '',
         tabIndex: -1,
         onClick: undefined,
         onKeyDown: undefined,
@@ -48,6 +59,7 @@ export function hozoInteractive(onPress?: PressHandler, disabled?: unknown) {
         // about it, and `aria-disabled="false"` on every control in a page
         // is noise a screen reader has to read past.
         'aria-disabled': undefined,
+        'data-hozo-disabled': undefined,
         tabIndex: 0,
         onClick: onPress,
         onKeyDown: hozoActivateKeyDown,

@@ -76,6 +76,18 @@ const SCROLL_VIEW_BASE_CSS: &str = ".hozo-scroll-view {\n  \
     display: none;\n\
 }\n\n";
 
+/// What a browser does for `<button disabled>` in forced-colors mode,
+/// for everything else Hozo marks disabled.
+///
+/// In that mode the user's palette replaces the author's, so a disabled
+/// control dimmed with `opacity` or a muted colour looks exactly like an
+/// enabled one. Browsers avoid that by painting disabled *form controls*
+/// with the `GrayText` system colour -- which a `<div role="button">` is
+/// not, and never gets. Same value, so a real `<button>` is unaffected.
+const DISABLED_BASE_CSS: &str = "@media (forced-colors: active) {\n  \
+    [data-hozo-disabled] { color: GrayText; }\n\
+}\n\n";
+
 const POINTER_EVENTS_BASE_CSS: &str = "[data-hozo-pointer-events='none'] { pointer-events: none; }\n\
 [data-hozo-pointer-events='auto'] { pointer-events: auto; }\n\
 [data-hozo-pointer-events='box-none'] { pointer-events: none; }\n\
@@ -129,6 +141,9 @@ pub fn lower(root: &Node, source: &str, theme: &Theme) -> LowerOutput {
     }
     if contains_prop(root, |node| node.props.pointer_events.is_some()) {
         css.push_str(POINTER_EVENTS_BASE_CSS);
+    }
+    if contains_prop(root, marks_disabled) {
+        css.push_str(DISABLED_BASE_CSS);
     }
     // An `animation` declaration is inert without its `@keyframes`, and
     // those are document-level rather than per-node -- so they're collected
@@ -196,6 +211,20 @@ fn contains_primitive(node: &Node, primitive: Primitive) -> bool {
         hozo_ir::Child::Verbatim { nested, .. } => nested.iter().any(|entry| contains_primitive(&entry.node, primitive)),
         hozo_ir::Child::Text(_) => false,
     })
+}
+
+/// Whether this node carries a disabled state, by either spelling.
+///
+/// The same question `disabled_expr` answers per node, asked of a tree so
+/// the shared base rule is emitted once and only when something needs it.
+fn marks_disabled(node: &Node) -> bool {
+    node.props.disabled.is_some()
+        || (node.props.accessibility_state.is_some()
+            && node
+                .props
+                .accessibility_state_keys
+                .as_ref()
+                .is_none_or(|keys| keys.iter().any(|key| key == "disabled")))
 }
 
 fn contains_prop(node: &Node, predicate: fn(&Node) -> bool) -> bool {
@@ -647,6 +676,22 @@ fn render_node(
         // effect at all, so ARIA is the honest choice there instead.
         let attr_name = if node.primitive == Primitive::Button || tag == "Pressable" { "disabled" } else { "aria-disabled" };
         attrs.push_str(&format!(" {attr_name}={{{}}}", render_condition_expr(source, disabled)));
+    }
+
+    // The styling hook, on every element Hozo marks disabled and by
+    // whichever spelling. `disabled:` compiles to `[data-hozo-disabled]`
+    // (see `css.rs`), so a `<button>`, a `<div aria-disabled>` and a
+    // dimmed region all have to carry it or the rule matches nothing --
+    // which is what `disabled:opacity-50` on a Pressable used to do.
+    //
+    // `{expr ? '' : undefined}` is the presence form the rest of Hozo's
+    // `data-hozo-*` attributes already use: React renders `data-x={false}`
+    // as the string "false", and an attribute selector matches that.
+    //
+    // Skipped when `hozoInteractive` is supplying it, which is the same
+    // rule the state attributes above follow.
+    if let Some(expr) = disabled_expr.as_ref().filter(|_| !synthesized_control) {
+        attrs.push_str(&format!(" data-hozo-disabled={{({expr}) ? '' : undefined}}"));
     }
 
     // CSS attribute selectors (`[data-hozo-cond-x-y]`, built in css.rs)
@@ -1439,7 +1484,13 @@ export function Login() {
         let output = lower(&parsed.roots[0].node, source, &Theme::default());
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert!(output.jsx.contains("disabled={true}"), "{}", output.jsx);
-        assert!(output.css.contains(":disabled"), "{}", output.css);
+        // `[data-hozo-disabled]`, not `:disabled`. One selector for every
+        // element, since `:disabled` matches form controls only and a
+        // Pressable is a `<div>` -- so a real `<button>` carries the
+        // attribute too, or the rule would match here and nowhere else.
+        assert!(output.jsx.contains("data-hozo-disabled="), "{}", output.jsx);
+        assert!(output.css.contains(".hozo-0[data-hozo-disabled]"), "{}", output.css);
+        assert!(!output.css.contains(":disabled"), "{}", output.css);
     }
 
     #[test]

@@ -1225,9 +1225,20 @@ pub fn condition_shape(condition: &Condition) -> (Vec<String>, String) {
         Condition::Focus => (Vec::new(), "&:focus".to_string()),
         Condition::FocusVisible => (Vec::new(), "&:focus-visible".to_string()),
         Condition::LastChild => (Vec::new(), "&:last-child".to_string()),
-        // Only meaningful on elements that can actually be disabled (e.g.
-        // <button>) -- CSS itself won't apply `:disabled` to a plain <div>.
-        Condition::Disabled => (Vec::new(), "&:disabled".to_string()),
+        // Hozo's own attribute rather than `:disabled`, because `:disabled`
+        // matches form controls and nothing else. `Pressable` is a `<div>`,
+        // so `disabled:opacity-50` on one used to compile to a rule that
+        // could never match -- CSS emitted, nothing applied, no diagnostic.
+        // The limitation was known and written down here; what it cost was
+        // not.
+        //
+        // Emitted wherever Hozo marks something disabled, which decouples
+        // the styling hook from how the state is *said* on each element:
+        // `<button disabled>`, `<div aria-disabled="true">` and a plain
+        // dimmed region all carry it, so one selector covers all three and
+        // the ARIA question and the CSS question stop being the same
+        // question. Specificity is (0,1,0), exactly what `:disabled` was.
+        Condition::Disabled => (Vec::new(), "&[data-hozo-disabled]".to_string()),
         // Known gotcha, not fixed here: iOS Safari doesn't reliably fire
         // `:active` from a tap unless the element has some touch-event
         // listener attached (a long-documented WebKit quirk). Hozo's

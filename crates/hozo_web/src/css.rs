@@ -1246,6 +1246,11 @@ pub fn condition_shape(condition: &Condition) -> (Vec<String>, String) {
         // `accessibilityState`, an `aria-checked` prop, or a spread the
         // compiler never read.
         Condition::Aria(state) => (Vec::new(), format!("&[aria-{state}=\"true\"]")),
+        // The negation of the same attribute, so `disabled:` and
+        // `enabled:` cannot disagree. Specificity matches what Tailwind's
+        // `:enabled` gives -- `:not()` takes its argument's, which is one
+        // attribute, exactly as a pseudo-class is one.
+        Condition::Enabled => (Vec::new(), "&:not([data-hozo-disabled])".to_string()),
         // Known gotcha, not fixed here: iOS Safari doesn't reliably fire
         // `:active` from a tap unless the element has some touch-event
         // listener attached (a long-documented WebKit quirk). Hozo's

@@ -2230,6 +2230,13 @@ pub enum Condition {
     /// `accessibilityState` and become a runtime guard -- the same
     /// division `Disabled` already has.
     Aria(String),
+    /// Tailwind's `enabled:`, the inverse of `Disabled`.
+    ///
+    /// Not `:enabled`, for the same reason `Disabled` is not `:disabled`:
+    /// that pseudo-class matches form controls, and most of what Hozo
+    /// emits is a `<div>`. It is the negation of the same attribute, so
+    /// the two answers cannot disagree about what disabled means.
+    Enabled,
     /// Tailwind's `pressed:` variant. Originally assumed this needed
     /// synthesized JS-tracked state (no CSS `:active` equivalent matches
     /// RN's touch semantics) and so should desugar into `Expr` -- wrong on

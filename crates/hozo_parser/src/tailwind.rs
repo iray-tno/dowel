@@ -2536,6 +2536,9 @@ fn parse_one_variant(token: &str) -> (Condition, &str) {
     if let Some(rest) = token.strip_prefix("disabled:") {
         return (Condition::Disabled, rest);
     }
+    if let Some(rest) = token.strip_prefix("enabled:") {
+        return (Condition::Enabled, rest);
+    }
     if let Some(rest) = token.strip_prefix("focus-visible:") {
         return (Condition::FocusVisible, rest);
     }

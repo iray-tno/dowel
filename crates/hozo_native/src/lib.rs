@@ -1949,6 +1949,7 @@ fn build_style_entries(
                         Condition::Always
                             | Condition::Disabled
                             | Condition::Aria(_)
+                            | Condition::Enabled
                             | Condition::Pressed
                             | Condition::Expr(_)
                             | Condition::Hover
@@ -1997,6 +1998,16 @@ fn build_style_entries(
                                     applies = false;
                                 }
                             }
+                            Condition::Enabled => match &node.props.disabled {
+                                // The negation of the guard `disabled:`
+                                // uses, from the same prop.
+                                Some(disabled) => guards
+                                    .push(format!("!({})", render_condition_expr(source, disabled))),
+                                // Nothing can disable it, so it is always
+                                // enabled and the variant is unconditional
+                                // rather than unwired.
+                                None => {}
+                            },
                             Condition::Aria(state) => {
                                 match aria_state_guard(node, source, state) {
                                     Some(guard) => guards.push(format!("({guard})")),
@@ -2128,6 +2139,17 @@ fn build_style_entries(
                     ));
                 }
             }
+            Condition::Enabled => match &node.props.disabled {
+                Some(disabled) => {
+                    let guard = render_condition_expr(source, disabled);
+                    conditional_parts.extend(guarded(&format!("!({guard}) && ")));
+                }
+                // An element with no `disabled` prop cannot become
+                // disabled, so `enabled:` on it is simply always true --
+                // unlike `disabled:`, where nothing driving it means the
+                // style had nowhere to go.
+                None => base_parts.extend(parts.clone()),
+            },
             Condition::Aria(state) => {
                 match aria_state_guard(node, source, state) {
                     Some(guard) => conditional_parts.extend(guarded(&format!("({guard}) && "))),
@@ -2568,6 +2590,7 @@ fn condition_suffix(condition: &Condition) -> Option<String> {
         Condition::FocusVisible => Some("focusvisible".to_string()),
         Condition::LastChild => Some("last".to_string()),
         Condition::Disabled => Some("disabled".to_string()),
+        Condition::Enabled => Some("enabled".to_string()),
         Condition::Aria(state) => Some(format!("aria{state}")),
         Condition::Pressed => Some("pressed".to_string()),
         Condition::Dark => Some("dark".to_string()),

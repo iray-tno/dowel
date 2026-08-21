@@ -522,3 +522,47 @@ mod aria_variant_tests {
         assert!(conditions("aria-nonsense:p-4").is_empty());
     }
 }
+
+#[cfg(test)]
+mod enabled_tests {
+    use hozo_ir::{Condition, DiagnosticCode, StyleDeclaration};
+
+    fn conditions(class_name: &str) -> Vec<Condition> {
+        let source = format!(
+            "import {{ View }} from '@hozo/core'\nconst el = <View className=\"{class_name}\">x</View>\n"
+        );
+        crate::parse_tsx(&source).roots[0]
+            .node
+            .style
+            .iter()
+            .map(|StyleDeclaration { condition, .. }| condition.clone())
+            .collect()
+    }
+
+    #[test]
+    fn enabled_is_the_inverse_of_disabled_rather_than_a_second_opinion() {
+        assert!(conditions("enabled:p-4").contains(&Condition::Enabled));
+        assert!(conditions("disabled:p-4").contains(&Condition::Disabled));
+    }
+
+    #[test]
+    fn a_variant_whose_selector_could_never_match_is_still_reported() {
+        // `open:` and `checked:` are real Tailwind and deliberately not
+        // implemented: they compile to `:open` and `:checked`, which match
+        // form controls and a `<details>`, and Hozo emits neither. A
+        // faithful implementation would generate CSS that cannot apply,
+        // which is precisely the bug `disabled:` used to be. The
+        // diagnostic is the more useful answer.
+        let source = |class_name: &str| {
+            format!("import {{ View }} from '@hozo/core'\nconst el = <View className=\"{class_name}\">x</View>\n")
+        };
+        for class_name in ["open:p-4", "checked:p-4"] {
+            let codes: Vec<_> = crate::parse_tsx(&source(class_name))
+                .diagnostics
+                .into_iter()
+                .map(|d| d.code)
+                .collect();
+            assert_eq!(codes, vec![DiagnosticCode::TailwindVariantNotSupported], "{class_name}");
+        }
+    }
+}

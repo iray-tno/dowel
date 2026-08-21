@@ -32,17 +32,19 @@ const VARIANTS = [
   'lg',
   'xl',
   '2xl',
-  // Not implemented, and included on purpose: an unsupported variant
-  // should read as an honest gap here rather than being absent from the
-  // list that decides what "supported" means.
   // Tailwind's own spelling for the ARIA states, which is what Hozo
-  // implements rather than a shorter name of its own: the selector here
-  // is compared against the one Tailwind actually emits.
+  // implements rather than a shorter name of its own. Included here so the
+  // selector is compared against the one Tailwind actually emits rather
+  // than the one it was believed to emit.
   'aria-checked',
   'aria-expanded',
   'aria-selected',
   'aria-busy',
   'aria-disabled',
+  'enabled',
+  // Not implemented, and included on purpose: an unsupported variant
+  // should read as an honest gap here rather than being absent from the
+  // list that decides what "supported" means.
   'last',
   'active',
   'focus-visible',
@@ -120,7 +122,9 @@ export async function buildVariantCatalog(): Promise<VariantCatalog> {
  * substitution invisible to everything except the element it now reaches.
  */
 function canonicalSuffix(suffix: string): string {
-  return suffix.replace('[data-hozo-disabled]', ':disabled')
+  return suffix
+    .replace(':not([data-hozo-disabled])', ':enabled')
+    .replace('[data-hozo-disabled]', ':disabled')
 }
 
 export function compareVariant(entry: VariantCase, vars: Map<string, string>): VariantVerdict {

@@ -29,6 +29,7 @@ fn diagnostic_code_str(code: DiagnosticCode) -> &'static str {
         DiagnosticCode::AriaPropNotAllowed => "ARIA_PROP_NOT_ALLOWED",
         DiagnosticCode::AriaNameProhibited => "ARIA_NAME_PROHIBITED",
         DiagnosticCode::FocusableDisabledUnsupported => "FOCUSABLE_DISABLED_UNSUPPORTED",
+        DiagnosticCode::TailwindVariantNotSupported => "TAILWIND_VARIANT_NOT_SUPPORTED",
         DiagnosticCode::A11yMissingAccessibleName => "A11Y_MISSING_ACCESSIBLE_NAME",
         DiagnosticCode::A11yDialogWithoutDismiss => "A11Y_DIALOG_WITHOUT_DISMISS",
         DiagnosticCode::InvalidSemanticNesting => "INVALID_SEMANTIC_NESTING",

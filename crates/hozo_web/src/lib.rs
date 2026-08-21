@@ -383,6 +383,22 @@ fn render_node(
             format!("hozo-scroll-view {classes}")
         };
     }
+    // The classes Hozo produced no style for, put back.
+    //
+    // They used to be dropped, which deleted a project's own `my-card`
+    // from the element and, worse, Tailwind's `group` and `peer` -- marker
+    // classes with no styles of their own, whose entire purpose is to be
+    // selected against by a descendant. Not understanding a thing is not a
+    // reason to delete it; the same rule the props and children already
+    // follow.
+    for carried in &node.carried_classes {
+        if classes.is_empty() {
+            classes = carried.clone();
+        } else {
+            classes.push(' ');
+            classes.push_str(carried);
+        }
+    }
 
     // `className`, not `class` -- Hozo's Web output is consumed as JSX
     // (the Vite plugin splices it back into React source), not raw HTML.
@@ -1629,6 +1645,51 @@ export function Login() {
             "{}",
             output.jsx
         );
+    }
+
+    #[test]
+    fn a_class_hozo_cannot_compile_is_carried_not_deleted() {
+        // Dropped before this, which deleted a project's own class from
+        // the element -- and Tailwind's `group` and `peer`, which carry no
+        // styles themselves and exist to be selected against, so losing
+        // them breaks a pattern that never mentioned Hozo.
+        for (class_name, expected) in [
+            ("my-card", "hozo-view my-card"),
+            ("p-4 my-card", "hozo-view hozo-0 my-card"),
+            ("group", "hozo-view group"),
+            ("peer", "hozo-view peer"),
+            // Tailwind's, and one Hozo does not implement. Carried for the
+            // same reason: deleting it helps nobody.
+            ("group-hover:bg-blue-500", "hozo-view group-hover:bg-blue-500"),
+        ] {
+            let source = format!(
+                "import {{ View }} from '@hozo/core'
+const el = <View className=\"{class_name}\">x</View>
+"
+            );
+            let parsed = hozo_parser::parse_tsx(&source);
+            let output = lower(&parsed.roots[0].node, &source, &Theme::default());
+            assert!(
+                output.jsx.contains(&format!("className=\"{expected}\"")),
+                "{} -> {}",
+                class_name,
+                output.jsx
+            );
+        }
+    }
+
+    #[test]
+    fn a_class_hozo_compiles_is_not_also_carried() {
+        // Otherwise every element would carry the utilities twice: once as
+        // the scoped class that has the rule, once as the Tailwind name
+        // that has nothing.
+        let source = r#"
+            import { View } from '@hozo/core'
+            const el = <View className="p-4 text-xl">x</View>
+            "#;
+        let parsed = hozo_parser::parse_tsx(source);
+        let output = lower(&parsed.roots[0].node, source, &Theme::default());
+        assert!(output.jsx.contains(r#"className="hozo-view hozo-0""#), "{}", output.jsx);
     }
 
     #[test]

@@ -90,6 +90,16 @@ pub enum DiagnosticCode {
     /// not enabled cannot take input focus however `focusable` is set.
     /// See `docs/decisions/001-disabled-and-focus.md`.
     FocusableDisabledUnsupported,
+    /// A Tailwind class Hozo does not compile.
+    ///
+    /// Distinguished from a class that was never Tailwind's -- a project's
+    /// own `my-card` is not a gap in Hozo and gets no diagnostic, while
+    /// `group-hover:bg-blue-500` is one. Both are carried into the output;
+    /// only one of them was expected to do something there.
+    ///
+    /// Named against Tailwind's own variant list rather than a set of
+    /// prefixes somebody remembered.
+    TailwindVariantNotSupported,
     /// A `Dialog` that can't be dismissed (proposal §10.3).
     ///
     /// Escape on Web and the hardware back button on Android both arrive
@@ -256,6 +266,19 @@ pub struct Node {
     /// Populated per-leaf, not per-node: a `cn(...)` call can contribute
     /// some declarations to `style` and some entries here in the same call.
     pub class_name_fallback: Vec<ExprRef>,
+    /// Class names from a static `className` that produced no style.
+    ///
+    /// Carried into the output rather than deleted, which is the rule the
+    /// rest of this file already follows for props and children and did
+    /// not follow here: an unrecognised class was simply gone. A project's
+    /// own `my-card` vanished, and so did Tailwind's `group` and `peer`,
+    /// which carry no styles themselves and exist to be selected against
+    /// by something else.
+    ///
+    /// The diagnostic for an unreadable arbitrary value has always told
+    /// authors "the class still reaches the DOM, so a hand-written rule
+    /// for it will still apply". This is what makes that true.
+    pub carried_classes: Vec<String>,
     pub span: SourceSpan,
 }
 

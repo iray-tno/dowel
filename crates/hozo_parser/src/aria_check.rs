@@ -424,3 +424,52 @@ mod focus_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod variant_tests {
+    use hozo_ir::DiagnosticCode;
+
+    fn codes(class_name: &str) -> Vec<DiagnosticCode> {
+        let source = format!(
+            "import {{ View }} from '@hozo/core'\nconst el = <View className=\"{class_name}\">x</View>\n"
+        );
+        crate::parse_tsx(&source).diagnostics.into_iter().map(|d| d.code).collect()
+    }
+
+    #[test]
+    fn a_tailwind_variant_hozo_does_not_compile_is_named() {
+        // These produced no CSS, reached the DOM as nothing, and said
+        // nothing. `group-hover:` is not an exotic class.
+        for class_name in [
+            "group-hover:bg-blue-500",
+            "peer-checked:bg-blue-500",
+            "open:bg-blue-500",
+            "aria-expanded:bg-blue-500",
+        ] {
+            assert_eq!(
+                codes(class_name),
+                vec![DiagnosticCode::TailwindVariantNotSupported],
+                "{class_name}",
+            );
+        }
+    }
+
+    #[test]
+    fn a_class_that_was_never_tailwinds_is_not_mentioned() {
+        // The whole value of asking Tailwind for its own variant list:
+        // a project's own class is not a gap in Hozo.
+        for class_name in ["my-card", "group", "peer", "p-4", "hover:bg-blue-500", "md:hover:p-4"] {
+            assert!(codes(class_name).is_empty(), "{class_name}");
+        }
+    }
+
+    #[test]
+    fn one_problem_gets_one_report() {
+        // `data-[state=open]:` has brackets *and* a variant Hozo lacks.
+        // The variant is the accurate half; reporting both was noise.
+        assert_eq!(
+            codes("data-[state=open]:bg-blue-500"),
+            vec![DiagnosticCode::TailwindVariantNotSupported],
+        );
+    }
+}

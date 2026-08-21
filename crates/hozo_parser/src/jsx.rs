@@ -339,6 +339,28 @@ fn object_literal_keys(attr: &JSXAttribute) -> Option<Vec<String>> {
     Some(keys)
 }
 
+/// The Tailwind variant in `token` that Hozo does not compile, if that is
+/// why nothing was produced for it.
+///
+/// `None` for a class that was never Tailwind's. A project's own `my-card`
+/// is not a gap in Hozo and saying so would be noise -- the whole value of
+/// this is telling the two apart, which needs Tailwind's own list rather
+/// than a set of prefixes somebody remembered.
+///
+/// Reads the prefix Hozo could not strip: `parse_variant_prefix` removes
+/// the variants it implements, so whatever colon is left is the first one
+/// it did not.
+fn unsupported_variant(token: &str) -> Option<&str> {
+    let (_, rest) = tailwind::parse_variant_prefix(token);
+    let (prefix, _) = rest.split_once(':')?;
+    // An arbitrary variant (`[&:hover]:p-4`) is a different report -- it
+    // is not a name Tailwind defines, and `is_arbitrary` covers it.
+    if prefix.starts_with('[') {
+        return None;
+    }
+    crate::tailwind_variants::is_variant(prefix).then_some(prefix)
+}
+
 /// `focusable` on an element that is also `disabled`.
 ///
 /// This is someone reaching for the ARIA APG's "focusable disabled"
@@ -423,6 +445,7 @@ fn build_node(
 
     let mut style: Vec<StyleDeclaration> = Vec::new();
     let mut class_name_fallback = Vec::new();
+    let mut carried_classes: Vec<String> = Vec::new();
     let mut props = PropSet::default();
     let mut seen_class_name = false;
     for attr_item in &el.opening_element.attributes {
@@ -479,15 +502,49 @@ fn build_node(
                             let groups = tailwind::expand_class(token);
                             let properties: Vec<_> =
                                 groups.iter().flat_map(|(_, p)| p.clone()).collect();
+                            // Nothing recognised, so it goes back into the
+                            // element rather than being deleted from it.
+                            // "Hozo leaves it alone" is what the comment
+                            // below has always said and was not true: an
+                            // unknown class was dropped, taking a
+                            // project's own `my-card` with it, and
+                            // Tailwind's `group` and `peer` -- marker
+                            // classes with no styles of their own, whose
+                            // whole purpose is to be selected against by a
+                            // descendant.
+                            let unsupported = properties
+                                .is_empty()
+                                .then(|| unsupported_variant(token))
+                                .flatten();
+                            if properties.is_empty() {
+                                carried_classes.push(token.to_string());
+                            }
+                            if let Some(variant) = unsupported {
+                                diagnostics.push(Diagnostic {
+                                    code: DiagnosticCode::TailwindVariantNotSupported,
+                                    severity: Severity::Warning,
+                                    message: format!(
+                                        "`{variant}:` is a Tailwind variant Hozo does not \
+                                         compile yet, so `{token}` produces no style. The class \
+                                         is still on the element, so it will work if the \
+                                         project runs its own Tailwind build over it."
+                                    ),
+                                    span: to_span(literal.span()),
+                                });
+                            }
                             // Reported only for brackets. An unknown bare
                             // class is ordinary -- projects have their own
-                            // CSS and Hozo leaves it alone -- but a
-                            // bracket is unambiguously Tailwind being
-                            // asked for something, so failing to read one
-                            // is worth saying out loud. It stayed silent
-                            // until 2026-08-16, which is how `w-[32px]`
-                            // came to compile to nothing at all.
-                            if properties.is_empty() && tailwind::is_arbitrary(token) {
+                            // CSS -- but a bracket is unambiguously
+                            // Tailwind being asked for something, so
+                            // failing to read one is worth saying out
+                            // loud. It stayed silent until 2026-08-16,
+                            // which is how `w-[32px]` came to compile to
+                            // nothing at all.
+                            // Skipped when the variant was already named:
+                            // one problem, one report. `data-[state=open]:`
+                            // has brackets *and* a variant Hozo lacks, and
+                            // the variant is the accurate half.
+                            if unsupported.is_none() && properties.is_empty() && tailwind::is_arbitrary(token) {
                                 diagnostics.push(Diagnostic {
                                     code: DiagnosticCode::UnreadableArbitraryValue,
                                     severity: Severity::Warning,
@@ -810,6 +867,7 @@ fn build_node(
         props,
         children,
         class_name_fallback,
+        carried_classes,
         span: to_span(el.span()),
     })
 }

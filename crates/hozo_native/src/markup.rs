@@ -158,6 +158,7 @@ mod tests {
             props: PropSet::default(),
             children: Vec::new(),
             class_name_fallback: Vec::new(),
+            carried_classes: Vec::new(),
             span: empty_span(),
         };
         let mut diagnostics = Vec::new();
@@ -205,6 +206,7 @@ mod tests {
             },
             children: Vec::new(),
             class_name_fallback: Vec::new(),
+            carried_classes: Vec::new(),
             span: empty_span(),
         };
         let mut diagnostics = Vec::new();

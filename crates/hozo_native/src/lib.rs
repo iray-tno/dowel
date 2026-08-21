@@ -2807,6 +2807,7 @@ export function Login() {
             props: hozo_ir::PropSet::default(),
             children: Vec::new(),
             class_name_fallback: Vec::new(),
+            carried_classes: Vec::new(),
             span: hozo_ir::SourceSpan { start: 0, end: 0 },
         };
         let output = lower(&node, "", &Theme::default());

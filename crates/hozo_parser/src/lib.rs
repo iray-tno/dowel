@@ -7,6 +7,7 @@ mod dynamic_class;
 mod jsx;
 mod scan;
 mod tailwind;
+mod tailwind_variants;
 
 pub use jsx::is_primitive_name;
 pub use scan::{resolve_class_name, scan_class_candidates, ScannedUtility};

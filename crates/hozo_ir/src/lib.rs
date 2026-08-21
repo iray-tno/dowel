@@ -81,6 +81,15 @@ pub enum DiagnosticCode {
     /// exactly the shape of defect nobody notices: written, rendered, and
     /// silently absent where it was supposed to be heard.
     AriaNameProhibited,
+    /// `focusable` written on an element that is also `disabled`.
+    ///
+    /// The ARIA APG's "focusable disabled" pattern -- reachable, announced
+    /// unavailable, explains itself when activated -- and Hozo does not
+    /// offer it, because Android cannot produce it. React Native routes
+    /// `disabled` to `View.setEnabled(false)`, and an Android view that is
+    /// not enabled cannot take input focus however `focusable` is set.
+    /// See `docs/decisions/001-disabled-and-focus.md`.
+    FocusableDisabledUnsupported,
     /// A `Dialog` that can't be dismissed (proposal §10.3).
     ///
     /// Escape on Web and the hardware back button on Android both arrive
@@ -360,6 +369,15 @@ pub struct PropSet {
     pub accessibility_state_keys: Option<Vec<String>>,
     pub accessibility_value: Option<ExprRef>,
     pub accessibility_live_region: Option<ExprRef>,
+    /// React Native's own name for the keyboard focus order.
+    ///
+    /// Modelled rather than carried because the two platforms spell it
+    /// differently: React Native takes `focusable`, the DOM takes
+    /// `tabIndex`, and passing `focusable` straight through left it doing
+    /// nothing at all on Web. React Native also accepts `tabIndex: 0 | -1`
+    /// and documents it against MDN, so that spelling needs no
+    /// translation and stays a passthrough.
+    pub focusable: Option<ConditionExpr>,
     pub on_layout: Option<ExprRef>,
     /// A Heading's 1...6 level. Static levels compile to a native HTML
     /// heading tag; dynamic expressions use the Web fallback component.

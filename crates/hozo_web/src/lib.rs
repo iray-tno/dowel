@@ -678,6 +678,25 @@ fn render_node(
         attrs.push_str(&format!(" {attr_name}={{{}}}", render_condition_expr(source, disabled)));
     }
 
+    // React Native's `focusable`, in the spelling the DOM has.
+    //
+    // Carried verbatim before this, which meant it reached a `<div>` as an
+    // attribute nothing reads -- so a prop that works on Native did
+    // nothing at all on Web, silently. React Native's own `tabIndex: 0 |
+    // -1` needs no translation and stays a passthrough, which is also why
+    // an author who wrote both gets theirs: passthrough props are emitted
+    // last.
+    if let Some(value) = node.props.focusable.as_ref().filter(|_| !is_hozo_component) {
+        attrs.push_str(&match value {
+            // `<View focusable />` and `focusable={false}` are both known
+            // at compile time, so they become the attribute they mean
+            // rather than a ternary over a constant.
+            hozo_ir::ConditionExpr::Static(true) => " tabIndex={0}".to_string(),
+            hozo_ir::ConditionExpr::Static(false) => " tabIndex={-1}".to_string(),
+            other => format!(" tabIndex={{({}) ? 0 : -1}}", render_condition_expr(source, other)),
+        });
+    }
+
     // The styling hook, on every element Hozo marks disabled and by
     // whichever spelling. `disabled:` compiles to `[data-hozo-disabled]`
     // (see `css.rs`), so a `<button>`, a `<div aria-disabled>` and a
@@ -1610,6 +1629,27 @@ export function Login() {
             "{}",
             output.jsx
         );
+    }
+
+    #[test]
+    fn focusable_is_translated_into_the_spelling_the_dom_has() {
+        // React Native's prop, in the DOM's word for it. Carried verbatim
+        // before this, which put `focusable` on a `<div>` where nothing
+        // reads it -- so a prop that works on Native did nothing at all on
+        // Web, without saying so.
+        for (element, expected) in [
+            (r#"<View focusable className="p-4">x</View>"#, "tabIndex={0}"),
+            (r#"<View focusable={false} className="p-4">x</View>"#, "tabIndex={-1}"),
+            (r#"<View focusable={can} className="p-4">x</View>"#, "tabIndex={(can) ? 0 : -1}"),
+        ] {
+            let source = format!("import {{ View }} from '@hozo/core'
+const el = {element}
+");
+            let parsed = hozo_parser::parse_tsx(&source);
+            let output = lower(&parsed.roots[0].node, &source, &Theme::default());
+            assert!(output.jsx.contains(expected), "{} -> {}", element, output.jsx);
+            assert!(!output.jsx.contains("focusable"), "{}", output.jsx);
+        }
     }
 
     #[test]

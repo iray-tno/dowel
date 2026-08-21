@@ -858,6 +858,13 @@ fn render_node(
             props_text.push_str(&format!(" {name}={{{}}}", source_text(source, value)));
         }
     }
+    // React Native's own name for it, unchanged. Modelling this prop was
+    // about giving the Web backend something to translate; on Native there
+    // is nothing to translate, and losing it here would be a regression
+    // from when it was merely carried.
+    if let Some(focusable) = &node.props.focusable {
+        props_text.push_str(&format!(" focusable={{{}}}", render_condition_expr(source, focusable)));
+    }
     if let Some(disabled) = &node.props.disabled {
         let disabled = render_condition_expr(source, disabled);
         props_text.push_str(&format!(" disabled={{{disabled}}}"));

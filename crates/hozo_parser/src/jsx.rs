@@ -339,6 +339,44 @@ fn object_literal_keys(attr: &JSXAttribute) -> Option<Vec<String>> {
     Some(keys)
 }
 
+/// `focusable` on an element that is also `disabled`.
+///
+/// This is someone reaching for the ARIA APG's "focusable disabled"
+/// pattern, which Hozo does not offer -- Android cannot produce it. React
+/// Native routes `disabled` to `View.setEnabled(false)`, and a view that
+/// is not enabled cannot take input focus however `focusable` is set, so
+/// the prop would work on Web and quietly do nothing there.
+///
+/// Reported rather than ignored, and the message says what to do instead.
+/// `focusable={false}` is not reported: it agrees with what `disabled`
+/// already does, so there is nothing to warn about.
+fn validate_focusable_disabled(
+    props: &PropSet,
+    span: SourceSpan,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let Some(focusable) = props.focusable.as_ref() else { return };
+    if props.disabled.is_none() {
+        return;
+    }
+    // `focusable={false}` agrees with what `disabled` already does, so
+    // there is nothing to say about it. Anything else is someone asking
+    // for a state Hozo does not offer.
+    if matches!(focusable, ConditionExpr::Static(false)) {
+        return;
+    }
+    diagnostics.push(Diagnostic {
+        code: DiagnosticCode::FocusableDisabledUnsupported,
+        severity: Severity::Warning,
+        message: "`focusable` has no effect on a disabled element. React Native's disabled \
+                  state removes keyboard focus on Android, and Hozo cannot yet separate that \
+                  from the announcement. To let people reach the control and learn why it is \
+                  unavailable, leave it enabled and answer in the handler instead."
+            .to_string(),
+        span,
+    });
+}
+
 fn primitive_for_name(name: &str) -> Option<Primitive> {
     match name {
         "View" => Some(Primitive::View),
@@ -515,6 +553,22 @@ fn build_node(
             }
             "accessibilityValue" => capture_prop_expr(attr, &mut props.accessibility_value, &mut props.passthrough, scope, diagnostics, consumed),
             "accessibilityLiveRegion" => capture_prop_expr(attr, &mut props.accessibility_live_region, &mut props.passthrough, scope, diagnostics, consumed),
+            "focusable" => match &attr.value {
+                None => props.focusable = Some(ConditionExpr::Static(true)),
+                Some(JSXAttributeValue::ExpressionContainer(container)) => {
+                    props.focusable = Some(match &container.expression {
+                        // Read as the constant it is, so `focusable={false}`
+                        // becomes `tabIndex={-1}` rather than a ternary over
+                        // a literal -- and so the disabled check can tell it
+                        // from an expression it cannot see into.
+                        JSXExpression::BooleanLiteral(literal) => ConditionExpr::Static(literal.value),
+                        expression => ConditionExpr::Ref(to_expr_ref(expression.span())),
+                    });
+                }
+                _ => props
+                    .passthrough
+                    .push(passthrough_prop(attr, scope, diagnostics, consumed)),
+            },
             "onLayout" => capture_prop_expr(attr, &mut props.on_layout, &mut props.passthrough, scope, diagnostics, consumed),
             "level" if primitive == Primitive::Heading => match &attr.value {
                 Some(JSXAttributeValue::StringLiteral(literal)) => {
@@ -748,6 +802,7 @@ fn build_node(
     }
 
     validate_semantic_children(primitive, &children, diagnostics);
+    validate_focusable_disabled(&props, to_span(el.span()), diagnostics);
 
     Some(Node {
         primitive,

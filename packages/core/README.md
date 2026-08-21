@@ -29,4 +29,4 @@ The Native counterparts are chosen the same way: `Image` maps to React Native's 
 
 The universal props follow React Native's names — `accessibilityLabel`, `accessibilityHint`, `accessibilityState`, `accessibilityValue`, `accessibilityLiveRegion`, `testID`, `nativeID` — and map onto ARIA on Web. `role` is accepted directly as well; React Native has supported it since 0.71, so it means the same thing on both sides.
 
-**Known gap:** `Pressable` currently takes only its own props and the responder set, so `testID`, `accessibilityState` and the rest are not part of its contract there. React Native's own `Pressable` accepts them.
+`Pressable` takes them too. It did not until recently — its props extended only the responder set, so `testID` and `accessibilityState` were not part of its contract at all, which is a strange place for the gap to be: an interactive element is exactly where `aria-checked`, `aria-expanded` and `aria-selected` earn their keep.

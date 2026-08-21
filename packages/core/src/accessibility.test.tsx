@@ -56,20 +56,19 @@ const PRIMITIVES: [string, Primitive][] = [
   ['ListItem', ListItem],
   ['ScrollView', ScrollView],
   ['FlatList', FlatList],
+  // Pressable was not in this list when the file was written, and writing
+  // it is how that turned up: `PressableProps extends ResponderProps`
+  // alone, so `testID`, `accessibilityState` and the rest were not part
+  // of its contract at all. React Native's own Pressable takes every one
+  // of them, and an interactive element is exactly where `aria-checked`,
+  // `aria-expanded` and `aria-selected` earn their keep.
+  //
+  // The `onLayout` question that made it look like a design decision
+  // rather than an oversight had already been answered by `View`, which
+  // has the same pair: `useLayoutRef` returns the ref, and the responder
+  // takes that same ref. There is only ever one.
+  ['Pressable', Pressable],
 ]
-
-// Pressable is not in that list, and writing this test is how that turned
-// up. `PressableProps extends ResponderProps` alone, so `testID`,
-// `nativeID`, `pointerEvents`, `accessibilityState`, `accessibilityValue`,
-// `accessibilityLiveRegion` and `onLayout` are not part of its contract --
-// TypeScript rejects them rather than the component dropping them, so this
-// is a gap rather than a defect. It is a conspicuous gap all the same:
-// React Native's own Pressable takes all of them, and an interactive
-// element is exactly where `aria-checked`, `aria-expanded` and
-// `aria-selected` earn their keep. Closing it means deciding what
-// `onLayout` does about the ref Pressable already owns for its responder,
-// which is a design question rather than an oversight.
-const PRESSABLE_SUPPORTS: [string, Primitive][] = [['Pressable', Pressable]]
 
 function render(component: Primitive, props: Record<string, unknown>) {
   const renderable = component as ComponentType<Record<string, unknown>>
@@ -79,14 +78,14 @@ function render(component: Primitive, props: Record<string, unknown>) {
 }
 
 test('every primitive renders the accessibilityLabel it was given', () => {
-  for (const [name, component] of [...PRIMITIVES, ...PRESSABLE_SUPPORTS]) {
+  for (const [name, component] of PRIMITIVES) {
     const html = render(component, { accessibilityLabel: 'Message list' })
     assert.match(html, /aria-label="Message list"/, `${name} dropped its accessibilityLabel`)
   }
 })
 
 test('every primitive renders the accessibilityHint it was given', () => {
-  for (const [name, component] of [...PRIMITIVES, ...PRESSABLE_SUPPORTS]) {
+  for (const [name, component] of PRIMITIVES) {
     const html = render(component, { accessibilityHint: 'Scrolls to newest' })
     assert.match(
       html,
@@ -133,4 +132,25 @@ test('testID and nativeID survive alongside the explicit attributes', () => {
     assert.match(html, /id="inbox-root"/, `${name} dropped nativeID`)
     assert.match(html, /aria-label="Inbox"/, `${name} dropped accessibilityLabel`)
   }
+})
+
+// Pressable folds both spellings of the disabled state, the way React
+// Native does and the way the compiled path does. Two sources for one
+// attribute is how they end up disagreeing, which is the shape of every
+// bug this file exists over.
+test('a Pressable disabled through accessibilityState is inoperable, not just announced', () => {
+  const enabled = render(Pressable, { accessibilityRole: 'button', onPress: () => {} })
+  assert.match(enabled, /tabindex="0"/, 'an enabled Pressable is not in the tab order')
+
+  const html = render(Pressable, {
+    accessibilityRole: 'button',
+    accessibilityState: { disabled: true },
+    onPress: () => {},
+  })
+  assert.match(html, /aria-disabled="true"/, 'the state was not announced')
+  // Out of the tab order, reachable by focus(). docs/decisions/001 rule 1a.
+  assert.match(html, /tabindex="-1"/, 'the state did not remove the tab stop')
+  // And the styling hook, so `disabled:` reaches it -- `:disabled` never
+  // could, this being a <div>.
+  assert.match(html, /data-hozo-disabled=""/, 'the styling hook is missing')
 })

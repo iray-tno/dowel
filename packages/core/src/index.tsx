@@ -450,13 +450,11 @@ export function FlatList<T>({
   )
 }
 
-export interface PressableProps extends ResponderProps {
+export interface PressableProps extends UniversalProps, ResponderProps {
   className?: string
   children?: ReactNode
   onPress?: MouseEventHandler<HTMLDivElement>
   accessibilityRole?: 'button' | 'link'
-  accessibilityLabel?: string
-  accessibilityHint?: string
   disabled?: boolean
 }
 
@@ -468,26 +466,32 @@ export function Pressable({
   children,
   onPress,
   accessibilityRole,
-  accessibilityLabel,
-  accessibilityHint,
   disabled,
-  ...responderProps
+  onLayout,
+  ...universal
 }: PressableProps) {
-  const ref = useRef<HTMLDivElement>(null)
-  const responder = useResponderDomProps(ref, responderProps, !disabled)
+  const ref = useLayoutRef<HTMLDivElement>(onLayout)
+  const responder = useResponderDomProps(ref, universal, !disabled)
+  // Both spellings of the state, folded the way React Native folds them --
+  // `Pressable.js` merges the `disabled` prop into `accessibilityState`,
+  // and the compiled path merges them into one guard. Two sources for one
+  // attribute is how they end up disagreeing.
+  const isDisabled = disabled || universal.accessibilityState?.disabled
   // Without an `onPress` this is not a control, so it gets no tab stop and
   // no key handlers -- only the announcement, which a disabled region is
   // still entitled to.
   const interaction = onPress
-    ? hozoInteractive(onPress, disabled)
-    : { 'aria-disabled': disabled || undefined }
+    ? hozoInteractive(onPress, isDisabled)
+    : { 'aria-disabled': isDisabled || undefined }
   return (
     <div
       ref={ref}
       className={className}
+      // Spread before anything written explicitly below, for the reason on
+      // `universalDomProps` -- it names every key unconditionally, so a
+      // later spread of `undefined` erases what came before it.
+      {...universalDomProps(universal)}
       role={accessibilityRole}
-      aria-label={accessibilityLabel}
-      aria-description={accessibilityHint}
       // The same call the compiled path makes, so the two cannot answer
       // differently. Everything `disabled` means is in there: see
       // `@hozo/runtime`'s `interactive.ts` and docs/decisions/001.

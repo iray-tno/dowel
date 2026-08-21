@@ -64,6 +64,23 @@ pub enum DiagnosticCode {
     /// defect: the element renders, nothing throws, and the page looks
     /// finished. What is wrong is only audible.
     AriaIncompletePattern,
+    /// A state or property the element's role does not accept.
+    ///
+    /// `role="button"` takes `aria-expanded`, `aria-busy` and
+    /// `aria-disabled` and nothing else, so `accessibilityState={{ selected
+    /// }}` on one is an attribute assistive technology has no use for.
+    /// Derived from the specification's own table rather than a list
+    /// somebody thought of.
+    AriaPropNotAllowed,
+    /// An accessible name on an element whose role forbids one.
+    ///
+    /// Eleven ARIA roles prohibit `aria-label`, and `generic` -- what a
+    /// bare `<div>` or `<span>` is -- is one of them, as is `paragraph`.
+    /// The name is not merely redundant there; assistive technology may
+    /// ignore it, so the element is announced as if it had none. Which is
+    /// exactly the shape of defect nobody notices: written, rendered, and
+    /// silently absent where it was supposed to be heard.
+    AriaNameProhibited,
     /// A `Dialog` that can't be dismissed (proposal §10.3).
     ///
     /// Escape on Web and the hardware back button on Android both arrive

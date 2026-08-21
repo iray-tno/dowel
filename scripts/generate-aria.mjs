@@ -19,6 +19,11 @@ const entries = [...roles.entries()]
   .filter(([name]) => !name.startsWith('doc-') && !name.startsWith('graphics-'))
   .sort(([a], [b]) => a.localeCompare(b))
 
+// The properties every role carries, which is what `roletype` -- ARIA's
+// base role -- declares. Held once rather than repeated in every row: 1871
+// entries become 273, for the same answers.
+const globals = Object.keys(roles.get('roletype').props ?? {}).sort()
+
 const rows = entries.map(([name, role]) => {
   const required = Object.keys(role.requiredProps ?? {}).sort()
   const context = (role.requiredContextRole ?? []).slice().sort()
@@ -27,8 +32,11 @@ const rows = entries.map(([name, role]) => {
   const owned = [
     ...new Set((role.requiredOwnedElements ?? []).map((path) => path[0]).filter(Boolean)),
   ].sort()
+  // What this role adds to the globals, and what it refuses outright.
+  const supported = Object.keys(role.props ?? {}).filter((prop) => !globals.includes(prop)).sort()
+  const prohibited = (role.prohibitedProps ?? []).slice().sort()
   const list = (xs) => `&[${xs.map((x) => JSON.stringify(x)).join(', ')}]`
-  return `    AriaRole { name: ${JSON.stringify(name)}, is_abstract: ${role.abstract === true}, required_props: ${list(required)}, required_context: ${list(context)}, required_owned: ${list(owned)} },`
+  return `    AriaRole { name: ${JSON.stringify(name)}, is_abstract: ${role.abstract === true}, required_props: ${list(required)}, required_context: ${list(context)}, required_owned: ${list(owned)}, supported_props: ${list(supported)}, prohibited_props: ${list(prohibited)} },`
 })
 
 writeFileSync(
@@ -60,7 +68,22 @@ pub struct AriaRole {
     pub required_context: &'static [&'static str],
     /// Roles this one must contain.
     pub required_owned: &'static [&'static str],
+    /// States and properties this role accepts *beyond* \`GLOBAL_PROPS\`.
+    pub supported_props: &'static [&'static str],
+    /// States and properties this role refuses, globals included.
+    ///
+    /// Small and load-bearing. Eleven roles prohibit an accessible name,
+    /// and \`generic\` -- what a bare \`<div>\` or \`<span>\` is -- is one of
+    /// them, as is \`paragraph\`. So an \`accessibilityLabel\` on a \`View\` or
+    /// a \`Paragraph\` is a name assistive technology may ignore outright.
+    pub prohibited_props: &'static [&'static str],
 }
+
+/// The states and properties every role carries, from ARIA's base
+/// \`roletype\`. Kept out of the rows, which each list only their own.
+pub const GLOBAL_PROPS: &[&str] = &[
+${globals.map((prop) => `    ${JSON.stringify(prop)},`).join('\n')}
+];
 
 pub const ARIA_ROLES: &[AriaRole] = &[
 ${rows.join('\n')}
@@ -82,6 +105,15 @@ pub fn is_abstract_role(name: &str) -> bool {
 /// The specification's entry for \`name\`.
 pub fn role(name: &str) -> Option<&'static AriaRole> {
     ARIA_ROLES.iter().find(|role| role.name == name)
+}
+
+/// Whether \`role\` accepts \`prop\` at all.
+///
+/// Prohibition wins over the globals: \`aria-label\` is global, and
+/// \`role="generic"\` refuses it anyway.
+pub fn allows_prop(role: &AriaRole, prop: &str) -> bool {
+    !role.prohibited_props.contains(&prop)
+        && (GLOBAL_PROPS.contains(&prop) || role.supported_props.contains(&prop))
 }
 `,
 )

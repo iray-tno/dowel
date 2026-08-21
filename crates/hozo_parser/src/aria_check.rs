@@ -15,6 +15,7 @@
 //   - a role's required states and properties
 //   - the role it must be contained by
 //   - the roles it must contain
+//   - the states and properties it accepts, and the ones it refuses
 //
 // The second and third need the tree, and the tree is only sometimes
 // knowable: a `Child::Verbatim` between two elements may render nothing,
@@ -22,17 +23,19 @@
 // rather than guessing, which is the same rule the rest of the compiler
 // follows.
 
-use hozo_ir::{AccessibilityRole, Child, Diagnostic, DiagnosticCode, Node, Severity};
+use hozo_ir::{AccessibilityRole, Child, Diagnostic, DiagnosticCode, Node, Primitive, Severity};
 
 use crate::aria;
 
-/// The ARIA state properties `accessibilityState` can supply.
+/// Whether `accessibilityState` is the prop that would carry `property`.
 ///
-/// It is one expression carrying an object, and Hozo does not read inside
-/// it -- the Web backend emits `({expr}).expanded` and lets the value
-/// decide. So a node with one may or may not supply any of these, and the
-/// honest answer for all four is "cannot tell".
-const STATE_PROPS: &[&str] = &["aria-disabled", "aria-selected", "aria-busy", "aria-expanded"];
+/// Read from `ARIA_STATE_KEYS` rather than restated. It was restated, and
+/// the copy was missing `aria-checked` -- so a `role="checkbox"` written
+/// with `accessibilityState={{ checked }}` was reported as missing the one
+/// state it had.
+fn is_state_prop(property: &str) -> bool {
+    ARIA_STATE_KEYS.iter().any(|(aria_name, _)| *aria_name == property)
+}
 
 pub fn check(root: &Node, diagnostics: &mut Vec<Diagnostic>) {
     walk(root, &[], diagnostics);
@@ -45,7 +48,14 @@ fn walk(node: &Node, ancestors: &[&str], diagnostics: &mut Vec<Diagnostic>) {
             check_props(node, spec, diagnostics);
             check_context(node, spec, ancestors, diagnostics);
             check_owned(node, spec, diagnostics);
+            check_allowed(node, spec, diagnostics);
         }
+    }
+    // The name check also applies where no role was written, because the
+    // role is then whatever the element is -- and for `View`, `Text` and
+    // an unrolled `Pressable` that is `generic`, which prohibits a name.
+    if let Some(spec) = own_role.or_else(|| implicit_role(node)).and_then(aria::role) {
+        check_name_allowed(node, spec, diagnostics);
     }
 
     let mut inner: Vec<&str> = ancestors.to_vec();
@@ -71,12 +81,20 @@ fn aria_role(node: &Node) -> Option<&str> {
 
 /// Whether the node supplies an ARIA property, under any of its spellings.
 ///
-/// `None` means "cannot tell": an `accessibilityState` is one opaque
-/// expression and its keys are not read, so every state it could carry has
-/// to be treated as possibly supplied.
+/// `None` means "cannot tell", which is this module's answer wherever the
+/// source stops being readable.
 fn supplies(node: &Node, property: &str) -> Option<bool> {
-    if node.props.accessibility_state.is_some() && STATE_PROPS.contains(&property) {
-        return None;
+    if node.props.accessibility_state.is_some() && is_state_prop(property) {
+        match node.props.accessibility_state_keys.as_ref() {
+            // An object literal says exactly which states it carries, so
+            // the ones it does not name are genuinely absent rather than
+            // unknown -- and a required state that is missing from a
+            // literal is now a finding instead of a shrug.
+            Some(_) if written_props(node).contains(&property) => return Some(true),
+            Some(_) => {}
+            // A variable or a spread could carry anything.
+            None => return None,
+        }
     }
     let modelled = match property {
         "aria-label" => node.props.accessibility_label.is_some(),
@@ -186,11 +204,181 @@ fn check_owned(node: &Node, spec: &aria::AriaRole, diagnostics: &mut Vec<Diagnos
     });
 }
 
+/// The role a primitive means when the author wrote none.
+///
+/// Only the ones that become an element with no role of its own. Every
+/// other primitive lowers to something that carries one -- `Section` to
+/// `<section>`, `Heading` to `<h2>` -- and the specification's entry for
+/// that role is what applies.
+fn implicit_role(node: &Node) -> Option<&'static str> {
+    match node.primitive {
+        Primitive::View | Primitive::Text | Primitive::ScrollView => Some("generic"),
+        Primitive::Pressable if node.props.accessibility_role.is_none() => Some("generic"),
+        Primitive::Paragraph => Some("paragraph"),
+        _ => None,
+    }
+}
+
+/// States and properties written by name, and the ARIA spelling of each.
+///
+/// `accessibilityState`'s keys are readable when it is an object literal;
+/// `accessibility_state_keys` is `None` when it is not, and then nothing
+/// here is claimed.
+fn written_props(node: &Node) -> Vec<&'static str> {
+    let mut written = Vec::new();
+    if let Some(keys) = node.props.accessibility_state_keys.as_ref() {
+        for (aria_name, key) in ARIA_STATE_KEYS {
+            if keys.iter().any(|written_key| written_key == key) {
+                written.push(*aria_name);
+            }
+        }
+    }
+    written
+}
+
+/// `accessibilityState`'s keys and the ARIA property each becomes. The
+/// same mapping the Web backend emits from; it is one to one.
+const ARIA_STATE_KEYS: &[(&str, &str)] = &[
+    ("aria-disabled", "disabled"),
+    ("aria-selected", "selected"),
+    ("aria-checked", "checked"),
+    ("aria-busy", "busy"),
+    ("aria-expanded", "expanded"),
+];
+
+/// A state the role does not accept.
+///
+/// Only for states written out by name. An opaque `accessibilityState`
+/// could carry anything, and the rest of this module's rule is that an
+/// unreadable expression means "cannot tell" rather than "no".
+fn check_allowed(node: &Node, spec: &aria::AriaRole, diagnostics: &mut Vec<Diagnostic>) {
+    let refused: Vec<&str> = written_props(node)
+        .into_iter()
+        .filter(|prop| !aria::allows_prop(spec, prop))
+        .collect();
+    if refused.is_empty() {
+        return;
+    }
+    diagnostics.push(Diagnostic {
+        code: DiagnosticCode::AriaPropNotAllowed,
+        severity: Severity::Warning,
+        message: format!(
+            "`role=\"{}\"` does not take {}. Assistive technology has nothing to do with {} \
+             here, so the state is carried into the output and never announced.",
+            spec.name,
+            list(&refused),
+            if refused.len() == 1 { "it" } else { "them" },
+        ),
+        span: node.span,
+    });
+}
+
+/// A name on a role that forbids one.
+fn check_name_allowed(node: &Node, spec: &aria::AriaRole, diagnostics: &mut Vec<Diagnostic>) {
+    if node.props.accessibility_label.is_none() {
+        return;
+    }
+    if aria::allows_prop(spec, "aria-label") {
+        return;
+    }
+    diagnostics.push(Diagnostic {
+        code: DiagnosticCode::AriaNameProhibited,
+        severity: Severity::Warning,
+        message: format!(
+            "`role=\"{}\"` cannot carry an accessible name, so this `accessibilityLabel` may \
+             never be announced. Name something that can be named instead -- a `Section` \
+             becomes a region, an `Article` and a `Nav` are landmarks -- or give this element \
+             a role that takes one.",
+            spec.name,
+        ),
+        span: node.span,
+    });
+}
+
 fn list(items: &[&str]) -> String {
     let quoted: Vec<String> = items.iter().map(|item| format!("`{item}`")).collect();
     match quoted.split_last() {
         Some((last, [])) => last.clone(),
         Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
         None => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use hozo_ir::DiagnosticCode;
+
+    fn codes(element: &str) -> Vec<DiagnosticCode> {
+        let source = format!(
+            "import {{ Pressable, View, Text, Paragraph, Section }} from '@hozo/core'\n\
+             const el = {element}\n"
+        );
+        crate::parse_tsx(&source).diagnostics.into_iter().map(|d| d.code).collect()
+    }
+
+    #[test]
+    fn a_state_the_role_does_not_take_is_reported() {
+        // `role="button"` accepts `aria-expanded`, `aria-busy` and
+        // `aria-disabled`. Not `aria-selected` -- and the state was going
+        // into the output regardless, where nothing would read it.
+        assert_eq!(
+            codes(r#"<Pressable accessibilityRole="button" accessibilityState={{ selected: s }} onPress={go}>x</Pressable>"#),
+            vec![DiagnosticCode::AriaPropNotAllowed],
+        );
+        assert!(
+            codes(r#"<Pressable accessibilityRole="button" accessibilityState={{ expanded: o }} onPress={go}>x</Pressable>"#)
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn an_opaque_state_is_not_guessed_at() {
+        // The rule the rest of this module follows: where the source stops
+        // being readable, say nothing rather than something.
+        assert!(
+            codes(r#"<Pressable accessibilityRole="button" accessibilityState={state} onPress={go}>x</Pressable>"#)
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn a_name_on_something_that_cannot_be_named_is_reported() {
+        // `generic` is what a bare `<div>` or `<span>` is, and ARIA
+        // prohibits naming it -- so the label is written, rendered, and
+        // may never be announced.
+        for element in [
+            r#"<View accessibilityLabel="Sidebar" className="p-4">x</View>"#,
+            r#"<Text accessibilityLabel="Hint">x</Text>"#,
+            r#"<Paragraph accessibilityLabel="Intro">x</Paragraph>"#,
+            r#"<Pressable accessibilityLabel="Open">x</Pressable>"#,
+        ] {
+            assert_eq!(codes(element), vec![DiagnosticCode::AriaNameProhibited], "{element}");
+        }
+    }
+
+    #[test]
+    fn a_name_on_something_that_can_be_named_is_not() {
+        // Which is the whole point of the semantic primitives: `Section`
+        // becomes a region, and a region takes a name.
+        assert!(codes(r#"<Section accessibilityLabel="Messages">x</Section>"#).is_empty());
+        assert!(
+            codes(r#"<Pressable accessibilityRole="button" accessibilityLabel="Save" onPress={go}>x</Pressable>"#)
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn a_required_state_written_as_a_literal_key_counts_as_supplied() {
+        // `aria-checked` was missing from the hand-copied list of which
+        // properties `accessibilityState` can carry, so a checkbox written
+        // with the one state it needs was reported as missing it.
+        assert!(
+            codes(r#"<Pressable accessibilityRole="checkbox" accessibilityState={{ checked: c }} onPress={go}>x</Pressable>"#)
+                .is_empty()
+        );
+        assert_eq!(
+            codes(r#"<Pressable accessibilityRole="checkbox" onPress={go}>x</Pressable>"#),
+            vec![DiagnosticCode::AriaIncompletePattern],
+        );
     }
 }

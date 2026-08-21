@@ -26,6 +26,8 @@ fn diagnostic_code_str(code: DiagnosticCode) -> &'static str {
         DiagnosticCode::A11yInteractiveWithoutRole => "A11Y_INTERACTIVE_WITHOUT_ROLE",
         DiagnosticCode::RoleHasNoWebEquivalent => "ROLE_HAS_NO_WEB_EQUIVALENT",
         DiagnosticCode::AriaIncompletePattern => "ARIA_INCOMPLETE_PATTERN",
+        DiagnosticCode::AriaPropNotAllowed => "ARIA_PROP_NOT_ALLOWED",
+        DiagnosticCode::AriaNameProhibited => "ARIA_NAME_PROHIBITED",
         DiagnosticCode::A11yMissingAccessibleName => "A11Y_MISSING_ACCESSIBLE_NAME",
         DiagnosticCode::A11yDialogWithoutDismiss => "A11Y_DIALOG_WITHOUT_DISMISS",
         DiagnosticCode::InvalidSemanticNesting => "INVALID_SEMANTIC_NESTING",

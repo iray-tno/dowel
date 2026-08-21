@@ -39,6 +39,15 @@ test('carries what a role needs to mean anything', () => {
   // Abstract roles are in the table and marked, so `role="widget"` can be
   // named as the mistake it is rather than reported as unknown.
   assert.match(table, /name: "widget", is_abstract: true/)
+  // The two fields that make "does this role accept this at all" answerable.
+  // `generic` is what a bare <div> is, and it refuses a name outright.
+  assert.match(table, /name: "generic".*prohibited_props: &\["aria-label", "aria-labelledby"\]/)
+  assert.match(
+    table,
+    /name: "button".*supported_props: &\["aria-disabled", "aria-expanded", "aria-haspopup", "aria-pressed"\]/,
+  )
+  // Held once instead of in all 95 rows: 1871 entries would be 273.
+  assert.ok(table.includes('pub const GLOBAL_PROPS: &[&str] = &['))
 })
 
 test('every requirement the table carries is one the checker reads', () => {
@@ -58,15 +67,23 @@ test('every requirement the table carries is one the checker reads', () => {
   assert.ok(withRequirement.length > 10, `expected roles with requirements, got ${withRequirement.length}`)
 
   // What the checker reads is exactly the three fields the generator
-  // writes. Anything ARIA says that is not in those fields -- prohibited
-  // properties, name-from-content, allowed values -- is outside this and
-  // stays outside until the table carries it.
+  // writes. Anything ARIA says that is not in those fields -- name from
+  // content, allowed values -- is outside this and stays outside until the
+  // table carries it.
   const checker = readFileSync(
     path.join(repoRoot, 'crates', 'hozo_parser', 'src', 'aria_check.rs'),
     'utf8',
   )
   for (const field of ['required_props', 'required_context', 'required_owned']) {
     assert.match(checker, new RegExp(`spec\.${field}`), `${field} is in the table and unread`)
+  }
+  // `supported_props` and `prohibited_props` are read through
+  // `aria::allows_prop`, which is where they combine with the globals.
+  assert.match(checker, /aria::allows_prop/)
+  const helper = readFileSync(path.join(repoRoot, 'crates', 'hozo_parser', 'src', 'aria.rs'), 'utf8')
+  const allowsProp = helper.slice(helper.indexOf('pub fn allows_prop'))
+  for (const field of ['prohibited_props', 'GLOBAL_PROPS', 'supported_props']) {
+    assert.ok(allowsProp.includes(field), `${field} is in the table and unread`)
   }
   console.log(
     `        ARIA: ${usable.length} usable roles, ${withRequirement.length} carrying a requirement`,

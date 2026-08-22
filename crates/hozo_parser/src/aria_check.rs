@@ -441,8 +441,8 @@ mod variant_tests {
         // These produced no CSS, reached the DOM as nothing, and said
         // nothing. `group-hover:` is not an exotic class.
         for class_name in [
-            "group-hover:bg-blue-500",
-            "peer-checked:bg-blue-500",
+            "not-first:bg-blue-500",
+            "in-range:bg-blue-500",
             "open:bg-blue-500",
             "has-[:focus]:bg-blue-500",
         ] {
@@ -462,6 +462,9 @@ mod variant_tests {
         // than someone remembering to edit a list.
         assert!(codes("aria-expanded:bg-blue-500").is_empty());
         assert!(codes("aria-checked:bg-blue-500").is_empty());
+        assert!(codes("enabled:bg-blue-500").is_empty());
+        assert!(codes("group-hover:bg-blue-500").is_empty());
+        assert!(codes("peer-hover:bg-blue-500").is_empty());
     }
 
     #[test]
@@ -564,5 +567,63 @@ mod enabled_tests {
                 .collect();
             assert_eq!(codes, vec![DiagnosticCode::TailwindVariantNotSupported], "{class_name}");
         }
+    }
+}
+
+#[cfg(test)]
+mod relational_tests {
+    use hozo_ir::{Condition, DiagnosticCode, StyleDeclaration};
+
+    fn source(class_name: &str) -> String {
+        format!("import {{ View }} from '@hozo/core'\nconst el = <View className=\"{class_name}\">x</View>\n")
+    }
+
+    fn conditions(class_name: &str) -> Vec<Condition> {
+        crate::parse_tsx(&source(class_name)).roots[0]
+            .node
+            .style
+            .iter()
+            .map(|StyleDeclaration { condition, .. }| condition.clone())
+            .collect()
+    }
+
+    fn codes(class_name: &str) -> Vec<DiagnosticCode> {
+        crate::parse_tsx(&source(class_name)).diagnostics.into_iter().map(|d| d.code).collect()
+    }
+
+    #[test]
+    fn group_and_peer_wrap_whatever_variant_follows() {
+        // Parsed by recursion rather than by a list of combinations, so a
+        // variant added later is groupable the day it lands. These four
+        // needed no entry of their own anywhere.
+        assert!(conditions("group-hover:p-4")
+            .contains(&Condition::Group(Box::new(Condition::Hover))));
+        assert!(conditions("group-aria-checked:p-4")
+            .contains(&Condition::Group(Box::new(Condition::Aria("checked".to_string())))));
+        assert!(conditions("peer-hover:p-4")
+            .contains(&Condition::Peer(Box::new(Condition::Hover))));
+        assert!(conditions("group-first:p-4")
+            .contains(&Condition::Group(Box::new(Condition::FirstChild))));
+    }
+
+    #[test]
+    fn a_condition_about_the_environment_cannot_be_related() {
+        // Tailwind refuses `group-dark:` too: a colour-scheme preference
+        // or a viewport width is true of the page, so asking it of an
+        // *ancestor* says nothing the element does not already know.
+        //
+        // Refused at parse time rather than dropped later, so the class
+        // falls through whole to the unsupported-variant diagnostic
+        // instead of compiling to nothing in silence.
+        assert!(conditions("group-dark:p-4").is_empty());
+        assert_eq!(codes("group-dark:p-4"), vec![DiagnosticCode::TailwindVariantNotSupported]);
+        assert!(conditions("group-md:p-4").is_empty());
+    }
+
+    #[test]
+    fn an_inner_variant_hozo_lacks_is_reported_rather_than_swallowed() {
+        // `checked:` is deliberately unimplemented, so `peer-checked:` is
+        // too -- and says so.
+        assert_eq!(codes("peer-checked:p-4"), vec![DiagnosticCode::TailwindVariantNotSupported]);
     }
 }

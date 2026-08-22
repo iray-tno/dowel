@@ -42,6 +42,15 @@ const VARIANTS = [
   'aria-busy',
   'aria-disabled',
   'enabled',
+  // Relational: the only variants whose selector talks about a *different*
+  // element, which is the half of a rule nothing else in this package
+  // looks at.
+  'group-hover',
+  'group-focus',
+  'group-aria-checked',
+  'group-first',
+  'peer-hover',
+  'peer-aria-expanded',
   // Not implemented, and included on purpose: an unsupported variant
   // should read as an honest gap here rather than being absent from the
   // list that decides what "supported" means.

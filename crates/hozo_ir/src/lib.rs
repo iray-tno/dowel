@@ -2230,6 +2230,23 @@ pub enum Condition {
     /// `accessibilityState` and become a runtime guard -- the same
     /// division `Disabled` already has.
     Aria(String),
+    /// Tailwind's `group-…:` -- a condition on a marked *ancestor*.
+    ///
+    /// Holds the inner condition rather than naming the states it can
+    /// wrap, so `group-hover:`, `group-aria-checked:` and
+    /// `group-first:` all come from the same rule and a variant added
+    /// later is groupable the day it lands.
+    ///
+    /// Only conditions that produce a selector: Tailwind itself refuses
+    /// `group-dark:`, because a media query around the ancestor says
+    /// nothing about the descendant.
+    Group(Box<Condition>),
+    /// Tailwind's `peer-…:` -- the same, on a marked *preceding sibling*.
+    ///
+    /// Web only. A sibling relationship is a selector, and React Native
+    /// has no selectors; a parent can hand state down through context and
+    /// a sibling has nowhere to hand it.
+    Peer(Box<Condition>),
     /// Tailwind's `enabled:`, the inverse of `Disabled`.
     ///
     /// Not `:enabled`, for the same reason `Disabled` is not `:disabled`:
@@ -2401,6 +2418,26 @@ pub enum ConditionExpr {
     Not(Box<ConditionExpr>),
     And(Box<ConditionExpr>, Box<ConditionExpr>),
     Or(Box<ConditionExpr>, Box<ConditionExpr>),
+}
+
+impl Condition {
+    /// Whether this condition is about the element itself rather than the
+    /// environment around it.
+    ///
+    /// Which is what decides whether `group-` and `peer-` can relate it
+    /// to another element: a dark-mode preference or a viewport width is
+    /// true of the page, so asking whether an *ancestor* is in dark mode
+    /// says nothing the element does not already know. Tailwind refuses
+    /// `group-dark:` for the same reason.
+    pub fn is_elemental(&self) -> bool {
+        !matches!(
+            self,
+            Condition::Dark
+                | Condition::Responsive(_)
+                | Condition::ArbitraryAtRule(_)
+                | Condition::Always
+        )
+    }
 }
 
 // ---------------------------------------------------------------------------

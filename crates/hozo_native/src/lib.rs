@@ -1950,6 +1950,7 @@ fn build_style_entries(
                             | Condition::Disabled
                             | Condition::Aria(_)
                             | Condition::Enabled
+                            | Condition::Group(_)
                             | Condition::Pressed
                             | Condition::Expr(_)
                             | Condition::Hover
@@ -1998,6 +1999,20 @@ fn build_style_entries(
                                     applies = false;
                                 }
                             }
+                            Condition::Group(inner) => match group_state(inner, interaction_context) {
+                                Some(state) => {
+                                    guards.push(state.to_string());
+                                    uses_interactive_state = true;
+                                }
+                                None => {
+                                    diagnostics.push(unwired_variant(
+                                        node,
+                                        &group_unwired_message(inner, interaction_context),
+                                        Severity::Error,
+                                    ));
+                                    applies = false;
+                                }
+                            },
                             Condition::Enabled => match &node.props.disabled {
                                 // The negation of the guard `disabled:`
                                 // uses, from the same prop.
@@ -2139,6 +2154,27 @@ fn build_style_entries(
                     ));
                 }
             }
+            Condition::Group(inner) => match group_state(inner, interaction_context) {
+                // `pressed_parts`, not `conditional_parts`: these names
+                // come from the render-prop the interaction context hands
+                // down, and only that list makes the component take the
+                // form where they are in scope. Putting them in the other
+                // one emitted `hovered && …` against an identifier that
+                // does not exist there.
+                Some(state) => pressed_parts.extend(guarded(&format!("{state} && "))),
+                None => diagnostics.push(unwired_variant(
+                    node,
+                    &group_unwired_message(inner, interaction_context),
+                    Severity::Error,
+                )),
+            },
+            Condition::Peer(_) => diagnostics.push(unwired_variant(
+                node,
+                "`peer-…:` has no React Native equivalent. A sibling relationship is a selector, \
+                 and there are none here -- a parent can hand its state down through context, and \
+                 a sibling has nowhere to hand it. On Web the same class works.",
+                Severity::Error,
+            )),
             Condition::Enabled => match &node.props.disabled {
                 Some(disabled) => {
                     let guard = render_condition_expr(source, disabled);
@@ -2557,6 +2593,49 @@ fn truncation_only_reason(property: &StyleProperty) -> Option<String> {
 /// the value: the `aria-checked` prop React Native also accepts is
 /// carried through as a passthrough and never parsed. `None` when there
 /// is nothing to read.
+/// The runtime value `group-<inner>:` reads on Native, if there is one.
+///
+/// React Native has no selectors, so a condition on an ancestor can only
+/// be answered by the ancestor handing it down -- which `HozoPressable`
+/// already does for the four interaction states, through the context that
+/// makes `hover:` work on a `Text` inside a button at all.
+///
+/// So `group-hover:` is not new machinery here; it is the existing
+/// machinery finally being asked the question it was built to answer.
+/// `hover:` on a descendant reads the ancestor's hover because a `Text`
+/// has none of its own, which is a compromise. `group-hover:` reading the
+/// same value is the literal meaning.
+///
+/// `None` for everything else: a condition on the ancestor's *props* --
+/// `group-disabled:`, `group-aria-checked:` -- would need the context to
+/// carry them, and it carries interaction state only.
+fn group_state(inner: &Condition, interaction_context: bool) -> Option<&'static str> {
+    if !interaction_context {
+        return None;
+    }
+    match inner {
+        Condition::Hover => Some("hovered"),
+        Condition::Focus => Some("focused"),
+        Condition::FocusVisible => Some("focusVisible"),
+        Condition::Pressed => Some("pressed"),
+        _ => None,
+    }
+}
+
+/// Why a `group-…:` could not be wired, in the terms the author can act on.
+fn group_unwired_message(inner: &Condition, interaction_context: bool) -> String {
+    let name = condition_suffix(inner).unwrap_or_else(|| "…".to_string());
+    if interaction_context {
+        format!(
+            "`group-{name}:` reads a state React Native's Pressable context does not carry.              Only `hover`, `focus`, `focus-visible` and `pressed` are handed down; a              condition on the ancestor's own props is not. On Web the same class works from              the selector."
+        )
+    } else {
+        format!(
+            "`group-{name}:` needs an ancestor that hands its state down, which on React              Native means a `Pressable`. Nothing above this element is one. On Web the same              class works from the selector."
+        )
+    }
+}
+
 fn aria_state_guard(node: &Node, source: &str, state: &str) -> Option<String> {
     let value = node.props.accessibility_state?;
     // An object literal says which keys it has, so one that does not name
@@ -2591,6 +2670,12 @@ fn condition_suffix(condition: &Condition) -> Option<String> {
         Condition::LastChild => Some("last".to_string()),
         Condition::Disabled => Some("disabled".to_string()),
         Condition::Enabled => Some("enabled".to_string()),
+        Condition::Group(inner) => {
+            Some(format!("group{}", condition_suffix(inner).unwrap_or_default()))
+        }
+        Condition::Peer(inner) => {
+            Some(format!("peer{}", condition_suffix(inner).unwrap_or_default()))
+        }
         Condition::Aria(state) => Some(format!("aria{state}")),
         Condition::Pressed => Some("pressed".to_string()),
         Condition::Dark => Some("dark".to_string()),

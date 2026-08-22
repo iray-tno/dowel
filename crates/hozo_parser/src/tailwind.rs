@@ -2527,6 +2527,28 @@ fn parse_one_variant(token: &str) -> (Condition, &str) {
         };
         return (condition, rest);
     }
+    // `group-` and `peer-` wrap whatever variant follows them, so they
+    // are parsed by recursion rather than by a list of the combinations.
+    // An inner variant Hozo does not know leaves `Always`, and the token
+    // falls through to the unsupported-variant diagnostic whole.
+    for (prefix, wrap) in [
+        ("group-", true),
+        ("peer-", false),
+    ] {
+        if let Some(inner) = token.strip_prefix(prefix) {
+            let (condition, tail) = parse_one_variant(inner);
+            if condition.is_elemental() {
+                return (
+                    if wrap {
+                        Condition::Group(Box::new(condition))
+                    } else {
+                        Condition::Peer(Box::new(condition))
+                    },
+                    tail,
+                );
+            }
+        }
+    }
     if let Some(rest) = token.strip_prefix("hover:") {
         return (Condition::Hover, rest);
     }

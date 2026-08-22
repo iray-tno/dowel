@@ -1251,6 +1251,37 @@ pub fn condition_shape(condition: &Condition) -> (Vec<String>, String) {
         // `:enabled` gives -- `:not()` takes its argument's, which is one
         // attribute, exactly as a pseudo-class is one.
         Condition::Enabled => (Vec::new(), "&:not([data-hozo-disabled])".to_string()),
+        // `:is(:where(.group):hover *)`, which is Tailwind's own shape --
+        // read from it rather than reconstructed. `:where()` is what keeps
+        // the ancestor's class out of the specificity, so `group-hover:`
+        // weighs the same as `hover:` and the two order by source position
+        // like every other pair.
+        //
+        // The inner condition supplies its own suffix, so this composes
+        // with anything that has one: `group-aria-checked:` needs no entry
+        // of its own here, and neither will the next variant added.
+        //
+        // A condition that produces at-rules instead is refused, as
+        // Tailwind refuses `group-dark:` -- a media query around the
+        // ancestor says nothing about the descendant.
+        Condition::Group(inner) | Condition::Peer(inner) => {
+            let (at_rules, suffix) = condition_shape(inner);
+            let marker = if matches!(condition, Condition::Group(_)) { "group" } else { "peer" };
+            let combinator = if matches!(condition, Condition::Group(_)) { " " } else { " ~ " };
+            // The at-rules are the inner variant's and survive the
+            // relation -- `group-hover:` is inside `@media (hover: hover)`
+            // exactly as `hover:` is. Only the selector moves.
+            match suffix.strip_prefix('&') {
+                Some(rest) if !rest.is_empty() => (
+                    at_rules,
+                    format!("&:is(:where(.{marker}){rest}{combinator}*)"),
+                ),
+                // Refused at parse time, so unreachable -- kept so a
+                // future condition with no selector form degrades to no
+                // rule rather than to a malformed one.
+                _ => (Vec::new(), String::new()),
+            }
+        }
         // Known gotcha, not fixed here: iOS Safari doesn't reliably fire
         // `:active` from a tap unless the element has some touch-event
         // listener attached (a long-documented WebKit quirk). Hozo's

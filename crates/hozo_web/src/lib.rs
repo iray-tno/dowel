@@ -1660,7 +1660,7 @@ export function Login() {
             ("peer", "hozo-view peer"),
             // Tailwind's, and one Hozo does not implement. Carried for the
             // same reason: deleting it helps nobody.
-            ("group-hover:bg-blue-500", "hozo-view group-hover:bg-blue-500"),
+            ("open:bg-blue-500", "hozo-view open:bg-blue-500"),
         ] {
             let source = format!(
                 "import {{ View }} from '@hozo/core'
